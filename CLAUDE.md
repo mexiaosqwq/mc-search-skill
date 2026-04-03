@@ -37,6 +37,7 @@ mcmod-search <cmd> --cache           # 启用本地缓存（TTL 1小时）
 mcmod-search <cmd> --no-mcmod        # 禁用 MC百科
 mcmod-search <cmd> --no-mr           # 禁用 Modrinth
 mcmod-search <cmd> --no-wiki         # 禁用 minecraft.wiki
+mcmod-search <cmd> --no-wiki-zh      # 禁用 minecraft.wiki/zh
 mcmod-search <cmd> -o <file>         # 输出到文件
 
 # info 子选项
@@ -49,6 +50,7 @@ mcmod-search info <模组> -c          # 仅分类/标签
 mcmod-search info <模组> -s          # 仅来源链接
 mcmod-search info <模组> -S          # 仅状态/开源属性
 mcmod-search info <模组> -m          # 同时查询 Modrinth
+mcmod-search info <模组> -r          # 显示物品合成表（仅 item 类型）
 
 # 输出格式（Agent 推荐）
 mcmod-search <command> --json

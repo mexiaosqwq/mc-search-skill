@@ -330,6 +330,7 @@ mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
   "source": "mcmod.cn",
   "source_id": "class ID",
   "type": "mod | item",
+  "is_vanilla": false,
   "cover_image": "封面图URL",
   "screenshots": ["截图URL列表"],
   "supported_versions": ["1.20.1", "1.19.4"],
@@ -343,7 +344,8 @@ mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
     "requires": [{"name_zh": "...", "name_en": "...", "url": "..."}],
     "integrates": [{"name_zh": "...", "name_en": "...", "url": "..."}]
   },
-  "has_changelog": true
+  "has_changelog": true,
+  "has_recipe": true
 }
 ```
 
