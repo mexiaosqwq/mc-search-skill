@@ -1,6 +1,6 @@
 # mcmod-info
 
-**Minecraft 模组 + 游戏内容信息查询工具**，专为 AI Agent 设计，同时搜索三大平台。
+**Minecraft 模组 + 游戏内容信息查询Skills工具**，专为 AI Agent 设计，同时搜索三大平台。
 
 ## 核心能力
 

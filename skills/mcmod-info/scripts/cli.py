@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--no-mcmod", dest="no_mcmod", action="store_true", help="禁用 MC百科")
     parser.add_argument("--no-mr", dest="no_mr", action="store_true", help="禁用 Modrinth")
     parser.add_argument("--no-wiki", dest="no_wiki", action="store_true", help="禁用 minecraft.wiki")
+    parser.add_argument("--no-wiki-zh", dest="no_wiki_zh", action="store_true", help="禁用 minecraft.wiki/zh 中文wiki")
     parser.add_argument("-o", "--output", dest="output", default=None, help="输出到文件而非 stdout")
     sub = parser.add_subparsers(dest="cmd")
 
@@ -36,8 +37,8 @@ def main():
     s.add_argument("-n", "--max", type=int, default=3, help="每平台最多结果（默认3）")
     s.add_argument("-t", "--timeout", type=int, default=12, help="超时秒数（默认12）")
     s.add_argument("--type", dest="content_type", default="mod",
-                   choices=["mod", "item"],
-                   help="MC百科内容类型（默认 mod）")
+                   choices=["mod", "item", "entity", "biome", "dimension"],
+                   help="内容类型（默认 mod）；entity/biome/dimension 仅走 wiki")
     s.add_argument("--author", dest="author_name", default=None,
                    help="MC百科作者搜索（仅搜 MC百科，忽略 --type）")
 
@@ -60,12 +61,12 @@ def main():
     dp = sub.add_parser("dep", help="查看 mod 依赖树（Modrinth）")
     dp.add_argument("mod_id", help="Mod ID（slug 或 project id）")
     dp.add_argument("--installed", dest="installed_version", default=None,
-                    help="当前安装的版本号（用于参考，不做版本对比）")
+                    help="当前安装的版本号（用于参考，不做版本对比，仅 dep）")
 
     uc = sub.add_parser("update-check", help="检查 mod 是否有新版本")
     uc.add_argument("mod_id", help="Mod ID（slug 或 project id）")
     uc.add_argument("--installed", dest="installed_version", required=True,
-                    help="当前安装的版本号")
+                    help="当前安装的版本号（必填，用于判断是否需要更新）")
 
     at = sub.add_parser("author", help="按作者搜索 Modrinth 项目（支持模糊匹配）")
     at.add_argument("username", help="作者用户名（Modrinth username）")
@@ -99,6 +100,7 @@ def main():
         mcmod=not args.no_mcmod,
         modrinth=not args.no_mr,
         wiki=not args.no_wiki,
+        wiki_zh=not args.no_wiki_zh,
     )
 
     # 全局 --output 辅助
@@ -493,7 +495,7 @@ def print_results(results: dict, keyword: str):
     """打印三平台搜索结果（同结果合并提示 + 同名消歧）。"""
     total = sum(len(v) for v in results.values())
     if total == 0:
-        print(f"三个平台均无 [{keyword}] 相关结果")
+        print(f"所有平台均无 [{keyword}] 相关结果")
         return
 
     # 收集第一个模组结果（用于后续提示）

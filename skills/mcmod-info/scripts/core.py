@@ -106,16 +106,17 @@ def set_cache(enabled: bool, ttl: int = 3600):
 # 平台开关
 # ─────────────────────────────────────────
 
-_platform_enabled = {"mcmod.cn": True, "modrinth": True, "minecraft.wiki": True}
+_platform_enabled = {"mcmod.cn": True, "modrinth": True, "minecraft.wiki": True, "minecraft.wiki/zh": True}
 
 
-def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool = True):
+def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool = True, wiki_zh: bool = True):
     """由 CLI 调用控制哪些平台启用。"""
     global _platform_enabled
     _platform_enabled = {
         "mcmod.cn": mcmod,
         "modrinth": modrinth,
         "minecraft.wiki": wiki,
+        "minecraft.wiki/zh": wiki_zh,
     }
 
 
@@ -233,7 +234,55 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
         "source_mod_name": mod_name,
         "source_mod_url": mod_url,
         "description": description,
+        "has_recipe": "recipe" in html.lower() or "合成" in html,
     }
+
+
+def get_item_recipe(item_url: str) -> dict:
+    """
+    获取物品的合成表信息（降级方案：返回截图URL列表+材料文本）。
+    MC百科 item 页面合成表区块以 <table class="recipe-table"> 为主。
+    """
+    key = _cache_key("recipe", item_url)
+    cached = _cache_get("item", key)
+    if cached is not None:
+        return cached
+
+    html = _curl(item_url)
+    if not html or len(html) < 500:
+        return {"error": "NO_CONTENT"}
+
+    result = {"recipe_images": [], "recipe_materials": []}
+
+    # 提取合成表图片（recipe-table 中的 img）
+    recipe_imgs = re.findall(
+        r'<table[^>]*class="[^"]*recipe[^"]*"[^>]*>.*?<img[^>]+src="([^"]+)"',
+        html, re.DOTALL | re.IGNORECASE
+    )
+    result["recipe_images"] = [img for img in recipe_imgs if img and not img.startswith("data:")]
+
+    # 提取材料文本（从 recipe-table 附近的文本节点）
+    material_patterns = [
+        r'配方：</td><td[^>]*>(.*?)</td>',
+        r'材料：</td><td[^>]*>(.*?)</td>',
+        r'合成素材：</td><td[^>]*>(.*?)</td>',
+    ]
+    for pat in material_patterns:
+        m = re.search(pat, html, re.DOTALL)
+        if m:
+            mats = re.findall(r'<img[^>]+alt="([^"]+)"', m.group(1), re.IGNORECASE)
+            if mats:
+                result["recipe_materials"] = [r.strip() for r in mats if r.strip()]
+                break
+            # 降级：提取纯文本
+            text = re.sub(r"<[^>]+>", "", m.group(1))
+            text = html_module.unescape(text).strip()
+            if text:
+                result["recipe_materials"] = [t.strip() for t in text.split() if t.strip()]
+                break
+
+    _cache_set("item", key, result)
+    return result
 
 
 # ─────────────────────────────────────────
@@ -808,6 +857,7 @@ def search_wiki(keyword: str, max_results: int = 5) -> list[dict]:
         is_direct = (
             'id="firstHeading"' in html
             and "Special:Search" not in title_text
+            and "Search results" not in title_text
         )
 
         if is_direct:
@@ -864,6 +914,83 @@ def search_wiki(keyword: str, max_results: int = 5) -> list[dict]:
     return results
 
 
+def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
+    """
+    minecraft.wiki/zh 中文 wiki 搜索（复用 MediaWiki API，仅更换 base URL）。
+    """
+    key = _cache_key("wiki_zh", keyword, max_results)
+    cached = _cache_get("search", key)
+    if cached is not None:
+        return cached
+
+    results = []
+    q = urllib.parse.quote(keyword)
+
+    # 方法1：尝试直接访问（URL 自动补全到文章页）
+    html = _curl(f"https://zh.minecraft.wiki/Special:Search?search={q}&go=Go")
+
+    if html and len(html) >= 1000:
+        m_title = re.search(r"<title>([^<]+)</title>", html)
+        title_text = m_title.group(1) if m_title else ""
+        is_direct = (
+            'id="firstHeading"' in html
+            and "Special:Search" not in title_text
+            and "Search results" not in title_text
+        )
+
+        if is_direct:
+            canon_m = re.search(r'<link[^>]+rel="canonical"[^>]+href="([^"]+)"', html)
+            article_url = canon_m.group(1) if canon_m else (
+                re.search(r'<meta[^>]+property="og:url"[^>]+content="([^"]+)"', html).group(1)
+                if re.search(r'<meta[^>]+property="og:url"', html) else None
+            )
+            page_title = re.sub(r"\s*–\s*Minecraft Wiki.*", "", title_text).strip()
+            h3s = re.findall(r"<h3[^>]*>(.*?)</h3>", html, re.DOTALL)
+            sections = [
+                re.sub(r"<[^>]+>", "", h).strip()
+                for h in h3s[:max_results]
+                if re.sub(r"<[^>]+>", "", h).strip()
+            ]
+            results.append({
+                "name": page_title,
+                "name_en": "",
+                "name_zh": page_title,
+                "url": article_url or "",
+                "source": "minecraft.wiki/zh",
+                "source_id": article_url.split("/")[-1] if article_url else "",
+                "type": _infer_wiki_type(page_title, article_url or ""),
+                "sections": sections,
+            })
+            _cache_set("search", key, results)
+            return results
+
+    # 方法2：使用 MediaWiki API 搜索
+    api_url = f"https://zh.minecraft.wiki/api.php?action=query&list=search&srsearch={q}&format=json&srlimit={max_results}"
+    raw = _curl(api_url)
+    if raw:
+        try:
+            data = json.loads(raw)
+            hits = data.get("query", {}).get("search", [])
+            for hit in hits[:max_results]:
+                title = hit.get("title", "")
+                page_id = hit.get("pageid", 0)
+                results.append({
+                    "name": title,
+                    "name_en": "",
+                    "name_zh": title,
+                    "url": f"https://zh.minecraft.wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
+                    "source": "minecraft.wiki/zh",
+                    "source_id": str(page_id),
+                    "type": _infer_wiki_type(title, ""),
+                    "sections": [],
+                })
+        except Exception:
+            pass
+
+    _cache_set("search", key, results)
+    return results
+
+
 def _infer_wiki_type(name: str, url: str = "") -> str:
     """从 URL 路径推断 wiki 条目类型，fallback 到名称关键词。"""
     path = url.lower()
@@ -873,6 +1000,10 @@ def _infer_wiki_type(name: str, url: str = "") -> str:
         return "entity"
     if "/crafting" in path or "/brewing" in path or "/enchanting" in path:
         return "mechanic"
+    if "/biome/" in path or "_biome" in path:
+        return "biome"
+    if "/dimension/" in path or "_dimension" in path or "/nether" in path or "/the_end" in path or "/overworld" in path:
+        return "dimension"
 
     n = name.lower()
     if any(k in n for k in ["block", "ore", "wood", "stone", "dirt", "sand"]):
@@ -881,12 +1012,49 @@ def _infer_wiki_type(name: str, url: str = "") -> str:
                               "hoe", "shovel", "bow", "arrow", "shield"]):
         return "item"
     if any(k in n for k in ["zombie", "skeleton", "creeper", "enderman", "pig", "cow",
-                              "sheep", "chicken", "spider", "slime", "blaze"]):
+                              "sheep", "chicken", "spider", "slime", "blaze",
+                              "wither", "ender_dragon", "ghast", "zombie_pigman",
+                              "silverfish", "vex", "evoker", "vindicator"]):
         return "entity"
     if any(k in n for k in ["crafting", "enchant", "brewing", "smelting",
                               "furnace", "anvil", "beacon"]):
         return "mechanic"
+    # biome 关键词
+    if any(k in n for k in ["forest", "desert", "taiga", "savanna", "plains",
+                             "mountain", "swamp", "jungle", "ice", "ocean",
+                             "river", "mushroom", "badlands", "savanna", "cherry"]):
+        return "biome"
+    # dimension 关键词
+    if any(k in n for k in ["nether", "the_end", "overworld", "end_dim", "nether_dim"]):
+        return "dimension"
     return "other"
+
+
+def _parse_wiki_table(wiki_text: str) -> list[dict]:
+    """
+    解析 wikitext 表格为 dict 列表。
+    支持 {| |} 格式的 wikitable 结构。
+    """
+    tables = []
+    # 提取所有表格块
+    for tbl_m in re.finditer(r'\{\|(.*?)\|\}', wiki_text, re.DOTALL):
+        tbl_content = tbl_m.group(1)
+        rows = []
+        # 解析 ! 表头行（可选）
+        header_m = re.search(r'^\!\s*(.+?)(?=\n\||\n\|-)', tbl_content, re.DOTALL | re.MULTILINE)
+        headers = []
+        if header_m:
+            headers = [h.strip() for h in header_m.group(1).split('!!')]
+        # 解析 | 行分隔的数据行
+        for row_m in re.finditer(r'^\|(.+?)(?=\n\||\n\|-)', tbl_content, re.DOTALL | re.MULTILINE):
+            cells = [c.strip() for c in row_m.group(1).split('|')]
+            if headers and len(cells) == len(headers):
+                rows.append(dict(zip(headers, cells)))
+            elif cells:
+                rows.append({"cell": cells})
+        if rows:
+            tables.append(rows)
+    return tables
 
 
 def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
@@ -1059,15 +1227,140 @@ def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
         "_sections": sections_output,   # 内部结构化数据，供 CLI 渲染层级
     }
 
+
+def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
+    """
+    读取 minecraft.wiki/zh 中文 wiki 页面正文（复用 read_wiki 解析逻辑）。
+    """
+    html = _curl(url)
+    if not html or len(html) < 500:
+        return {"error": "NO_CONTENT"}
+
+    m_title = re.search(r'<h1[^>]*id="firstHeading"[^>]*>(.*?)</h1>', html, re.DOTALL)
+    title = html_module.unescape(re.sub(r"<[^>]+>", "", m_title.group(1)).strip()) if m_title else "UNKNOWN"
+
+    # 提取正文区块
+    m_content = re.search(
+        r'<div[^>]+id="mw-content-text"[^>]*>(.*?)'
+        r'(?:<div[^>]+class="[^"]*navbox|<div[^>]+id="catlinks|<div[^>]+class="[^"]*printfooter)',
+        html, re.DOTALL
+    )
+    if not m_content:
+        return {"error": "NO_CONTENT"}
+
+    content_html = m_content.group(1)
+
+    # 预过滤
+    content_html = re.sub(
+        r'<script[^>]+type="application/ld\+json"[^>]*>.*?</script>',
+        "", content_html, flags=re.DOTALL
+    )
+    content_html = re.sub(
+        r'<table[^>]+class="[^"]*infobox[^"]*"[^>]*>.*?</table>',
+        "", content_html, flags=re.DOTALL
+    )
+    content_html = re.sub(
+        r'<table[^>]+class="[^"]*navbox[^"]*"[^>]*>.*?</table>',
+        "", content_html, flags=re.DOTALL
+    )
+
+    # 解析 heading
+    heading_map = []
+    for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
+        lvl = int(m.group(1))
+        h_id = m.group(2)
+        h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
+        heading_map.append((lvl, h_id, h_text, m.start()))
+
+    def _clean_text(html_fragment: str) -> str:
+        text = re.sub(r"<[^>]+>", "", html_fragment)
+        text = html_module.unescape(text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def _is_valid_para(text: str) -> bool:
+        if not text or len(text) < 20:
+            return False
+        if re.match(r"^[\#\.\[\/\{]", text):
+            return False
+        if text.startswith("历史") or text.startswith("编辑") or text.startswith("[edit"):
+            return False
+        if len(text) <= 35:
+            connectors = re.findall(r"\b(and|which|that|for|with|to|is|are|was|were|has|have|been|add|added|chang|fixed|updated|removed|introduced|included|prevent|allow|make|made|increas|decreas|affect)\b", text.lower())
+            if not connectors:
+                return False
+        return True
+
+    sections_output = []
+    paragraphs = []
+    current_h2 = None
+
+    for i, (lvl, h_id, h_text, h_start) in enumerate(heading_map):
+        if h_id in ("mw-toc-heading", "References", "Navigation", "Videos", "Trivia", "参考资料", "导航", "视频", "琐事"):
+            continue
+        if lvl == 2:
+            current_h2 = h_text
+            continue
+
+        next_start = heading_map[i + 1][3] if i + 1 < len(heading_map) else len(content_html)
+        section_html = content_html[h_start:next_start]
+
+        section_paragraphs = []
+        for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
+            if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
+                continue
+            clean = _clean_text(p)
+            if _is_valid_para(clean):
+                section_paragraphs.append(clean)
+                if len(section_paragraphs) >= 2:
+                    break
+
+        if section_lines := section_paragraphs[:2]:
+            sections_output.append({
+                "heading": h_text,
+                "parent": current_h2,
+                "content": section_lines,
+            })
+            paragraphs.extend(section_lines)
+
+        if len(paragraphs) >= max_paragraphs:
+            paragraphs = paragraphs[:max_paragraphs]
+            break
+
+    return {
+        "name": title,
+        "url": url,
+        "source": "minecraft.wiki/zh",
+        "content": paragraphs,
+        "_sections": sections_output,
+    }
+
+
 def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
-               content_type: str = "mod") -> dict:
+               content_type: str = "mod", fuse: bool = False) -> dict | list[dict]:
     """
     三平台并行搜索，返回统一格式。
     timeout: 整体超时秒数
-    content_type: "mod" | "item"（仅影响 MC百科）
+    content_type: "mod" | "item" | "entity" | "biome" | "dimension"
+      - entity/biome/dimension 仅走 wiki，跳过 MC百科/Modrinth
+    fuse: True 时返回跨平台融合后的列表（默认 False）
     """
-    results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": []}
+    results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
     pe = _platform_enabled
+
+    # entity/biome/dimension 类型仅走 wiki，不发 MC百科/Modrinth 请求
+    if content_type in ("entity", "biome", "dimension"):
+        if pe["minecraft.wiki"]:
+            try:
+                results["minecraft.wiki"] = search_wiki(keyword, max_per_source)
+            except Exception:
+                results["minecraft.wiki"] = []
+        if pe["minecraft.wiki/zh"]:
+            try:
+                results["minecraft.wiki/zh"] = search_wiki_zh(keyword, max_per_source)
+            except Exception:
+                results["minecraft.wiki/zh"] = []
+        return results
 
     def _wrap_mcmod():
         try:
@@ -1087,9 +1380,15 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
         except Exception:
             return []
 
+    def _wrap_wiki_zh():
+        try:
+            return search_wiki_zh(keyword, max_per_source)
+        except Exception:
+            return []
+
     workers = []
     futures_map = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         if pe["mcmod.cn"]:
             f = ex.submit(_wrap_mcmod)
             futures_map[f] = "mcmod.cn"
@@ -1102,6 +1401,10 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
             f = ex.submit(_wrap_wiki)
             futures_map[f] = "minecraft.wiki"
             workers.append(f)
+        if pe["minecraft.wiki/zh"]:
+            f = ex.submit(_wrap_wiki_zh)
+            futures_map[f] = "minecraft.wiki/zh"
+            workers.append(f)
 
         for future in concurrent.futures.as_completed(workers):
             key = futures_map[future]
@@ -1110,4 +1413,43 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
             except Exception:
                 results[key] = []
 
+    if fuse:
+        return _fuse_results(results)
     return results
+
+
+def detect_language(keyword: str) -> str:
+    """返回 'zh' | 'en' | 'mixed'"""
+    has_zh = any('\u4e00' <= c <= '\u9fff' for c in keyword)
+    has_en = any(c.isalpha() and ord(c) < 128 for c in keyword)
+    if has_zh and has_en:
+        return 'mixed'
+    return 'zh' if has_zh else 'en'
+
+
+def _fuse_results(results: dict) -> list[dict]:
+    """按 name_en/name_zh 跨平台去重合并。"""
+    fused = []
+    by_name = {}
+    for platform, hits in results.items():
+        for h in hits:
+            # 优先用 name_zh，其次 name_en，最后 name
+            key = (h.get("name_zh") or h.get("name_en") or h.get("name") or "").lower()
+            if not key:
+                continue
+            if key not in by_name:
+                by_name[key] = []
+            by_name[key].append({**h, "_platform": platform})
+    for key, entries in by_name.items():
+        if len(entries) > 1:
+            merged = entries[0].copy()
+            for e in entries[1:]:
+                for field in ("name_zh", "name_en", "description", "snippet"):
+                    if not merged.get(field) and e.get(field):
+                        merged[field] = e[field]
+            merged["_sources"] = [e["_platform"] for e in entries]
+            merged["source"] = "|".join(merged["_sources"])
+            fused.append(merged)
+        else:
+            fused.extend(entries)
+    return fused
