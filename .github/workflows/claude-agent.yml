@@ -8,14 +8,18 @@ on:
   issues:
     types: [opened]
 
+# 防止无限循环：跳过 bot 自己触发的 comment
 concurrency:
   group: ai-agent-${{ github.event_name }}-${{ github.event.number || 'default' }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    if: >-
+      ${{ github.event_name != 'issue_comment' ||
+          github.event.comment.user.login != 'github-actions[bot]' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,24 +30,19 @@ jobs:
         id: pr_info
         run: |
           echo "title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
-          echo "body=${{ github.event.pull_request.body }}" >> $GITHUB_OUTPUT
           echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-          echo "is_pr=true" >> $GITHUB_OUTPUT
 
       - name: Get issue info
         if: github.event_name == 'issues'
         id: issue_info
         run: |
           echo "title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
-          echo "body=${{ github.event.issue.body }}" >> $GITHUB_OUTPUT
           echo "number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
-          echo "is_pr=false" >> $GITHUB_OUTPUT
 
       - name: Get PR diff
         if: github.event_name == 'pull_request'
         id: diff
         run: |
-          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }} 2>/dev/null || true
           diff_output=$(git diff ${{ github.base_ref }}...${{ github.event.pull_request.head.ref }} -- . ':(exclude).github/workflows/claude-agent.yml' 2>/dev/null)
           echo "diff<<EOF" >> $GITHUB_OUTPUT
           echo "$diff_output" >> $GITHUB_OUTPUT
@@ -55,13 +54,13 @@ jobs:
           API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BASE_URL: ${{ secrets.BASE_URL }}
         run: |
-          # 判断是 PR 还是 Issue
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-            EVENT_TYPE="PR"
-            CONTENT="Review this $EVENT_TYPE:\n\nTitle: ${{ steps.pr_info.outputs.title }}\n\nBody: ${{ steps.pr_info.outputs.body }}\n\nChanges:\n${{ steps.diff.outputs.diff }}"
+            TITLE="${{ steps.pr_info.outputs.title }}"
+            CONTENT="Review this PR:\n\nTitle: $TITLE\n\nChanges:\n${{ steps.diff.outputs.diff }}"
           else
-            EVENT_TYPE="Issue"
-            CONTENT="Respond to this $EVENT_TYPE:\n\nTitle: ${{ steps.issue_info.outputs.title }}\n\nBody: ${{ steps.issue_info.outputs.body }}"
+            TITLE="${{ steps.issue_info.outputs.title }}"
+            BODY="${{ github.event.issue.body }}"
+            CONTENT="Respond to this Issue:\n\nTitle: $TITLE\n\nBody: $BODY"
           fi
 
           response=$(curl -s -X POST "$BASE_URL/chat/completions" \
@@ -72,78 +71,67 @@ jobs:
               \"messages\": [
                 {
                   \"role\": \"system\",
-                  \"content\": \"You are an expert code reviewer for the mcmod-info Minecraft mod lookup tool. Repository: MC百科 + Modrinth + minecraft.wiki. Be thorough but concise. Reply in Chinese. Focus on: bugs, security, performance, code quality.\"
+                  \"content\": \"You are an expert code reviewer for mcmod-info (Minecraft mod lookup tool). Be concise. Reply in Chinese. Focus on bugs, security, performance, code quality.\"
                 },
                 {
                   \"role\": \"user\",
                   \"content\": \"$CONTENT\"
                 }
               ],
-              \"max_tokens\": 1500
+              \"max_tokens\": 1200
             }")
 
-          echo "RESPONSE=$response" >> $GITHUB_OUTPUT
-
-      - name: Parse AI response
-        id: parse
-        run: |
-          echo "${{ steps.review.outputs.RESPONSE }}" | python3 -c "
+          echo "$response" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
     content = data.get('choices', [{}])[0].get('message', {}).get('content', 'API error')
-    # Escape for GitHub output
-    with open('response.txt', 'w') as f:
-        f.write(content)
+    print(content)
 except Exception as e:
-    with open('response.txt', 'w') as f:
-        f.write(f'Error: {e}')
-" 2>/dev/null || echo "Parse failed" > response.txt
-          echo "content=$(cat response.txt)" >> $GITHUB_OUTPUT
+    print('Error: ' + str(e))
+" > response.txt 2>/dev/null || echo "API error" > response.txt
+          echo "content=$(cat response.txt | sed 's/"/\\"/g' | tr '\n' ' ')" >> $GITHUB_OUTPUT
 
       - name: Post comment
+        if: github.event_name != 'issue_comment' || github.event.comment.user.login != 'github-actions[bot]'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const response = `${{ steps.parse.outputs.content }}`;
+            const response = `${{ steps.review.outputs.content }}`;
             const number = ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.event.issue.number }};
             const isPR = '${{ github.event_name }}' == 'pull_request';
-            const repo = context.repo;
 
             const body = `🤖 **AI Code Review**\n\n${response}`;
 
             if (isPR) {
-              // 查找是否已有评论
               const comments = await github.rest.issues.listComments({
-                owner: repo.owner,
-                repo: repo.repo,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
                 issue_number: number
               });
-
               const existing = comments.data.find(
                 c => c.user.login === 'github-actions[bot]' && c.body.includes('AI Code Review')
               );
-
               if (existing) {
                 await github.rest.issues.updateComment({
-                  owner: repo.owner,
-                  repo: repo.repo,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
                   comment_id: existing.id,
                   body: body
                 });
               } else {
                 await github.rest.issues.createComment({
-                  owner: repo.owner,
-                  repo: repo.repo,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
                   issue_number: number,
                   body: body
                 });
               }
             } else {
               await github.rest.issues.createComment({
-                owner: repo.owner,
-                repo: repo.repo,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
                 issue_number: number,
                 body: body
               });
