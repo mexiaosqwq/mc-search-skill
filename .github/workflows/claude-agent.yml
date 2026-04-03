@@ -9,7 +9,7 @@ on:
     types: [opened]
 
 concurrency:
-  group: claude-agent-${{ github.event_name }}-${{ github.event.number || github.event.inputs.number || 'default' }}
+  group: claude-agent-${{ github.event_name }}-${{ github.event.number || 'default' }}
   cancel-in-progress: true
 
 jobs:
@@ -26,6 +26,9 @@ jobs:
         uses: anthropics/claude-code-base-action@beta
         with:
           anthropic-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          base-url: ${{ secrets.BASE_URL }}
+          model: glm-5
+          api-version: "2023-12-01"
           system-prompt: |
             You are an expert developer and maintainer for the mcmod-info repository.
 
