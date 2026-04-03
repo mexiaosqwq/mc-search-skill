@@ -1,0 +1,127 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review_comment:
+    types: [created]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Get PR info
+        id: pr_info
+        run: |
+          echo "title=$(echo '${{ github.event.pull_request.title }}' | sed 's/["'\'']/\\&/g')" >> $GITHUB_OUTPUT
+          echo "body=$(echo '${{ github.event.pull_request.body }}' | sed 's/["'\'']/\\&/g')" >> $GITHUB_OUTPUT
+          echo "base=${{ github.base_ref }}" >> $GITHUB_OUTPUT
+          echo "head=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.base_ref }}:$base ${{ github.event.pull_request.head.ref }}:$head 2>/dev/null || true
+          diff_output=$(git diff ${{ github.base_ref }}...${{ github.event.pull_request.head.ref }} -- . ':(exclude).github/workflows/claude-review.yml' 2>/dev/null || echo "")
+          echo "diff_length=${#diff_output}" >> $GITHUB_OUTPUT
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$diff_output" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Claude Review
+        if: steps.diff.outputs.diff_length != '0'
+        id: claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_TITLE: ${{ steps.pr_info.outputs.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          # 检查 API key
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY secret not set"
+            exit 1
+          fi
+
+          DIFF="${{ steps.diff.outputs.diff }}"
+
+          # 调用 Claude API
+          response=$(curl -s -X POST \
+            "https://api.anthropic.com/v1/messages" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d "{
+              \"model\": \"claude-sonnet-4-6-20250514\",
+              \"max_tokens\": 1024,
+              \"system\": \"You are an expert code reviewer. Review the PR changes and provide concise, actionable feedback. Focus on: bugs, security issues, performance problems, code quality, and suggestions. Reply in Chinese if the PR title/body is Chinese, otherwise in English.\",
+              \"messages\": [{
+                \"role\": \"user\",
+                \"content\": \"Review this PR:\\n\\nTitle: $PR_TITLE\\n\\nChanges:\\n$DIFF\"
+              }]
+            }")
+
+          # 提取响应
+          content=$(echo "$response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('content', [{}])[0].get('text', 'API error') if 'content' in data else data.get('error', {}).get('message', 'Unknown error'))
+except Exception as e:
+    print(f'Parse error: {e}')
+" 2>/dev/null)
+
+          echo "REVIEW_BODY<<EOF" >> $GITHUB_OUTPUT
+          echo "$content" | head -500 >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post review comment
+        if: steps.claude.outputs.REVIEW_BODY
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const reviewBody = `${{ steps.claude.outputs.REVIEW_BODY }}`;
+            const prNumber = ${{ github.event.pull_request.number }};
+
+            // 检查是否已有 Claude Review bot 的评论
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+
+            const existingComment = comments.data.find(
+              c => c.user.login === 'github-actions[bot]' &&
+                   c.body.includes('🤖 Claude Code Review')
+            );
+
+            if (existingComment) {
+              // 更新已有评论
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: `🤖 **Claude Code Review**\n\n${reviewBody}`
+              });
+            } else {
+              // 创建新评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `🤖 **Claude Code Review**\n\n${reviewBody}`
+              });
+            }
