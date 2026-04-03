@@ -1,4 +1,4 @@
-name: Claude Code Agent
+name: AI Code Agent
 
 on:
   pull_request:
@@ -9,11 +9,11 @@ on:
     types: [opened]
 
 concurrency:
-  group: claude-agent-${{ github.event_name }}-${{ github.event.number || 'default' }}
+  group: ai-agent-${{ github.event_name }}-${{ github.event.number || 'default' }}
   cancel-in-progress: true
 
 jobs:
-  claude:
+  review:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -22,42 +22,129 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Claude Code Agent
-        uses: anthropics/claude-code-base-action@beta
+      - name: Get PR info
+        id: pr_info
+        run: |
+          echo "title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "body=${{ github.event.pull_request.body }}" >> $GITHUB_OUTPUT
+          echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "is_pr=true" >> $GITHUB_OUTPUT
+
+      - name: Get issue info
+        if: github.event_name == 'issues'
+        id: issue_info
+        run: |
+          echo "title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
+          echo "body=${{ github.event.issue.body }}" >> $GITHUB_OUTPUT
+          echo "number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+          echo "is_pr=false" >> $GITHUB_OUTPUT
+
+      - name: Get PR diff
+        if: github.event_name == 'pull_request'
+        id: diff
+        run: |
+          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }} 2>/dev/null || true
+          diff_output=$(git diff ${{ github.base_ref }}...${{ github.event.pull_request.head.ref }} -- . ':(exclude).github/workflows/claude-agent.yml' 2>/dev/null)
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$diff_output" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: AI Code Review
+        id: review
+        env:
+          API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE_URL: ${{ secrets.BASE_URL }}
+        run: |
+          # 判断是 PR 还是 Issue
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            EVENT_TYPE="PR"
+            CONTENT="Review this $EVENT_TYPE:\n\nTitle: ${{ steps.pr_info.outputs.title }}\n\nBody: ${{ steps.pr_info.outputs.body }}\n\nChanges:\n${{ steps.diff.outputs.diff }}"
+          else
+            EVENT_TYPE="Issue"
+            CONTENT="Respond to this $EVENT_TYPE:\n\nTitle: ${{ steps.issue_info.outputs.title }}\n\nBody: ${{ steps.issue_info.outputs.body }}"
+          fi
+
+          response=$(curl -s -X POST "$BASE_URL/chat/completions" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"glm-5\",
+              \"messages\": [
+                {
+                  \"role\": \"system\",
+                  \"content\": \"You are an expert code reviewer for the mcmod-info Minecraft mod lookup tool. Repository: MC百科 + Modrinth + minecraft.wiki. Be thorough but concise. Reply in Chinese. Focus on: bugs, security, performance, code quality.\"
+                },
+                {
+                  \"role\": \"user\",
+                  \"content\": \"$CONTENT\"
+                }
+              ],
+              \"max_tokens\": 1500
+            }")
+
+          echo "RESPONSE=$response" >> $GITHUB_OUTPUT
+
+      - name: Parse AI response
+        id: parse
+        run: |
+          echo "${{ steps.review.outputs.RESPONSE }}" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    content = data.get('choices', [{}])[0].get('message', {}).get('content', 'API error')
+    # Escape for GitHub output
+    with open('response.txt', 'w') as f:
+        f.write(content)
+except Exception as e:
+    with open('response.txt', 'w') as f:
+        f.write(f'Error: {e}')
+" 2>/dev/null || echo "Parse failed" > response.txt
+          echo "content=$(cat response.txt)" >> $GITHUB_OUTPUT
+
+      - name: Post comment
+        uses: actions/github-script@v7
         with:
-          anthropic-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          base-url: ${{ secrets.BASE_URL }}
-          model: glm-5
-          api-version: "2023-12-01"
-          system-prompt: |
-            You are an expert developer and maintainer for the mcmod-info repository.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const response = `${{ steps.parse.outputs.content }}`;
+            const number = ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.event.issue.number }};
+            const isPR = '${{ github.event_name }}' == 'pull_request';
+            const repo = context.repo;
 
-            mcmod-info is a Minecraft mod and game content information lookup tool that searches across three platforms in parallel:
-            - MC百科 (mcmod.cn) - Chinese mod/item search
-            - Modrinth - English mod/shader/resourcepack search
-            - minecraft.wiki - Vanilla game content wiki
+            const body = `🤖 **AI Code Review**\n\n${response}`;
 
-            Your role:
-            - Review PRs with thorough, actionable feedback
-            - Respond helpfully to issues and pull request comments
-            - Suggest code improvements, bug fixes, and new features
-            - Maintain code quality and documentation
+            if (isPR) {
+              // 查找是否已有评论
+              const comments = await github.rest.issues.listComments({
+                owner: repo.owner,
+                repo: repo.repo,
+                issue_number: number
+              });
 
-            When reviewing code:
-            - Check for bugs, security issues, performance problems
-            - Verify API compatibility
-            - Ensure test coverage
-            - Review documentation accuracy
+              const existing = comments.data.find(
+                c => c.user.login === 'github-actions[bot]' && c.body.includes('AI Code Review')
+              );
 
-            Be concise but thorough. Reply in Chinese if the user communicates in Chinese.
-          verification: |
-            echo "Claude Code Agent initialized for mcmod-info"
-            ls -la
-          allowed-paths: |
-            .github/workflows/
-            skills/mcmod-info/
-            .gitignore
-            README.md
-            CLAUDE.md
-            CHANGELOG.md
-            LICENSE
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  comment_id: existing.id,
+                  body: body
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  issue_number: number,
+                  body: body
+                });
+              }
+            } else {
+              await github.rest.issues.createComment({
+                owner: repo.owner,
+                repo: repo.repo,
+                issue_number: number,
+                body: body
+              });
+            }
