@@ -4,10 +4,11 @@
 
 Minecraft 模组 + 游戏内容信息查询工具，供 AI Agent 调用。
 
-**三大平台：**
+**四大平台：**
 - MC百科 (mcmod.cn) — 中文模组/物品
 - Modrinth — 英文 mod/光影/材质包
 - minecraft.wiki — 原版游戏内容 wiki
+- minecraft.wiki/zh — 原版游戏内容 wiki（中文）
 
 ## Agent 工具接口
 
@@ -16,7 +17,7 @@ Minecraft 模组 + 游戏内容信息查询工具，供 AI Agent 调用。
 **常用调用：**
 ```bash
 # 搜索
-mcmod-search search <关键词>          # 三平台并行
+mcmod-search search <关键词>          # 四平台并行
 mcmod-search search <词> --type item  # 物品
 mcmod-search mr <关键词>              # 仅 Modrinth
 

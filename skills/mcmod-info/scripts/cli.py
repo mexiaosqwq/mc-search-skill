@@ -32,15 +32,17 @@ def main():
     parser.add_argument("-o", "--output", dest="output", default=None, help="输出到文件而非 stdout")
     sub = parser.add_subparsers(dest="cmd")
 
-    s = sub.add_parser("search", help="三平台并行搜索（MC百科+Modrinth+minecraft.wiki）")
+    s = sub.add_parser("search", help="多平台并行搜索（MC百科+Modrinth+minecraft.wiki+minecraft.wiki/zh）")
     s.add_argument("keyword", nargs="?", help="搜索关键词（作者搜索时忽略）")
     s.add_argument("-n", "--max", type=int, default=3, help="每平台最多结果（默认3）")
     s.add_argument("-t", "--timeout", type=int, default=12, help="超时秒数（默认12）")
     s.add_argument("--type", dest="content_type", default="mod",
                    choices=["mod", "item", "entity", "biome", "dimension"],
-                   help="内容类型（默认 mod）；entity/biome/dimension 仅走 wiki")
+                   help="内容类型（默认 mod）；用于融合排序偏好，不影响搜索范围")
     s.add_argument("--author", dest="author_name", default=None,
                    help="MC百科作者搜索（仅搜 MC百科，忽略 --type）")
+    s.add_argument("--fuse", action="store_true",
+                   help="融合四平台结果去重（fuse=True，默认开启 --json 时自动融合）")
 
     w = sub.add_parser("wiki", help="minecraft.wiki 搜索")
     w.add_argument("keyword", help="搜索关键词")
@@ -84,6 +86,8 @@ def main():
     if_info.add_argument("-S", "--status", action="store_true", help="仅显示状态/开源属性")
     if_info.add_argument("-m", "--mr", dest="modrinth", action="store_true",
                         help="同时查询 Modrinth")
+    if_info.add_argument("-r", "--recipe", action="store_true",
+                        help="显示物品/方块合成表（仅 item 类型有效）")
 
     args = parser.parse_args()
 
@@ -135,9 +139,14 @@ def main():
             print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
         results = core.search_all(args.keyword, max_per_source=args.max,
-                                  timeout=args.timeout, content_type=args.content_type)
+                                  timeout=args.timeout, content_type=args.content_type,
+                                  fuse=args.fuse or args.json)
         if args.json:
             _json(results)
+        elif isinstance(results, list):
+            # fuse=True 时返回融合列表，逐条打印
+            for h in results:
+                print_hit(h)
         else:
             print_results(results, keyword=args.keyword)
         print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
@@ -466,6 +475,29 @@ def main():
         if author and not args.modrinth:
             safe_author = author.replace(" ", "_")
             print(f"\n  💡 同作者其他作品：search --author {safe_author}")
+
+        # 合成表提示
+        if info.get("has_recipe"):
+            print(f"\n  💡 该物品有合成表：info {mod_arg} -r")
+
+        # 合成表查询
+        if args.recipe:
+            recipe_url = info.get("url", "")
+            if recipe_url:
+                recipe_data = core.get_item_recipe(recipe_url)
+                if recipe_data.get("error"):
+                    print(f"  合成表：获取失败（{recipe_data.get('error')}）")
+                else:
+                    imgs = recipe_data.get("recipe_images", [])
+                    mats = recipe_data.get("recipe_materials", [])
+                    if imgs:
+                        print(f"  合成表图片（{len(imgs)}张）：")
+                        for img in imgs[:4]:
+                            print(f"    {img}")
+                    if mats:
+                        print(f"  合成材料：{' | '.join(mats)}")
+                    if not imgs and not mats:
+                        print(f"  合成表：无材料数据")
 
         print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 

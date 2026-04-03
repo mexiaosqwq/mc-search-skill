@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 mcmod-info 核心搜索模块
-统一接口：三平台并行搜索 + 统一结果格式 + 智能路由
+统一接口：四平台并行搜索 + 统一结果格式 + 智能路由
 """
 
 import hashlib
@@ -448,6 +448,9 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         else:
             source_type = "closed_source"
 
+    # 原版内容识别：class/1 是 MC百科"原版内容"分类
+    is_vanilla = bool(re.search(r"/class/1\.html", url))
+
     return {
         "name": name_zh or raw_title or name,
         "name_en": name_en,
@@ -456,6 +459,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "source": "mcmod.cn",
         "source_id": re.search(r"/class/(\d+)", url).group(1) if url else "",
         "type": "mod",
+        "is_vanilla": is_vanilla,
         "cover_image": cover_image,
         "screenshots": screenshots[:6],
         "supported_versions": supported_versions,
@@ -951,6 +955,9 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
                 for h in h3s[:max_results]
                 if re.sub(r"<[^>]+>", "", h).strip()
             ]
+            if article_url and "variant=zh-cn" not in article_url:
+                separator = "&" if "?" in article_url else "?"
+                article_url = article_url + separator + "variant=zh-cn"
             results.append({
                 "name": page_title,
                 "name_en": "",
@@ -1288,7 +1295,9 @@ def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
         if len(text) <= 35:
             connectors = re.findall(r"\b(and|which|that|for|with|to|is|are|was|were|has|have|been|add|added|chang|fixed|updated|removed|introduced|included|prevent|allow|make|made|increas|decreas|affect)\b", text.lower())
             if not connectors:
-                return False
+                zh_connectors = re.findall(r"\b(和|与|或|但|是|为|有|在|被|由|可|会|能|将|已|使)\b", text)
+                if not zh_connectors:
+                    return False
         return True
 
     sections_output = []
@@ -1315,7 +1324,8 @@ def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
                 if len(section_paragraphs) >= 2:
                     break
 
-        if section_lines := section_paragraphs[:2]:
+        section_lines = section_paragraphs[:2]
+        if section_lines:
             sections_output.append({
                 "heading": h_text,
                 "parent": current_h2,
@@ -1339,32 +1349,20 @@ def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
 def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
                content_type: str = "mod", fuse: bool = False) -> dict | list[dict]:
     """
-    三平台并行搜索，返回统一格式。
+    四平台并行搜索，返回统一格式。
     timeout: 整体超时秒数
     content_type: "mod" | "item" | "entity" | "biome" | "dimension"
-      - entity/biome/dimension 仅走 wiki，跳过 MC百科/Modrinth
+      - 用于融合排序偏好（不影响搜索范围，永远查全部平台）
     fuse: True 时返回跨平台融合后的列表（默认 False）
     """
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
     pe = _platform_enabled
 
-    # entity/biome/dimension 类型仅走 wiki，不发 MC百科/Modrinth 请求
-    if content_type in ("entity", "biome", "dimension"):
-        if pe["minecraft.wiki"]:
-            try:
-                results["minecraft.wiki"] = search_wiki(keyword, max_per_source)
-            except Exception:
-                results["minecraft.wiki"] = []
-        if pe["minecraft.wiki/zh"]:
-            try:
-                results["minecraft.wiki/zh"] = search_wiki_zh(keyword, max_per_source)
-            except Exception:
-                results["minecraft.wiki/zh"] = []
-        return results
-
     def _wrap_mcmod():
         try:
-            return search_mcmod(keyword, max_per_source, content_type=content_type)
+            # entity/biome/dimension 透传会导致 filter=0 模组搜索，质量低
+            ct = content_type if content_type in ("mod", "item") else "mod"
+            return search_mcmod(keyword, max_per_source, content_type=ct)
         except Exception:
             return []
 
@@ -1414,7 +1412,7 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
                 results[key] = []
 
     if fuse:
-        return _fuse_results(results)
+        return _fuse_results(results, content_type=content_type)
     return results
 
 
@@ -1427,29 +1425,40 @@ def detect_language(keyword: str) -> str:
     return 'zh' if has_zh else 'en'
 
 
-def _fuse_results(results: dict) -> list[dict]:
-    """按 name_en/name_zh 跨平台去重合并。"""
+def _fuse_results(results: dict, content_type: str = "mod") -> list[dict]:
+    """按 name_en/name_zh 跨平台去重合并，并按 content_type 调整平台优先级排序。
+
+    Platform priority:
+      - entity/biome/block/mechanic/dimension → wiki 权威排前面
+      - mod/item → mcmod.cn/Modrinth 优先
+    """
+    # 平台优先级定义
+    if content_type in ("entity", "biome", "block", "mechanic", "dimension"):
+        priority = {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3}
+    else:
+        priority = {"mcmod.cn": 0, "modrinth": 1, "minecraft.wiki": 2, "minecraft.wiki/zh": 3}
+
     fused = []
     by_name = {}
     for platform, hits in results.items():
         for h in hits:
-            # 优先用 name_zh，其次 name_en，最后 name
             key = (h.get("name_zh") or h.get("name_en") or h.get("name") or "").lower()
             if not key:
                 continue
             if key not in by_name:
                 by_name[key] = []
             by_name[key].append({**h, "_platform": platform})
+
     for key, entries in by_name.items():
-        if len(entries) > 1:
-            merged = entries[0].copy()
-            for e in entries[1:]:
+        # 按平台优先级排序（priority 越低越靠前）
+        entries_sorted = sorted(entries, key=lambda e: priority.get(e["_platform"], 99))
+        merged = entries_sorted[0].copy()
+        if len(entries_sorted) > 1:
+            for e in entries_sorted[1:]:
                 for field in ("name_zh", "name_en", "description", "snippet"):
                     if not merged.get(field) and e.get(field):
                         merged[field] = e[field]
-            merged["_sources"] = [e["_platform"] for e in entries]
+            merged["_sources"] = [e["_platform"] for e in entries_sorted]
             merged["source"] = "|".join(merged["_sources"])
-            fused.append(merged)
-        else:
-            fused.extend(entries)
+        fused.append(merged)
     return fused

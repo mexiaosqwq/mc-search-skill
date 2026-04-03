@@ -54,7 +54,7 @@ mcmod-search dep <mod_slug> --json
 
 ```
 用户询问模组/游戏内容
-├── 不知道具体哪个平台 → search（自动三平台搜索）
+├── 不知道具体哪个平台 → search（自动四平台搜索）
 ├── 知道是中文内容/物品 → search --type item
 ├── 想看详细信息/依赖/版本 → info / dep / update-check
 ├── 想查 Modrinth（英文） → mr / dep / update-check
@@ -69,7 +69,7 @@ mcmod-search dep <mod_slug> --json
 
 ## 命令参考
 
-### 1. search — 三平台并行搜索
+### 1. search — 四平台并行搜索
 
 **使用场景**：用户询问"帮我搜一下 xxx"，不知道具体要哪个平台。
 
@@ -81,10 +81,14 @@ mcmod-search search <关键词> [options]
 |------|------|
 | `--type item` | 搜索物品/方块（MC百科），默认搜索模组 |
 | `--type mod` | 搜索模组（默认） |
+| `--type entity` | 融合时 wiki 权威结果优先（entity/biome/dimension 同） |
+| `--type biome` | 融合时 wiki 权威结果优先 |
+| `--type dimension` | 融合时 wiki 权威结果优先 |
 | `--author <作者名>` | MC百科作者搜索（作者名需精确匹配） |
+| `--fuse` | 融合四平台结果去重（`--json` 时自动启用） |
 | `-n <数量>` | 每平台最多结果（默认3） |
 | `-t <秒数>` | 超时秒数（默认12） |
-| `--json` | JSON 输出（Agent 解析首选） |
+| `--json` | JSON 输出（Agent 解析首选），`--json` 时自动融合 |
 
 **示例**：
 ```bash
@@ -136,6 +140,7 @@ mcmod-search info <模组名或URL或ID> [options]
 | `-s` | 仅来源链接 |
 | `-S` | 仅状态/开源属性 |
 | `-m` | 同时查询 Modrinth |
+| `-r` | 显示物品/方块合成表（仅 item 类型有效） |
 | `--json` | JSON 输出（全字段） |
 
 **参数格式**（`info` 接受三种输入）：
@@ -275,6 +280,7 @@ mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
 | `--no-mcmod` | 禁用 MC百科 |
 | `--no-mr` | 禁用 Modrinth |
 | `--no-wiki` | 禁用 minecraft.wiki |
+| `--no-wiki-zh` | 禁用 minecraft.wiki/zh 中文 wiki |
 | `-o <file>` | 输出到文件而非 stdout |
 
 ---
@@ -285,7 +291,8 @@ mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
 |------|-----|----------|------|
 | MC百科 | mcmod.cn | 中文模组、物品、方块资料 | 每请求间隔 0.3s |
 | Modrinth | modrinth.com | 英文 mod、光影包、材质包 | 360 req/hr |
-| minecraft.wiki | minecraft.wiki | 原版游戏内容 | 无 |
+| minecraft.wiki | minecraft.wiki | 原版游戏内容（英文） | 无 |
+| minecraft.wiki/zh | minecraft.wiki | 原版游戏内容（中文） | 无 |
 
 ---
 
@@ -295,7 +302,7 @@ mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
 
 ```json
 {
-  "source": "mcmod.cn | modrinth | minecraft.wiki",
+  "source": "mcmod.cn | modrinth | minecraft.wiki | minecraft.wiki/zh",
   "name": "显示名称",
   "name_en": "英文名",
   "name_zh": "中文名",
@@ -368,7 +375,7 @@ mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
 **降级策略**：
 - MC百科失败 → 降级到 Modrinth 搜索
 - Modrinth 失败 → 降级到 MC百科
-- wiki 无结果 → 尝试 search 三平台
+- wiki 无结果 → 尝试 search 四平台
 
 ---
 
