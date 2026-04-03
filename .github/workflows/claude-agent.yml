@@ -1,0 +1,60 @@
+name: Claude Code Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+
+concurrency:
+  group: claude-agent-${{ github.event_name }}-${{ github.event.number || github.event.inputs.number || 'default' }}
+  cancel-in-progress: true
+
+jobs:
+  claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code Agent
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          anthropic-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          system-prompt: |
+            You are an expert developer and maintainer for the mcmod-info repository.
+
+            mcmod-info is a Minecraft mod and game content information lookup tool that searches across three platforms in parallel:
+            - MC百科 (mcmod.cn) - Chinese mod/item search
+            - Modrinth - English mod/shader/resourcepack search
+            - minecraft.wiki - Vanilla game content wiki
+
+            Your role:
+            - Review PRs with thorough, actionable feedback
+            - Respond helpfully to issues and pull request comments
+            - Suggest code improvements, bug fixes, and new features
+            - Maintain code quality and documentation
+
+            When reviewing code:
+            - Check for bugs, security issues, performance problems
+            - Verify API compatibility
+            - Ensure test coverage
+            - Review documentation accuracy
+
+            Be concise but thorough. Reply in Chinese if the user communicates in Chinese.
+          verification: |
+            echo "Claude Code Agent initialized for mcmod-info"
+            ls -la
+          allowed-paths: |
+            .github/workflows/
+            skills/mcmod-info/
+            .gitignore
+            README.md
+            CLAUDE.md
+            CHANGELOG.md
+            LICENSE
