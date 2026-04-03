@@ -1,8 +1,12 @@
 # mcmod-info
 
-Minecraft 模组 + 游戏内容信息查询工具，三平台并行搜索。
+**Minecraft 模组 + 游戏内容信息查询工具**，专为 AI Agent 设计，同时搜索三大平台。
 
-**同时搜索**：MC百科（中文模组）+ Modrinth（英文 mod）+ minecraft.wiki（原版内容）。
+## 核心能力
+
+- **MC百科** — 中文模组、物品、方块资料
+- **Modrinth** — 英文 mod 搜索、依赖树、版本历史、作者作品
+- **minecraft.wiki** — 原版游戏内容（附魔、合成、生物等）
 
 ## 安装
 
@@ -10,81 +14,35 @@ Minecraft 模组 + 游戏内容信息查询工具，三平台并行搜索。
 pip install mcmod-info
 ```
 
-或使用 [pipx](https://pypa.github.io/pipx/) 安装（推荐）：
+依赖：**Python 3.8+** 和 **curl**。无需 API key。
 
-```bash
-pipx install mcmod-info
-```
+## 快速参考
 
-依赖：**Python 3.8+** 和 **curl**（系统自带，无需 API key）。
-
-## 快速开始
-
-```bash
-# 三平台并行搜索
-mcmod-search search 钠
-
-# MC百科物品搜索
-mcmod-search search 钻石剑 --type item
-
-# MC百科作者搜索
-mcmod-search search --author Notch
-
-# minecraft.wiki 搜索
-mcmod-search wiki 附魔
-
-# 读取 wiki 页面正文
-mcmod-search read https://minecraft.wiki/w/Diamond_Sword
-
-# Modrinth 搜索
-mcmod-search mr sodium
-
-# 查看 mod 依赖树
-mcmod-search dep sodium
-
-# 检查更新
-mcmod-search update-check sodium --installed 0.4.1
-
-# 按作者搜索（Modrinth）
-mcmod-search author jellysquid_
-
-# MC百科模组详情
-mcmod-search info https://www.mcmod.cn/class/23352.html
-```
-
-## 全局选项
-
-| 选项 | 说明 |
+| 场景 | 命令 |
 |------|------|
-| `--cache` | 启用本地缓存（TTL 1小时） |
-| `--no-mcmod` | 禁用 MC百科 |
-| `--no-mr` | 禁用 Modrinth |
-| `--no-wiki` | 禁用 minecraft.wiki |
-| `--json` | 以 JSON 格式输出 |
-| `-o <file>` | 输出到文件而非 stdout |
+| 三平台搜索 | `mcmod-search search <关键词>` |
+| 物品搜索 | `mcmod-search search <关键词> --type item` |
+| 作者搜索 | `mcmod-search search --author <名>` |
+| Modrinth 搜索 | `mcmod-search mr <关键词>` |
+| 依赖树 | `mcmod-search dep <mod_slug>` |
+| 版本检查 | `mcmod-search update-check <mod> --installed <版本>` |
+| 作者作品 | `mcmod-search author <用户名>` |
+| 模组详情 | `mcmod-search info <名称或URL>` |
+| wiki 搜索 | `mcmod-search wiki <关键词>` |
+| wiki 正文 | `mcmod-search read <url>` |
 
-## Claude Code Skill
+## AI Agent 使用
 
-将此目录放入 Claude Code 的 `~/.claude/skills/` 目录，即可在对话中调用。
+将 `skills/mcmod-info/` 放入 Agent 的 skills 目录，Agent 即可通过工具调用接口执行 `mcmod-search`。
 
-```bash
-# 查看完整命令列表
-mcmod-search --help
-```
+推荐使用 `--json` 输出便于程序解析。
 
-## 详细文档
+## 文档
 
-- [SKILL.md](skills/mcmod-info/SKILL.md) — Claude Code Skill 完整定义
-- [references/](skills/mcmod-info/references/) — API 参考和故障排查
-
-## 支持的平台
-
-| 平台 | 说明 | 限制 |
-|------|------|------|
-| MC百科 (mcmod.cn) | 中文模组/物品搜索 | 每请求间隔 0.3s |
-| Modrinth | 英文 mod/光影/材质包搜索 | 360 req/hr |
-| minecraft.wiki | 原版游戏内容 wiki | 无 |
+- [SKILL.md](skills/mcmod-info/SKILL.md) — Agent 专用接口文档
+- [references/result-schema.md](skills/mcmod-info/references/result-schema.md) — 结果字段说明
+- [references/troubleshooting.md](skills/mcmod-info/references/troubleshooting.md) — 故障排查
 
 ## 许可证
 
-CC0-1.0 Universal (Public Domain）
+CC0-1.0 Universal (Public Domain)

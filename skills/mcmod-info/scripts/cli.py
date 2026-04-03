@@ -60,7 +60,7 @@ def main():
     dp = sub.add_parser("dep", help="查看 mod 依赖树（Modrinth）")
     dp.add_argument("mod_id", help="Mod ID（slug 或 project id）")
     dp.add_argument("--installed", dest="installed_version", default=None,
-                    help="当前安装的版本号（用于对比）")
+                    help="当前安装的版本号（用于参考，不做版本对比）")
 
     uc = sub.add_parser("update-check", help="检查 mod 是否有新版本")
     uc.add_argument("mod_id", help="Mod ID（slug 或 project id）")
