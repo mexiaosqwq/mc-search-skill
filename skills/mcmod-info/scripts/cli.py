@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 mcmod-info CLI — Minecraft 模组+游戏内容信息查询
-统一入口，三平台并行，结果格式一致
+统一入口，四平台并行，结果格式一致
 """
 
 import argparse
@@ -524,7 +524,7 @@ def main():
 # ─────────────────────────────────────────
 
 def print_results(results: dict, keyword: str):
-    """打印三平台搜索结果（同结果合并提示 + 同名消歧）。"""
+    """打印四平台搜索结果（同结果合并提示 + 同名消歧）。"""
     total = sum(len(v) for v in results.values())
     if total == 0:
         print(f"所有平台均无 [{keyword}] 相关结果")

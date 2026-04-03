@@ -47,6 +47,63 @@ HTTP_HEADERS = {
 }
 
 # ─────────────────────────────────────────
+# 解析常量
+# ─────────────────────────────────────────
+_MIN_HTML_LEN = 1000        # HTML 内容最小长度阈值
+_MIN_PARAGRAPH_LEN = 20     # 正文段落最小长度
+_MIN_SHORT_TEXT_LEN = 35    # 短文本判定阈值（用于判断是否为 item 名）
+_MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性 <li> 最小长度
+_MAX_SECTION_PARAGRAPHS = 2  # 每 wiki 章节最多段落数
+_MIN_TABLE_CELL_LEN = 2     # table cell 最小长度
+_MAX_TABLE_ITEMS = 8        # table 最大 item 数
+
+# ─────────────────────────────────────────
+# Wiki 解析辅助（read_wiki / read_wiki_zh 共用）
+# ─────────────────────────────────────────
+_EN_CONNECTORS_RE = re.compile(
+    r"\b(and|which|that|for|with|to|is|are|was|were|has|have|been|"
+    r"add|added|chang|fixed|updated|removed|introduced|included|"
+    r"prevent|allow|make|made|increas|decreas|affect)\b",
+    re.IGNORECASE,
+)
+_ZH_CONNECTORS_RE = re.compile(
+    r"\b(和|与|或|但|是|为|有|在|被|由|可|会|能|将|已|使)\b",
+)
+
+
+def _clean_html_text(html_fragment: str) -> str:
+    """去除所有 HTML 标签，转义实体，合并空白。"""
+    text = re.sub(r"<[^>]+>", "", html_fragment)
+    text = html_module.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _is_valid_paragraph(text: str, lang: str = "en") -> bool:
+    """判断是否为有意义的正文段落。
+
+    lang: "en"（默认）仅英文连接词；"zh" 额外检测中文连接词。
+    """
+    if not text or len(text) < _MIN_PARAGRAPH_LEN:
+        return False
+    if re.match(r"^[\#\.\[\/\{]", text):
+        return False
+    # JSON 碎片
+    if text.startswith("{") and text.count('"') >= 4 and ":" in text:
+        return False
+    # 短名词短语过滤（通常是版本页 item 名，不是 intro）
+    if len(text) <= _MIN_SHORT_TEXT_LEN:
+        en_found = _EN_CONNECTORS_RE.search(text)
+        if not en_found:
+            if lang == "zh":
+                if not _ZH_CONNECTORS_RE.search(text):
+                    return False
+            else:
+                return False
+    return True
+
+
+# ─────────────────────────────────────────
 # 缓存系统
 # ─────────────────────────────────────────
 
@@ -589,7 +646,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
     for url, name in unique_mods[:max_mods]:
         full_url = f"https://www.mcmod.cn{url}"
         page = _curl(full_url)
-        if page and len(page) >= 1000:
+        if page and len(page) >= _MIN_HTML_LEN:
             result = _parse_mcmod_result(page, full_url, name)
             results.append(result)
 
@@ -855,7 +912,7 @@ def search_wiki(keyword: str, max_results: int = 5) -> list[dict]:
     q = urllib.parse.quote(keyword)
     html = _curl(f"https://minecraft.wiki/w/Special:Search?search={q}&go=Go")
 
-    if html and len(html) >= 1000:
+    if html and len(html) >= _MIN_HTML_LEN:
         m_title = re.search(r"<title>([^<]+)</title>", html)
         title_text = m_title.group(1) if m_title else ""
         is_direct = (
@@ -933,7 +990,7 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
     # 方法1：尝试直接访问（URL 自动补全到文章页）
     html = _curl(f"https://zh.minecraft.wiki/Special:Search?search={q}&go=Go")
 
-    if html and len(html) >= 1000:
+    if html and len(html) >= _MIN_HTML_LEN:
         m_title = re.search(r"<title>([^<]+)</title>", html)
         title_text = m_title.group(1) if m_title else ""
         is_direct = (
@@ -1037,33 +1094,6 @@ def _infer_wiki_type(name: str, url: str = "") -> str:
     return "other"
 
 
-def _parse_wiki_table(wiki_text: str) -> list[dict]:
-    """
-    解析 wikitext 表格为 dict 列表。
-    支持 {| |} 格式的 wikitable 结构。
-    """
-    tables = []
-    # 提取所有表格块
-    for tbl_m in re.finditer(r'\{\|(.*?)\|\}', wiki_text, re.DOTALL):
-        tbl_content = tbl_m.group(1)
-        rows = []
-        # 解析 ! 表头行（可选）
-        header_m = re.search(r'^\!\s*(.+?)(?=\n\||\n\|-)', tbl_content, re.DOTALL | re.MULTILINE)
-        headers = []
-        if header_m:
-            headers = [h.strip() for h in header_m.group(1).split('!!')]
-        # 解析 | 行分隔的数据行
-        for row_m in re.finditer(r'^\|(.+?)(?=\n\||\n\|-)', tbl_content, re.DOTALL | re.MULTILINE):
-            cells = [c.strip() for c in row_m.group(1).split('|')]
-            if headers and len(cells) == len(headers):
-                rows.append(dict(zip(headers, cells)))
-            elif cells:
-                rows.append({"cell": cells})
-        if rows:
-            tables.append(rows)
-    return tables
-
-
 def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
     """
     读取 wiki 页面正文。
@@ -1115,33 +1145,7 @@ def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
         h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
         heading_map.append((lvl, h_id, h_text, m.start()))
 
-    # ── 辅助：从原始 HTML 中提取纯文本 ──────────────────────────────
-    def _clean_text(html_fragment: str) -> str:
-        """去除所有 HTML 标签，转义实体，合并空白。"""
-        text = re.sub(r"<[^>]+>", "", html_fragment)
-        text = html_module.unescape(text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
-
-    def _is_valid_para(text: str) -> bool:
-        """判断是否为有意义的正文段落。"""
-        if not text or len(text) < 20:
-            return False
-        if re.match(r"^[\#\.\[\/\{]", text):
-            return False
-        if text.startswith("History of") or text.startswith("v ") or text.startswith("[edit"):
-            return False
-        # JSON 碎片
-        if text.startswith("{") and text.count('"') >= 4 and ":" in text:
-            return False
-        # 短名词短语过滤（通常是版本页 item 名，不是 intro）
-        # item 名特征：短（<=35），不含连接词（and/which/that），不描述动作
-        if len(text) <= 35:
-            connectors = re.findall(r"\b(and|which|that|for|with|to|is|are|was|were|has|have|been|add|added|chang|fixed|updated|removed|introduced|included|prevent|allow|make|made|increas|decreas|affect)\b", text.lower())
-            if not connectors:
-                return False
-        return True
-
+    # ── 辅助：使用模块级函数 ──────────────────────────────────────
     def _extract_table_items(table_html: str, max_items: int = 8) -> list[str]:
         """从 wiki table 中提取第一列的 item 名称列表。"""
         items = []
@@ -1151,13 +1155,19 @@ def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
             if not cells:
                 continue
             # 第一列：提取纯文本
-            cell_text = _clean_text(cells[0])
+            cell_text = _clean_html_text(cells[0])
             # 过滤按钮/控件类文字
-            if cell_text and len(cell_text) >= 2 and not re.match(r"^[\s\-\d]+$", cell_text):
+            if cell_text and len(cell_text) >= _MIN_TABLE_CELL_LEN and not re.match(r"^[\s\-\d]+$", cell_text):
                 items.append(cell_text)
             if len(items) >= max_items:
                 break
         return items
+
+    def _is_valid_para(text: str) -> bool:
+        """判断是否为有意义的正文段落（英文 wiki）。"""
+        if text.startswith("History of") or text.startswith("v ") or text.startswith("[edit"):
+            return False
+        return _is_valid_paragraph(text, lang="en")
 
     # ── 提取每个叶章节的正文内容 ──────────────────────────────────
     # 从 h2 顶层遍历，对每个 h2 及其下层 h3/h4 进行内容收集
@@ -1183,32 +1193,32 @@ def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
         for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
             if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
                 continue
-            clean = _clean_text(p)
+            clean = _clean_html_text(p)
             if _is_valid_para(clean):
                 section_paragraphs.append(clean)
-                if len(section_paragraphs) >= 2:  # 每个章节最多 2 段
+                if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
                     break
 
         # 也从 <li> 中提取描述性条目（版本页的 intro 常在 <li> 里）
         if not section_paragraphs:
             for li in re.findall(r"<li[^>]*>(.*?)</li>", section_html, re.DOTALL):
-                clean = _clean_text(li)
+                clean = _clean_html_text(li)
                 # 描述性 <li>：较长（>=50 chars）且以动词开头
-                if len(clean) >= 50 and re.match(r"^(Added|Changed|Fixed|Updated|Removed|Introduced|Can now|Made|New|Affects?|Allows?|Prevents?|Makes?|Provides?)", clean):
+                if len(clean) >= _MIN_DESCRIPTIVE_LI_LEN and re.match(r"^(Added|Changed|Fixed|Updated|Removed|Introduced|Can now|Made|New|Affects?|Allows?|Prevents?|Makes?|Provides?)", clean):
                     section_paragraphs.append(clean)
                     break
 
         # 提取 table 中的 item 名称（版本页的主要内容）
         table_items = []
-        if len(section_paragraphs) < 2:
+        if len(section_paragraphs) < _MAX_SECTION_PARAGRAPHS:
             tables = re.findall(r"<table[^>]*class=\"[^\"]*wikitable[^\"]*\"[^>]*>.*?</table>",
                                 section_html, re.DOTALL)
             for tbl in tables[:3]:  # 最多 3 个 table
-                items = _extract_table_items(tbl, max_items=10)
+                items = _extract_table_items(tbl, max_items=_MAX_TABLE_ITEMS)
                 table_items.extend(items)
 
         # 合并输出
-        section_lines = section_paragraphs[:2]
+        section_lines = section_paragraphs[:_MAX_SECTION_PARAGRAPHS]
         if table_items and not section_paragraphs:
             section_lines = [f"[{len(table_items)} items: {', '.join(table_items[:6])}{'...' if len(table_items) > 6 else ''}]"]
         elif table_items:
@@ -1279,26 +1289,13 @@ def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
         h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
         heading_map.append((lvl, h_id, h_text, m.start()))
 
-    def _clean_text(html_fragment: str) -> str:
-        text = re.sub(r"<[^>]+>", "", html_fragment)
-        text = html_module.unescape(text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
-
     def _is_valid_para(text: str) -> bool:
-        if not text or len(text) < 20:
+        """判断是否为有意义的正文段落（中文 wiki）。"""
+        # 中英文过滤词：中文 wiki 页面中也可能包含英文版块标题
+        if (text.startswith("历史") or text.startswith("编辑") or
+                text.startswith("History of") or text.startswith("v ") or text.startswith("[edit")):
             return False
-        if re.match(r"^[\#\.\[\/\{]", text):
-            return False
-        if text.startswith("历史") or text.startswith("编辑") or text.startswith("[edit"):
-            return False
-        if len(text) <= 35:
-            connectors = re.findall(r"\b(and|which|that|for|with|to|is|are|was|were|has|have|been|add|added|chang|fixed|updated|removed|introduced|included|prevent|allow|make|made|increas|decreas|affect)\b", text.lower())
-            if not connectors:
-                zh_connectors = re.findall(r"\b(和|与|或|但|是|为|有|在|被|由|可|会|能|将|已|使)\b", text)
-                if not zh_connectors:
-                    return False
-        return True
+        return _is_valid_paragraph(text, lang="zh")
 
     sections_output = []
     paragraphs = []
@@ -1318,13 +1315,13 @@ def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
         for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
             if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
                 continue
-            clean = _clean_text(p)
+            clean = _clean_html_text(p)
             if _is_valid_para(clean):
                 section_paragraphs.append(clean)
-                if len(section_paragraphs) >= 2:
+                if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
                     break
 
-        section_lines = section_paragraphs[:2]
+        section_lines = section_paragraphs[:_MAX_SECTION_PARAGRAPHS]
         if section_lines:
             sections_output.append({
                 "heading": h_text,
@@ -1453,12 +1450,13 @@ def _fuse_results(results: dict, content_type: str = "mod") -> list[dict]:
         # 按平台优先级排序（priority 越低越靠前）
         entries_sorted = sorted(entries, key=lambda e: priority.get(e["_platform"], 99))
         merged = entries_sorted[0].copy()
+        # 始终记录来源（统一结构）
+        merged["_sources"] = [e["_platform"] for e in entries_sorted]
         if len(entries_sorted) > 1:
             for e in entries_sorted[1:]:
                 for field in ("name_zh", "name_en", "description", "snippet"):
                     if not merged.get(field) and e.get(field):
                         merged[field] = e[field]
-            merged["_sources"] = [e["_platform"] for e in entries_sorted]
             merged["source"] = "|".join(merged["_sources"])
         fused.append(merged)
     return fused
