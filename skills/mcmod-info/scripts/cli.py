@@ -5,13 +5,68 @@ mcmod-info CLI — Minecraft 模组+游戏内容信息查询
 """
 
 import argparse
+import concurrent.futures
 import contextlib
+import functools
 import json
 import re
 import sys
 import time
 
 from . import core
+
+
+# ─────────────────────────────────────────
+# 装饰器
+# ─────────────────────────────────────────
+
+def _timed(func):
+    """自动计时装饰器：打印函数执行耗时到 stderr。"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        t0 = time.time()
+        func(*args, **kwargs)
+        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
+    return wrapper
+
+
+# ─────────────────────────────────────────
+# 常量
+# ─────────────────────────────────────────
+
+_SOURCE_TYPE_LABELS = {"open_source": "开源", "closed_source": "闭源"}
+
+# CLI 默认值
+_DEFAULT_MAX = 3        # 每平台最多结果
+_DEFAULT_TIMEOUT = 12    # 整体超时秒数
+_DEFAULT_WIKI_MAX = 5   # wiki 默认最多结果
+_DEFAULT_AUTHOR_MAX = 10  # 作者搜索默认最多结果
+_DEFAULT_PARAGRAPHS = 5  # wiki 页面默认段落数
+
+
+# ─────────────────────────────────────────
+# 共享工具函数
+# ─────────────────────────────────────────
+
+def _parse_mod_identifier(mod_arg: str) -> dict:
+    """
+    解析模组标识参数，返回标识字典。
+
+    返回: {
+        "class_id": str | None,   # MC百科 class ID
+        "mcmod_name": str | None, # MC百科 搜索名称
+        "mr_slug": str | None,    # Modrinth slug
+    }
+    """
+    if mod_arg.startswith("https://www.mcmod.cn/class/"):
+        m = re.search(r"/class/(\d+)", mod_arg)
+        return {"class_id": m.group(1) if m else None, "mcmod_name": None, "mr_slug": None}
+    if mod_arg.startswith("https://modrinth.com/mod/"):
+        m = re.search(r"/mod/([^/?]+)", mod_arg)
+        return {"class_id": None, "mcmod_name": None, "mr_slug": m.group(1) if m else None}
+    if mod_arg.isdigit():
+        return {"class_id": mod_arg, "mcmod_name": None, "mr_slug": None}
+    return {"class_id": None, "mcmod_name": mod_arg, "mr_slug": None}
 
 
 # ─────────────────────────────────────────
@@ -34,28 +89,28 @@ def main():
 
     s = sub.add_parser("search", help="多平台并行搜索（MC百科+Modrinth+minecraft.wiki+minecraft.wiki/zh）")
     s.add_argument("keyword", nargs="?", help="搜索关键词（作者搜索时忽略）")
-    s.add_argument("-n", "--max", type=int, default=3, help="每平台最多结果（默认3）")
-    s.add_argument("-t", "--timeout", type=int, default=12, help="超时秒数（默认12）")
+    s.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX, help=f"每平台最多结果（默认{_DEFAULT_MAX}）")
+    s.add_argument("-t", "--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
     s.add_argument("--type", dest="content_type", default="mod",
                    choices=["mod", "item", "entity", "biome", "dimension"],
                    help="内容类型（默认 mod）；用于融合排序偏好，不影响搜索范围")
     s.add_argument("--author", dest="author_name", default=None,
                    help="MC百科作者搜索（仅搜 MC百科，忽略 --type）")
     s.add_argument("--fuse", action="store_true",
-                   help="融合四平台结果去重（fuse=True，默认开启 --json 时自动融合）")
+                   help="融合四平台结果去重（--json 时自动融合）")
 
     w = sub.add_parser("wiki", help="minecraft.wiki 搜索")
     w.add_argument("keyword", help="搜索关键词")
-    w.add_argument("-n", "--max", type=int, default=5)
+    w.add_argument("-n", "--max", type=int, default=_DEFAULT_WIKI_MAX)
     w.add_argument("-r", "--read", action="store_true", help="搜索后直接读取第一个页面正文")
 
     r = sub.add_parser("read", help="读取 wiki 页面正文")
     r.add_argument("url", help="页面 URL")
-    r.add_argument("-p", "--paragraphs", type=int, default=5)
+    r.add_argument("-p", "--paragraphs", type=int, default=_DEFAULT_PARAGRAPHS)
 
     mr = sub.add_parser("mr", help="Modrinth 搜索（支持光影/纹理包）")
     mr.add_argument("keyword", help="搜索关键词")
-    mr.add_argument("-n", "--max", type=int, default=5)
+    mr.add_argument("-n", "--max", type=int, default=_DEFAULT_WIKI_MAX)
     mr.add_argument("-t", "--type", dest="ptype", default="mod",
                     choices=["mod", "shader", "resourcepack"],
                     help="项目类型（默认 mod）")
@@ -72,7 +127,7 @@ def main():
 
     at = sub.add_parser("author", help="按作者搜索 Modrinth 项目（支持模糊匹配）")
     at.add_argument("username", help="作者用户名（Modrinth username）")
-    at.add_argument("-n", "--max", type=int, default=10, help="最多结果（默认10）")
+    at.add_argument("-n", "--max", type=int, default=_DEFAULT_AUTHOR_MAX, help=f"最多结果（默认{_DEFAULT_AUTHOR_MAX}）")
 
     if_info = sub.add_parser("info", help="读取 MC百科模组详情（默认全字段，可选 -T/-a/-d/-v/-g/-c/-s/-S/-m）")
     if_info.add_argument("mod", help="模组名称 / MC百科 class ID / class URL")
@@ -88,6 +143,16 @@ def main():
                         help="同时查询 Modrinth")
     if_info.add_argument("-r", "--recipe", action="store_true",
                         help="显示物品/方块合成表（仅 item 类型有效）")
+
+    # 全量信息命令：一次获取搜索+详情+Modrinth+依赖+版本检查
+    fl = sub.add_parser("full", help="一键获取模组完整信息（搜索→详情→Modrinth→依赖→版本）")
+    fl.add_argument("mod", help="模组名称 / MC百科 class ID / class URL / Modrinth slug")
+    fl.add_argument("--installed", dest="installed_version", default=None,
+                    help="当前安装版本（用于判断是否有更新）")
+    fl.add_argument("--skip-dep", dest="skip_dep", action="store_true",
+                    help="跳过依赖查询（加速）")
+    fl.add_argument("--skip-mr", dest="skip_mr", action="store_true",
+                    help="跳过 Modrinth 查询（加速）")
 
     args = parser.parse_args()
 
@@ -119,8 +184,8 @@ def main():
         else:
             func()
 
+    @_timed
     def _cmd_search():
-        t0 = time.time()
         if args.author_name:
             # MC百科作者搜索（单平台）
             try:
@@ -128,7 +193,7 @@ def main():
             except Exception as e:
                 hits = []
             if args.json:
-                _json({"mcmod.cn (作者)": hits, "modrinth": [], "minecraft.wiki": []})
+                _json(hits)
             else:
                 if not hits:
                     print(f"MC百科 未找到作者 [{args.author_name}] 的页面（作者名需精确匹配）")
@@ -136,7 +201,6 @@ def main():
                     print(f"[{args.author_name}] 的 MC百科 作品（共 {len(hits)} 个）：")
                     for h in hits:
                         print_hit(h)
-            print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
         results = core.search_all(args.keyword, max_per_source=args.max,
                                   timeout=args.timeout, content_type=args.content_type,
@@ -149,10 +213,9 @@ def main():
                 print_hit(h)
         else:
             print_results(results, keyword=args.keyword)
-        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
+    @_timed
     def _cmd_wiki():
-        t0 = time.time()
         hits = core.search_wiki(args.keyword, max_results=args.max)
         if not hits:
             print(f"minecraft.wiki 无 [{args.keyword}] 相关结果")
@@ -168,10 +231,9 @@ def main():
                 if "error" not in content:
                     for i, p in enumerate(content["content"], 1):
                         print(f"  {i}. {p[:200]}")
-        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
+    @_timed
     def _cmd_read():
-        t0 = time.time()
         content = core.read_wiki(args.url, max_paragraphs=args.paragraphs)
         if args.json:
             _json(content)
@@ -196,10 +258,9 @@ def main():
                 # 降级：平铺段落
                 for i, p in enumerate(content["content"], 1):
                     print(f"\n  {i}. {p[:250]}")
-        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
+    @_timed
     def _cmd_mr():
-        t0 = time.time()
         hits = core.search_modrinth(args.keyword, max_results=args.max, project_type=args.ptype)
         if args.json:
             _json(hits)
@@ -208,41 +269,29 @@ def main():
         else:
             for h in hits:
                 print_hit(h)
-        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
+    @_timed
     def _cmd_dep():
-        t0 = time.time()
         info = core.get_mod_info(args.mod_id)
         if not info:
             print(f"[{args.mod_id}] 未在 Modrinth 上找到该 mod")
-            print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
         result = core.get_mod_dependencies(args.mod_id, project_id=info.get("id"))
-        deps = result.get("deps", {})
-        opt_cnt = result.get("optional_count", 0)
-        req_cnt = result.get("required_count", 0)
 
         if args.json:
             _json(result)
         elif result.get("error") == "API_ERROR":
             print(f"[{args.mod_id}]（{info.get('name', args.mod_id)}）查询依赖时网络错误")
-        elif not deps:
+        elif not result.get("deps"):
             print(f"[{args.mod_id}]（{info.get('name', args.mod_id)}）无声明依赖")
         else:
-            print(f"[{info.get('name', args.mod_id)}] 依赖树（必需:{req_cnt} | 可选:{opt_cnt}）：")
-            for dep_id, dep in deps.items():
-                side = f"client:{dep['client_side']} / server:{dep['server_side']}"
-                print(f"  [{dep['type']}] {dep['name']} ({side})")
-                if dep.get("url"):
-                    print(f"    {dep['url']}")
-        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
+            print_deps(result, info.get('name', args.mod_id))
 
+    @_timed
     def _cmd_update_check():
-        t0 = time.time()
         info = core.get_mod_info(args.mod_id)
         if not info:
             print(f"[{args.mod_id}] 未找到该 mod（Modrinth）")
-            print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
 
         latest = info.get("latest_version") or "未知"
@@ -258,7 +307,6 @@ def main():
         followers = info.get("followers", 0)
         author = info.get("author") or "未知"
         license_id = info.get("license", "")
-
         version_groups = info.get("version_groups", [])
         changelogs = info.get("changelogs", [])
         body = info.get("body", "")
@@ -301,11 +349,7 @@ def main():
                 preview = clines[0][:120] + ("..." if len(clines[0]) > 120 or len(clines) > 1 else "")
                 print(f"  最新更新 ({cl['version']} / {cl['date']})：")
                 print(f"    {preview}")
-            if is_latest:
-                print(f"  状态: ✅ 已是最新（当前: {installed}）")
-            else:
-                print(f"  当前版本: {installed}  →  最新版本: {latest}")
-                print(f"  状态: 🔁 有新版本！")
+            print_update_status({"is_latest": is_latest, "installed": installed, "latest": latest})
             print(f"  下载: {downloads:,}  |  关注: {followers:,}")
             print(f"  更新时间: {updated}")
             if source_url:
@@ -315,10 +359,9 @@ def main():
             if issues_url:
                 print(f"  Issues: {issues_url}")
             print(f"  {info.get('url')}")
-        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
+    @_timed
     def _cmd_author():
-        t0 = time.time()
         hits = core.search_author(args.username, max_results=args.max)
         if args.json:
             _json(hits)
@@ -328,44 +371,43 @@ def main():
             print(f"[{args.username}] 的 Modrinth 作品（共 {len(hits)} 个）：")
             for h in hits:
                 print_hit(h)
-        print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
+    @_timed
     def _cmd_info():
-        """MC百科模组详情，默认全字段，支持按 -t/-a/-d/-v/-R/-g/-c/-s 过滤。"""
-        t0 = time.time()
+        """MC百科模组详情，默认全字段，支持按 -T/-a/-d/-v/-g/-c/-s/-S/-m/-r 过滤。"""
         mod_arg = args.mod
+        ident = _parse_mod_identifier(mod_arg)
 
-        # 解析 mod 参数：class URL、纯数字 ID 或名称
-        if mod_arg.startswith("https://www.mcmod.cn/class/"):
-            class_id = re.search(r"/class/(\d+)", mod_arg).group(1)
-        elif mod_arg.isdigit():
-            class_id = mod_arg
-        else:
-            # 按名称搜索，取第一个结果
-            results = core.search_mcmod(mod_arg, max_results=1)
+        if ident["mr_slug"]:
+            print(f"info 命令不支持 Modrinth URL，请使用 mod 名称或 MC百科 URL/ID")
+            return
+
+        if ident["class_id"]:
+            class_id = ident["class_id"]
+        elif ident["mcmod_name"]:
+            results = core.search_mcmod(ident["mcmod_name"], max_results=1)
             if not results:
-                print(f"未找到名为 [{mod_arg}] 的模组")
-                print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
+                print(f"未找到名为 [{ident['mcmod_name']}] 的模组")
                 return
             match = re.search(r"/class/(\d+)", results[0].get("url", ""))
             if not match:
                 print(f"无法解析模组 ID")
-                print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
                 return
             class_id = match.group(1)
+        else:
+            print(f"无法解析模组标识：{mod_arg}")
+            return
 
-        # 抓取 class 页面（search_mcmod 已缓存，只获取一次）
+        # 抓取 class 页面
         html = core._curl(f"https://www.mcmod.cn/class/{class_id}.html")
         if not html or len(html) < 1000:
             print(f"无法获取模组页面（ID: {class_id}）")
-            print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
 
         info = core._parse_mcmod_result(html, f"https://www.mcmod.cn/class/{class_id}.html", "")
 
         if args.json:
             _json(info)
-            print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
 
         # 无过滤参数时默认全字段
@@ -385,11 +427,10 @@ def main():
             st = info.get("status")
             stype = info.get("source_type")
             if st or stype:
-                stype_map = {"open_source": "开源", "closed_source": "闭源"}
                 if st:
                     print(f"  状态：{st}")
                 if stype:
-                    print(f"  开源属性：{stype_map.get(stype, stype)}")
+                    print(f"  开源属性：{_SOURCE_TYPE_LABELS.get(stype, stype)}")
 
         if show_all or args.author:
             author = info.get("author")
@@ -499,6 +540,193 @@ def main():
                     if not imgs and not mats:
                         print(f"  合成表：无材料数据")
 
+    def _cmd_full():
+        """一键获取模组完整信息：MC百科详情 + Modrinth详情 + 依赖树 + 版本检查（全部并行）。"""
+
+        t0 = time.time()
+        mod_arg = args.mod
+        result = {
+            "mcmod": None,
+            "modrinth": None,
+            "dependencies": None,
+            "update_check": None,
+            "search_results": [],
+        }
+
+        # ── 解析模组标识 ───────────────────────────────────────────
+        ident = _parse_mod_identifier(mod_arg)
+
+        # Modrinth URL：单独处理（直接返回，无须查 MC百科）
+        if ident["mr_slug"]:
+            result["modrinth"] = core.get_mod_info(ident["mr_slug"])
+            if not args.skip_dep:
+                result["dependencies"] = core.get_mod_dependencies(
+                    ident["mr_slug"], project_id=result["modrinth"].get("id"))
+            if args.installed_version and result["modrinth"]:
+                mr_info = result["modrinth"]
+                latest = mr_info.get("latest_version") or "未知"
+                result["update_check"] = {
+                    "installed": args.installed_version,
+                    "latest": latest,
+                    "is_latest": latest == args.installed_version,
+                    "game_versions": mr_info.get("game_versions", []),
+                    "loaders": mr_info.get("loaders", []),
+                }
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                mr = result.get("modrinth")
+                deps = result.get("dependencies")
+                uc = result.get("update_check")
+                if mr:
+                    print(f"  名称：{mr.get('name')} ({mr.get('slug', '')})")
+                    print(f"  平台：Modrinth | {mr.get('url', '')}")
+                    print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
+                    print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
+                if deps and deps.get('deps'):
+                    print(f"\n  ── 依赖 ──")
+                    print_deps(deps)
+                if uc:
+                    print_update_status(uc)
+            print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
+            return
+
+        class_id = ident["class_id"]
+        mcmod_name = ident["mcmod_name"]
+
+        # ── 阶段一：获取 MC百科信息 ───────────────────────────────
+        # 抓取模组页面
+        if class_id:
+            html = core._curl(f"https://www.mcmod.cn/class/{class_id}.html")
+            if html and len(html) >= 1000:
+                result["mcmod"] = core._parse_mcmod_result(html, f"https://www.mcmod.cn/class/{class_id}.html", "")
+        elif mcmod_name:
+            try:
+                hits = core.search_mcmod(mcmod_name, max_results=1)
+            except core._SearchError:
+                hits = []
+            result["search_results"] = hits
+            if hits:
+                first = hits[0]
+                cid_match = re.search(r"/class/(\d+)", first.get("url", ""))
+                if cid_match:
+                    html = core._curl(f"https://www.mcmod.cn/class/{cid_match.group(1)}.html")
+                    if html and len(html) >= 1000:
+                        result["mcmod"] = core._parse_mcmod_result(html, first["url"], first.get("name", ""))
+
+        # 搜索结果（用于确定 Modrinth 搜索词）
+        if mcmod_name and not result["search_results"]:
+            try:
+                result["search_results"] = core.search_mcmod(mcmod_name, max_results=3)
+            except core._SearchError:
+                result["search_results"] = []
+
+        # 无任何结果时提前退出
+        if not result["mcmod"] and not result["modrinth"]:
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                print(f"未找到名为 [{mod_arg}] 的模组信息")
+            print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
+            return
+
+        # ── 阶段二：获取 Modrinth 信息 ───────────────────────────
+        mr_search_name = (
+            result["mcmod"].get("name_en")
+            if result["mcmod"] else None
+        ) or mcmod_name or (
+            result["search_results"][0].get("name_en")
+            if result["search_results"] else None
+        )
+
+        mr_info = None
+        if mr_search_name and not args.skip_mr:
+            try:
+                hits = core.search_modrinth(mr_search_name, max_results=1)
+            except Exception:
+                hits = []
+            if hits:
+                hit_name = hits[0].get("name") or hits[0].get("name_en") or ""
+                norm_search = re.sub(r"[^a-z0-9]", "", mr_search_name.lower())
+                norm_hit = re.sub(r"[^a-z0-9]", "", hit_name.lower())
+                shorter = norm_search if len(norm_search) <= len(norm_hit) else norm_hit
+                longer = norm_hit if shorter == norm_search else norm_search
+                if shorter in longer and len(longer) <= len(shorter) * 1.3:
+                    slug = hits[0].get("source_id", "")
+                    if slug:
+                        try:
+                            mr_info = core.get_mod_info(slug)
+                        except Exception:
+                            mr_info = None
+                else:
+                    result["_mr_tentative"] = hit_name
+        result["modrinth"] = mr_info
+
+        # ── 阶段三：依赖和更新检查（并行）────────────────────────
+        def _fetch_deps():
+            if args.skip_dep or not mr_info:
+                return None
+            try:
+                return core.get_mod_dependencies(mr_info.get("slug", ""), project_id=mr_info.get("id"))
+            except Exception:
+                return None
+
+        def _fetch_update():
+            if not args.installed_version or not mr_info:
+                return None
+            return {
+                "installed": args.installed_version,
+                "latest": mr_info.get("latest_version") or "未知",
+                "is_latest": (mr_info.get("latest_version") or "未知") == args.installed_version,
+                "game_versions": mr_info.get("game_versions", []),
+                "loaders": mr_info.get("loaders", []),
+            }
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            f_dep = ex.submit(_fetch_deps)
+            f_uc = ex.submit(_fetch_update) if mr_info else None
+            result["dependencies"] = f_dep.result()
+            if f_uc:
+                result["update_check"] = f_uc.result()
+
+        # ── 输出 ─────────────────────────────────────────────────
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            mc = result.get("mcmod")
+            mr = result.get("modrinth")
+            deps = result.get("dependencies")
+            uc = result.get("update_check")
+            if mc:
+                print(f"  名称：{mc.get('name_zh')} ({mc.get('name_en', '')})")
+                print(f"  平台：MC百科 | {mc.get('url', '')}")
+                if mc.get('author'):
+                    print(f"  作者：{mc['author']}")
+                if mc.get('status'):
+                    print(f"  状态：{mc['status']}")
+                vers = mc.get('supported_versions', [])
+                if vers:
+                    print(f"  支持版本：{', '.join(vers)}")
+                rel = mc.get('relationships')
+                if rel:
+                    reqs = rel.get('requires', [])
+                    if reqs:
+                        print(f"  前置Mod：{', '.join(r['name_zh'] for r in reqs)}")
+            if mr:
+                print(f"\n  ── Modrinth ──")
+                print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
+                print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
+                print(f"  {mr.get('url', '')}")
+            elif result.get("_mr_tentative"):
+                print(f"\n  ── Modrinth ──")
+                print(f"  ⚠️ 名称未确认匹配（MC百科 name_en 可能对应其他 mod），请自行确认")
+                print(f"  参考搜索词：{mr_search_name} → Modrinth 结果：{result['_mr_tentative']}")
+            if deps and deps.get('deps'):
+                print(f"\n  ── 依赖 ──")
+                print_deps(deps)
+            if uc:
+                print_update_status(uc)
+
         print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
     # 分发
@@ -511,6 +739,7 @@ def main():
         "update-check": _cmd_update_check,
         "author": _cmd_author,
         "info": _cmd_info,
+        "full": _cmd_full,
     }
 
     if args.cmd in commands:
@@ -635,13 +864,12 @@ def print_hit(h: dict, index: int = 0, total: int = 1):
             if cats:
                 print(f"    分类: {' | '.join(cats)}")
             st = h.get("status")
-            stype = h.get("source_type")
-            stype_map = {"open_source": "开源", "closed_source": "闭源"}
+            source_type = h.get("source_type")
             meta = []
             if st:
                 meta.append(st)
-            if stype:
-                meta.append(stype_map.get(stype, stype))
+            if source_type:
+                meta.append(_SOURCE_TYPE_LABELS.get(source_type, source_type))
             if meta:
                 print(f"    {' '.join(meta)}")
 
@@ -665,6 +893,38 @@ def print_hit(h: dict, index: int = 0, total: int = 1):
     if h.get("sections"):
         for s in h["sections"][:5]:
             print(f"    · {s}")
+
+
+# ─────────────────────────────────────────
+# 通用输出辅助函数
+# ─────────────────────────────────────────
+
+def print_deps(deps: dict, mod_name: str = ""):
+    """打印依赖树。"""
+    dep_dict = deps.get("deps", {})
+    if not dep_dict:
+        print(f"[{mod_name}] 无声明依赖")
+        return
+    opt_cnt = deps.get("optional_count", 0)
+    req_cnt = deps.get("required_count", 0)
+    print(f"[{mod_name}] 依赖树（必需:{req_cnt} | 可选:{opt_cnt}）：")
+    for dep_id, dep in dep_dict.items():
+        side = f"client:{dep['client_side']} / server:{dep['server_side']}"
+        print(f"  [{dep['type']}] {dep['name']} ({side})")
+        if dep.get("url"):
+            print(f"    {dep['url']}")
+
+
+def print_update_status(uc: dict):
+    """打印版本更新状态。"""
+    is_latest = uc.get("is_latest", False)
+    installed = uc.get("installed", "未知")
+    latest = uc.get("latest", "未知")
+    if is_latest:
+        print(f"  状态: ✅ 已是最新（当前: {installed}）")
+    else:
+        print(f"  当前版本: {installed}  →  最新版本: {latest}")
+        print(f"  状态: 🔁 有新版本！")
 
 
 if __name__ == "__main__":
