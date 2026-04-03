@@ -15,7 +15,10 @@
 
 **排查**：
 ```bash
-curl -s "https://search.mcmod.cn/s?key=关键词&filter=1&mold=1" | head -c 500
+# 模组搜索（filter=0）
+curl -s "https://search.mcmod.cn/s?key=关键词&filter=0" | head -c 500
+# 物品搜索（filter=3）
+curl -s "https://search.mcmod.cn/s?key=关键词&filter=3" | head -c 500
 ```
 
 - 返回空 HTML 或 `<1000` 字符：被临时封禁

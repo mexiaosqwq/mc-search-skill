@@ -49,13 +49,19 @@ HTTP_HEADERS = {
 # ─────────────────────────────────────────
 # 解析常量
 # ─────────────────────────────────────────
-_MIN_HTML_LEN = 1000        # HTML 内容最小长度阈值
+_MIN_HTML_LEN = 1000        # HTML 内容最小长度阈值（class/mod 页面）
+_MIN_HTML_LEN_ITEM = 500    # HTML 内容最小长度阈值（item/recipe 页面）
 _MIN_PARAGRAPH_LEN = 20     # 正文段落最小长度
 _MIN_SHORT_TEXT_LEN = 35    # 短文本判定阈值（用于判断是否为 item 名）
 _MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性 <li> 最小长度
 _MAX_SECTION_PARAGRAPHS = 2  # 每 wiki 章节最多段落数
 _MIN_TABLE_CELL_LEN = 2     # table cell 最小长度
 _MAX_TABLE_ITEMS = 8        # table 最大 item 数
+_MAX_BODY_CHARS = 5000      # ModRinth 详情 body 字段最大截断长度
+_MAX_VERSION_GROUPS = 5     # 版本组最多显示数
+_MAX_CHANGELOGS = 5         # 更新日志最多显示数
+_MAX_ITEM_DESC_PARAGRAPHS = 5   # 物品页面描述最多段落数
+_MAX_MOD_DESC_PARAGRAPHS = 8    # 模组页面描述最多段落数
 
 # ─────────────────────────────────────────
 # Wiki 解析辅助（read_wiki / read_wiki_zh 共用）
@@ -186,6 +192,8 @@ def _curl(url: str, timeout: int = 10) -> str:
          "--max-time", str(timeout), url],
         capture_output=True, timeout=timeout + 5,
     )
+    if r.returncode != 0:
+        return ""  # 静默失败，由调用方通过长度检查处理
     return r.stdout.decode("utf-8", errors="replace")
 
 
@@ -272,7 +280,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
                         if any(line.startswith(p) for p in skip_prefixes):
                             continue
                         lines.append(line)
-                    description = "\n".join(lines[:5])
+                    description = "\n".join(lines[:_MAX_ITEM_DESC_PARAGRAPHS])
                     break
 
     return {
@@ -306,7 +314,7 @@ def get_item_recipe(item_url: str) -> dict:
         return cached
 
     html = _curl(item_url)
-    if not html or len(html) < 500:
+    if not html or len(html) < _MIN_HTML_LEN_ITEM:
         return {"error": "NO_CONTENT"}
 
     result = {"recipe_images": [], "recipe_materials": []}
@@ -346,6 +354,139 @@ def get_item_recipe(item_url: str) -> dict:
 # 模组解析（MC百科 /class/ 页面）
 # ─────────────────────────────────────────
 
+def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
+    """提取封面图和截图。返回 (cover_image, screenshots)。"""
+    cover_m = re.search(r'class="class-cover-image"[^>]*>.*?<img[^>]+src="([^"]+)"', html, re.DOTALL)
+    cover_image = cover_m.group(1) if cover_m else ""
+    screenshots = re.findall(r'class="figure"[^>]*>.*?data-src="([^"]+)"', html, re.DOTALL)
+    return cover_image, screenshots
+
+
+def _extract_mcmod_versions(html: str) -> list[str]:
+    """从版本检索区提取支持的游戏版本列表。"""
+    ver_idx = html.find("版本检索")
+    ver_section = html[ver_idx:ver_idx + 3000] if ver_idx >= 0 else ""
+    return list(set(re.findall(r'mcver=(\d+\.\d+(?:\.\d+)?)', ver_section)))
+
+
+def _extract_mcmod_categories(html: str) -> tuple[list[str], list[str]]:
+    """提取分类（面包屑）和模组标签。返回 (categories, tags)。"""
+    categories = re.findall(r'href="/class/category/\d+-1\.html"[^>]*>([^<]+)</a>', html)
+    tags_idx = html.find("模组标签:")
+    tags = []
+    if tags_idx >= 0:
+        tag_section = html[tags_idx:tags_idx + 300]
+        tags = re.findall(r'>([^<]+)<', tag_section)
+        tags = [t.strip() for t in tags if t.strip()]
+    return categories, tags
+
+
+def _extract_mcmod_description(html: str) -> str:
+    """提取 Mod 介绍正文描述。"""
+    intro_idx = html.find("Mod介绍")
+    if intro_idx < 0:
+        return ""
+    segment = html[intro_idx:intro_idx + 10000]
+    section_markers = ["配方", "Mod关系", "Mod前置", "Mod联动",
+                       "更新日志", "常见问题", "排行榜", "相关链接",
+                       "text-area-post", "class-post-list"]
+    end = len(segment)
+    for marker in section_markers:
+        idx = segment.find(marker)
+        if idx > 200:
+            end = min(end, idx)
+    content = segment[:end]
+    content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<img[^>]*>", "", content)
+    content = re.sub(r"<br\s*/?>", "\n", content)
+    content = re.sub(r"<p[^>]*>", "\n", content)
+    text = re.sub(r"<[^>]+>", "", content)
+    text = html_module.unescape(text)
+    text = re.sub(r"[ \t\r]+", " ", text).strip()
+    prefix_pat = r"^(?:Mod(?:介绍|教程|下载|讨论|特性|关系)|模组介绍|配方|前置Mod|联动Mod|更新日志|介绍)\s*"
+    prev = None
+    while prev != text:
+        prev = text
+        text = re.sub(prefix_pat, "", text).strip()
+    skip_fragments = [
+        "MC百科的目标是", "MC百科(mcmod.cn)的目标",
+        "提供Minecraft(我的世界)MOD(模组)物品资料介绍",
+        "关于百科", "百科帮助", "开发日志", "捐赠百科",
+        "联系百科", "意见反馈", "©Copyright MC百科",
+        "mcmod.cn | ", "鄂ICP备", "鄂公网安备",
+    ]
+    para_title_pat = r"^(?:概述|简介|正文)\s*"
+    lines = []
+    for line in text.split("\n"):
+        line = line.strip()
+        line = re.sub(para_title_pat, "", line).strip()
+        line = re.sub(r"[。！？]\s*概述(?=[^\s])", lambda m: m.group(0)[0], line)
+        if len(line) < 10:
+            continue
+        if any(line.startswith(p) for p in skip_fragments):
+            continue
+        if re.search(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是", line):
+            line = re.sub(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是.*", "", line).strip()
+        if len(line) < 10:
+            continue
+        if any(p in line for p in ["©Copyright MC百科", "鄂ICP备", "鄂公网安备", "mcmod.cn | ", "百科帮助", "开发日志"]):
+            continue
+        lines.append(line)
+    return "\n".join(lines[:_MAX_MOD_DESC_PARAGRAPHS])
+
+
+def _extract_mcmod_relationships(html: str) -> dict:
+    """提取前置Mod和联动Mod关系。返回 {"requires": [], "integrates": []}。"""
+    relationships = {"requires": [], "integrates": []}
+    for m in re.finditer(r'(前置Mod|联动的Mod):</span><ul>(.*?)</ul>', html, re.DOTALL):
+        label = m.group(1)
+        ul = m.group(2)
+        links = re.findall(r'href="(/class/(\d+)\.html)"[^>]*>([^<]+)</a>', ul)
+        for _, cid, raw in links:
+            raw = raw.strip()
+            parts = re.match(r'(.+?)\s*\(([^)]+)\)\s*$', raw)
+            if parts:
+                zh, en = parts.group(1).strip(), parts.group(2).strip()
+            else:
+                zh, en = raw, ''
+            entry = {"id": cid, "name_zh": zh, "name_en": en, "url": f"https://www.mcmod.cn/class/{cid}.html"}
+            if label == "前置Mod":
+                relationships["requires"].append(entry)
+            else:
+                relationships["integrates"].append(entry)
+    return relationships
+
+
+def _extract_mcmod_author_status(html: str) -> tuple:
+    """提取作者、状态、开源属性。返回 (author, status, source_type)。"""
+    author = None
+    author_idx = html.find("Mod作者/开发团队")
+    if author_idx >= 0:
+        auth_section = html[author_idx:author_idx + 500]
+        author_m = re.search(r'title="([^"-]+)', auth_section)
+        if author_m:
+            author = author_m.group(1).strip()
+
+    log_idx = html.find("更新日志")
+    has_changelog = False
+    if log_idx >= 0:
+        has_changelog = "暂无日志" not in html[log_idx:log_idx + 500]
+
+    status = None
+    status_m = re.search(r'class="class-status[^"]*"[^>]*>([^<]+)<', html)
+    if status_m:
+        status = status_m.group(1).strip()
+
+    source_type = None
+    src_m = re.search(r'class="class-source[^"]*"[^>]*>([^<]+)<', html)
+    if src_m:
+        st = src_m.group(1).strip()
+        source_type = "open_source" if ("开源" in st or "open" in st.lower()) else "closed_source"
+
+    return author, status, source_type, has_changelog
+
+
 def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     """从 MC百科 class 页面解析。name 来自搜索页，html 仅用于提取扩展字段。"""
     m = re.search(r"<title>([^<]+)</title>", html)
@@ -362,148 +503,16 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     # 从原始标题中分离中文名和英文名（格式："中文名 (English Name)"）
     name_zh = raw_title
     if name_en:
-        # 从 "Xxx (Yyy)" 中提取中文部分
         zh_part = re.match(r'^(.+?)\s*\(', raw_title)
-        if zh_part:
-            name_zh = zh_part.group(1).strip()
-        else:
-            name_zh = raw_title
+        name_zh = zh_part.group(1).strip() if zh_part else raw_title
 
-    # 封面图
-    cover_m = re.search(r'class="class-cover-image"[^>]*>.*?<img[^>]+src="([^"]+)"', html, re.DOTALL)
-    cover_image = cover_m.group(1) if cover_m else ""
-
-    # 截图（懒加载，用 data-src）
-    screenshots = re.findall(r'class="figure"[^>]*>.*?data-src="([^"]+)"', html, re.DOTALL)
-
-    # 支持的游戏版本（从版本检索区提取 mcver 参数）
-    ver_idx = html.find("版本检索")
-    ver_section = html[ver_idx:ver_idx + 3000] if ver_idx >= 0 else ""
-    supported_versions = list(set(re.findall(r'mcver=(\d+\.\d+(?:\.\d+)?)', ver_section)))
-
-    # 分类（面包屑）
-    categories = re.findall(r'href="/class/category/\d+-1\.html"[^>]*>([^<]+)</a>', html)
-
-    # 模组标签（标签: xxx yyy 形式）
-    tags_idx = html.find("模组标签:")
-    tags = []
-    if tags_idx >= 0:
-        tag_section = html[tags_idx:tags_idx + 300]
-        tags = re.findall(r'>([^<]+)<', tag_section)
-        tags = [t.strip() for t in tags if t.strip()]
-
-    # Mod介绍（正文描述）
-    description = ""
-    intro_idx = html.find("Mod介绍")
-    if intro_idx >= 0:
-        segment = html[intro_idx:intro_idx + 10000]
-        # 找到下一个 section 的起始位置
-        section_markers = ["配方", "Mod关系", "Mod前置", "Mod联动",
-                           "更新日志", "常见问题", "排行榜", "相关链接",
-                           "text-area-post", "class-post-list"]
-        end = len(segment)
-        for marker in section_markers:
-            idx = segment.find(marker)
-            if idx > 200:
-                end = min(end, idx)
-        content = segment[:end]
-        # 清理
-        content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
-        content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
-        content = re.sub(r"<img[^>]*>", "", content)
-        content = re.sub(r"<br\s*/?>", "\n", content)
-        content = re.sub(r"<p[^>]*>", "\n", content)
-        # 提取文本行
-        text = re.sub(r"<[^>]+>", "", content)
-        text = html_module.unescape(text)
-        text = re.sub(r"[ \t\r]+", " ", text).strip()
-        # 清理：循环去掉开头的 section 标题标记（可能有多个，如 "Mod介绍介绍"）
-        prefix_pat = r"^(?:Mod(?:介绍|教程|下载|讨论|特性|关系)|模组介绍|配方|前置Mod|联动Mod|更新日志|介绍)\s*"
-        prev = None
-        while prev != text:
-            prev = text
-            text = re.sub(prefix_pat, "", text).strip()
-        # 过滤 MC百科站点头部广告 / 段落标题 / 页脚版权
-        skip_fragments = [
-            "MC百科的目标是", "MC百科(mcmod.cn)的目标",
-            "提供Minecraft(我的世界)MOD(模组)物品资料介绍",
-            "关于百科", "百科帮助", "开发日志", "捐赠百科",
-            "联系百科", "意见反馈", "©Copyright MC百科",
-            "mcmod.cn | ", "鄂ICP备", "鄂公网安备",
-        ]
-        # 段落标题：行首的 "简介" / "概述" / "正文"（后跟空格的情况）
-        para_title_pat = r"^(?:概述|简介|正文)\s*"
-        lines = []
-        for line in text.split("\n"):
-            line = line.strip()
-            # 去掉段落标题前缀（支持无空格分隔的情况）
-            line = re.sub(para_title_pat, "", line).strip()
-            # 去掉句中段落标题："！概述" / "。概述" → "！"
-            line = re.sub(r"[。！？]\s*概述(?=[^\s])", lambda m: m.group(0)[0], line)
-            if len(line) < 10:
-                continue
-            if any(line.startswith(p) for p in skip_fragments):
-                continue
-            # 过滤句中混入的页脚/版权文字
-            if re.search(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是", line):
-                line = re.sub(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是.*", "", line).strip()
-            if len(line) < 10:
-                continue
-            if any(p in line for p in ["©Copyright MC百科", "鄂ICP备", "鄂公网安备", "mcmod.cn | ", "百科帮助", "开发日志"]):
-                continue
-            lines.append(line)
-        description = "\n".join(lines[:8])  # 最多 8 行
-
-    # Mod关系：前置Mod + 联动的Mod
-    relationships = {"requires": [], "integrates": []}
-    for m in re.finditer(r'(前置Mod|联动的Mod):</span><ul>(.*?)</ul>', html, re.DOTALL):
-        label = m.group(1)
-        ul = m.group(2)
-        links = re.findall(r'href="(/class/(\d+)\.html)"[^>]*>([^<]+)</a>', ul)
-        for _, cid, raw in links:
-            raw = raw.strip()
-            # Parse "Name (Alias)" pattern
-            parts = re.match(r'(.+?)\s*\(([^)]+)\)\s*$', raw)
-            if parts:
-                zh, en = parts.group(1).strip(), parts.group(2).strip()
-            else:
-                zh, en = raw, ''
-            entry = {"id": cid, "name_zh": zh, "name_en": en, "url": f"https://www.mcmod.cn/class/{cid}.html"}
-            if label == "前置Mod":
-                relationships["requires"].append(entry)
-            else:
-                relationships["integrates"].append(entry)
-
-    # 作者（从 Mod作者/开发团队 区提取 title 属性）
-    author = None
-    author_idx = html.find("Mod作者/开发团队")
-    if author_idx >= 0:
-        auth_section = html[author_idx:author_idx + 500]
-        author_m = re.search(r'title="([^"-]+)', auth_section)
-        if author_m:
-            author = author_m.group(1).strip()
-
-    # 是否有更新日志
-    log_idx = html.find("更新日志")
-    has_changelog = False
-    if log_idx >= 0:
-        has_changelog = "暂无日志" not in html[log_idx:log_idx + 500]
-
-    # 模组状态：活跃 / 不活跃
-    status = None
-    status_m = re.search(r'class="class-status[^"]*"[^>]*>([^<]+)<', html)
-    if status_m:
-        status = status_m.group(1).strip()
-
-    # 开源/闭源
-    source_type = None
-    src_m = re.search(r'class="class-source[^"]*"[^>]*>([^<]+)<', html)
-    if src_m:
-        st = src_m.group(1).strip()
-        if "开源" in st or "open" in st.lower():
-            source_type = "open_source"
-        else:
-            source_type = "closed_source"
+    # 调用辅助函数提取各字段
+    cover_image, screenshots = _extract_mcmod_cover(html)
+    supported_versions = _extract_mcmod_versions(html)
+    categories, tags = _extract_mcmod_categories(html)
+    description = _extract_mcmod_description(html)
+    relationships = _extract_mcmod_relationships(html)
+    author, status, source_type, has_changelog = _extract_mcmod_author_status(html)
 
     # 原版内容识别：class/1 是 MC百科"原版内容"分类
     is_vanilla = bool(re.search(r"/class/1\.html", url))
@@ -552,7 +561,7 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     html = _curl(f"https://search.mcmod.cn/s?key={q}&filter={filter_val}")
     if not html:
         raise _SearchError(f"MC百科 网络请求失败（空响应）：{keyword}")
-    if len(html) < 1000:
+    if len(html) < _MIN_HTML_LEN:
         raise _SearchError(f"MC百科 响应过短（可能被封）：{keyword}")
 
     idx = html.find("search-result-list")
@@ -577,21 +586,28 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     if not pairs:
         raise _SearchError(f"MC百科 无结果（{content_type}）：{keyword}")
 
+    # 去重并限制数量
     seen = set()
-    results = []
+    limited_pairs = []
     for raw_url, name in pairs:
         name = name.strip()
-        # 用 URL 而非 name 去重
         if name and raw_url not in seen and not name.startswith("www."):
             seen.add(raw_url)
-            page_html = _curl(raw_url)
-            if content_type == "item":
-                result = _parse_mcmod_item_result(page_html, raw_url, name)
-            else:
-                result = _parse_mcmod_result(page_html, raw_url, name)
-            results.append(result)
-            if len(results) >= max_results:
+            limited_pairs.append((raw_url, name))
+            if len(limited_pairs) >= max_results:
                 break
+
+    # 并行抓取详情页（每个结果单独请求太慢）
+    def _fetch_one(args):
+        raw_url, name = args
+        page_html = _curl(raw_url)
+        if content_type == "item":
+            return _parse_mcmod_item_result(page_html, raw_url, name)
+        return _parse_mcmod_result(page_html, raw_url, name)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(limited_pairs), 4)) as ex:
+        results = list(ex.map(_fetch_one, limited_pairs))
+
     _cache_set("search", key, results)
     return results
 
@@ -609,7 +625,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
 
     q = urllib.parse.quote(author_name)
     html = _curl(f"https://search.mcmod.cn/s?key={q}&filter=0")
-    if not html or len(html) < 1000:
+    if not html or len(html) < _MIN_HTML_LEN:
         raise _SearchError(f"MC百科 作者搜索网络失败：{author_name}")
 
     idx = html.find("search-result-list")
@@ -628,7 +644,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
 
     # 解析作者页面，获取所有模组
     page_html = _curl(author_url)
-    if not page_html or len(page_html) < 1000:
+    if not page_html or len(page_html) < _MIN_HTML_LEN:
         raise _SearchError(f"MC百科 作者页面获取失败：{author_name}")
 
     # 从作者页面提取所有 /class/ 链接
@@ -714,7 +730,7 @@ def get_mod_info(mod_id: str) -> dict | None:
         "slug": data.get("slug", ""),
         "id": project_id,
         "description": data.get("description", ""),
-        "body": (data.get("body") or "")[:5000],     # 截断至 5000 字符（--json 专用）
+        "body": (data.get("body") or "")[:_MAX_BODY_CHARS],
         "author": None,
         "license": data.get("license", {}).get("id", "") if isinstance(data.get("license"), dict) else (data.get("license", "") or ""),
         "categories": data.get("categories", []),
@@ -776,11 +792,11 @@ def get_mod_info(mod_id: str) -> dict | None:
                 seen_mod_vers[mod_ver]["loaders"].update(v.get("loaders", []))
             items = [(k, {"game_versions": sorted(v["game_versions"]), "loaders": sorted(v["loaders"])})
                      for k, v in seen_mod_vers.items()]
-            result["version_groups"] = items[:5]
+            result["version_groups"] = items[:_MAX_VERSION_GROUPS]
 
             # 最近 5 条 changelog
             changelogs = []
-            for v in versions[:5]:
+            for v in versions[:_MAX_CHANGELOGS]:
                 cl = v.get("changelog", "").strip()
                 if cl:
                     changelogs.append({
@@ -894,92 +910,28 @@ def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
     return result
 
 
-def search_wiki(keyword: str, max_results: int = 5) -> list[dict]:
+def _search_wiki_impl(
+    keyword: str,
+    base_url: str,
+    cache_prefix: str,
+    source: str,
+    use_title_for_name_en: bool,
+    use_title_for_name_zh: bool,
+    add_variant: bool,
+    max_results: int = 5,
+) -> list[dict]:
     """
-    minecraft.wiki 搜索（使用 MediaWiki API，绕过 JS 渲染问题）。
+    minecraft.wiki 搜索通用实现。
 
-    优先尝试直接访问文章（wiki 有 URL 自动补全），
-    若返回搜索列表则用 MediaWiki API 获取结构化结果。
+    参数:
+        base_url: wiki 根 URL
+        cache_prefix: 缓存 key 前缀
+        source: source 字段值
+        use_title_for_name_en: True 时 name_en=page_title，否则 name_en=""
+        use_title_for_name_zh: True 时 name_zh=page_title，否则 name_zh=""
+        add_variant: 是否添加 ?variant=zh-cn
     """
-    key = _cache_key("wiki", keyword, max_results)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
-
-    results = []
-
-    # 方法1：尝试直接访问（URL 自动补全到文章页）
-    q = urllib.parse.quote(keyword)
-    html = _curl(f"https://minecraft.wiki/w/Special:Search?search={q}&go=Go")
-
-    if html and len(html) >= _MIN_HTML_LEN:
-        m_title = re.search(r"<title>([^<]+)</title>", html)
-        title_text = m_title.group(1) if m_title else ""
-        is_direct = (
-            'id="firstHeading"' in html
-            and "Special:Search" not in title_text
-            and "Search results" not in title_text
-        )
-
-        if is_direct:
-            # 直接跳转到文章页
-            canon_m = re.search(r'<link[^>]+rel="canonical"[^>]+href="([^"]+)"', html)
-            article_url = canon_m.group(1) if canon_m else (
-                re.search(r'<meta[^>]+property="og:url"[^>]+content="([^"]+)"', html).group(1)
-                if re.search(r'<meta[^>]+property="og:url"', html) else None
-            )
-            page_title = re.sub(r"\s*–\s*Minecraft Wiki.*", "", title_text).strip()
-            h3s = re.findall(r"<h3[^>]*>(.*?)</h3>", html, re.DOTALL)
-            sections = [
-                re.sub(r"<[^>]+>", "", h).strip()
-                for h in h3s[:max_results]
-                if re.sub(r"<[^>]+>", "", h).strip()
-            ]
-            results.append({
-                "name": page_title,
-                "name_en": page_title,
-                "name_zh": "",
-                "url": article_url or "",
-                "source": "minecraft.wiki",
-                "source_id": article_url.split("/")[-1] if article_url else "",
-                "type": _infer_wiki_type(page_title, article_url or ""),
-                "sections": sections,
-            })
-            _cache_set("search", key, results)
-            return results
-
-    # 方法2：使用 MediaWiki API 搜索（结构化 JSON，无需 JS）
-    api_url = f"https://minecraft.wiki/api.php?action=query&list=search&srsearch={q}&format=json&srlimit={max_results}"
-    raw = _curl(api_url)
-    if raw:
-        try:
-            data = json.loads(raw)
-            hits = data.get("query", {}).get("search", [])
-            for hit in hits[:max_results]:
-                title = hit.get("title", "")
-                page_id = hit.get("pageid", 0)
-                results.append({
-                    "name": title,
-                    "name_en": title,
-                    "name_zh": "",
-                    "url": f"https://minecraft.wiki/w/{urllib.parse.quote(title.replace(' ', '_'))}",
-                    "source": "minecraft.wiki",
-                    "source_id": str(page_id),
-                    "type": _infer_wiki_type(title, ""),
-                    "sections": [],
-                })
-        except Exception:
-            pass
-
-    _cache_set("search", key, results)
-    return results
-
-
-def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
-    """
-    minecraft.wiki/zh 中文 wiki 搜索（复用 MediaWiki API，仅更换 base URL）。
-    """
-    key = _cache_key("wiki_zh", keyword, max_results)
+    key = _cache_key(cache_prefix, keyword, max_results)
     cached = _cache_get("search", key)
     if cached is not None:
         return cached
@@ -987,8 +939,8 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
     results = []
     q = urllib.parse.quote(keyword)
 
-    # 方法1：尝试直接访问（URL 自动补全到文章页）
-    html = _curl(f"https://zh.minecraft.wiki/Special:Search?search={q}&go=Go")
+    # 方法1：尝试直接访问
+    html = _curl(f"{base_url}/w/Special:Search?search={q}&go=Go")
 
     if html and len(html) >= _MIN_HTML_LEN:
         m_title = re.search(r"<title>([^<]+)</title>", html)
@@ -1012,15 +964,15 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
                 for h in h3s[:max_results]
                 if re.sub(r"<[^>]+>", "", h).strip()
             ]
-            if article_url and "variant=zh-cn" not in article_url:
+            if add_variant and article_url and "variant=zh-cn" not in article_url:
                 separator = "&" if "?" in article_url else "?"
                 article_url = article_url + separator + "variant=zh-cn"
             results.append({
                 "name": page_title,
-                "name_en": "",
-                "name_zh": page_title,
+                "name_en": page_title if use_title_for_name_en else "",
+                "name_zh": page_title if use_title_for_name_zh else "",
                 "url": article_url or "",
-                "source": "minecraft.wiki/zh",
+                "source": source,
                 "source_id": article_url.split("/")[-1] if article_url else "",
                 "type": _infer_wiki_type(page_title, article_url or ""),
                 "sections": sections,
@@ -1028,8 +980,8 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
             _cache_set("search", key, results)
             return results
 
-    # 方法2：使用 MediaWiki API 搜索
-    api_url = f"https://zh.minecraft.wiki/api.php?action=query&list=search&srsearch={q}&format=json&srlimit={max_results}"
+    # 方法2：MediaWiki API 搜索
+    api_url = f"{base_url}/api.php?action=query&list=search&srsearch={q}&format=json&srlimit={max_results}"
     raw = _curl(api_url)
     if raw:
         try:
@@ -1040,10 +992,10 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
                 page_id = hit.get("pageid", 0)
                 results.append({
                     "name": title,
-                    "name_en": "",
-                    "name_zh": title,
-                    "url": f"https://zh.minecraft.wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
-                    "source": "minecraft.wiki/zh",
+                    "name_en": title if use_title_for_name_en else "",
+                    "name_zh": title if use_title_for_name_zh else "",
+                    "url": f"{base_url}/w/{urllib.parse.quote(title.replace(' ', '_'))}",
+                    "source": source,
                     "source_id": str(page_id),
                     "type": _infer_wiki_type(title, ""),
                     "sections": [],
@@ -1053,6 +1005,34 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
 
     _cache_set("search", key, results)
     return results
+
+
+def search_wiki(keyword: str, max_results: int = 5) -> list[dict]:
+    """minecraft.wiki 搜索（英文）。"""
+    return _search_wiki_impl(
+        keyword=keyword,
+        base_url="https://minecraft.wiki",
+        cache_prefix="wiki",
+        source="minecraft.wiki",
+        use_title_for_name_en=True,
+        use_title_for_name_zh=False,
+        add_variant=False,
+        max_results=max_results,
+    )
+
+
+def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
+    """minecraft.wiki/zh 中文 wiki 搜索。"""
+    return _search_wiki_impl(
+        keyword=keyword,
+        base_url="https://zh.minecraft.wiki",
+        cache_prefix="wiki_zh",
+        source="minecraft.wiki/zh",
+        use_title_for_name_en=False,
+        use_title_for_name_zh=True,
+        add_variant=True,
+        max_results=max_results,
+    )
 
 
 def _infer_wiki_type(name: str, url: str = "") -> str:
@@ -1091,27 +1071,48 @@ def _infer_wiki_type(name: str, url: str = "") -> str:
     # dimension 关键词
     if any(k in n for k in ["nether", "the_end", "overworld", "end_dim", "nether_dim"]):
         return "dimension"
+    # 中文关键词
+    if any(k in n for k in ["剑", "刀", "斧", "镐", "铲", "锄", "弓", "箭", "盾",
+                              "盔甲", "头盔", "胸甲", "护腿", "靴子", "钻石", "铁",
+                              "金", "铜", "绿宝石", "下界合金", "鞘翅"]):
+        return "item"
+    if any(k in n for k in ["方块", "石头", "泥土", "沙子", "圆石", "木板", "矿石",
+                              "原木", "树叶", "玻璃", "冰", "雪", "草", "花", "蘑菇"]):
+        return "block"
+    if any(k in n for k in ["僵尸", "骷髅", "苦力怕", "末影人", "猪", "牛", "羊",
+                              "鸡", "蜘蛛", "史莱姆", "烈焰人", "凋灵", "末影龙",
+                              "恶魂", "猪灵", "潜影贝", "卫道士", "唤魔者"]):
+        return "entity"
+    if any(k in n for k in ["下界", "末地", "主世界", "地狱", "末地城", "要塞"]):
+        return "dimension"
+    if any(k in n for k in ["森林", "沙漠", "针叶林", "热带雨林", "沼泽", "海洋",
+                              "河流", "高山", "平原", "蘑菇岛"]):
+        return "biome"
+    if any(k in n for k in ["合成", "附魔", "酿造", "熔炉", "高炉", "烟熏",
+                              "铁砧", "制图台", "锻造台", "砂轮"]):
+        return "mechanic"
     return "other"
 
 
-def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
+def _read_wiki_impl(url: str, max_paragraphs: int,
+                    para_skip_prefixes: tuple[str, ...],
+                    heading_skip_ids: set[str],
+                    source: str) -> dict:
     """
-    读取 wiki 页面正文。
+    读取 wiki 页面正文（英文 / 中文共用实现）。
 
-    解析策略：
-    - 构建 h2/h3/h4 标题层级结构（适配版本页如 Java_Edition_26.1）
-    - 每个 h3/h4 叶章节提取其 intro paragraph
-    - 版本页内容大量在 table 单元格中，也一并提取 item 名称
-    - infobox / script / navbox 等无关区块提前过滤
+    参数：
+      para_skip_prefixes: 段落前缀跳过词（如 "History of", "v ", "历史", "编辑"）
+      heading_skip_ids:   heading id 跳过集合
+      source:             返回结果的 source 字段值
     """
     html = _curl(url)
-    if not html or len(html) < 500:
+    if not html or len(html) < _MIN_HTML_LEN_ITEM:
         return {"error": "NO_CONTENT"}
 
     m_title = re.search(r'<h1[^>]*id="firstHeading"[^>]*>(.*?)</h1>', html, re.DOTALL)
     title = html_module.unescape(re.sub(r"<[^>]+>", "", m_title.group(1)).strip()) if m_title else "UNKNOWN"
 
-    # 提取正文区块
     m_content = re.search(
         r'<div[^>]+id="mw-content-text"[^>]*>(.*?)'
         r'(?:<div[^>]+class="[^"]*navbox|<div[^>]+id="catlinks|<div[^>]+class="[^"]*printfooter)',
@@ -1122,7 +1123,6 @@ def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
 
     content_html = m_content.group(1)
 
-    # 预过滤：script / infobox / wiki-logo
     content_html = re.sub(
         r'<script[^>]+type="application/ld\+json"[^>]*>.*?</script>',
         "", content_html, flags=re.DOTALL
@@ -1137,87 +1137,74 @@ def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
     )
 
     # ── 解析所有 heading，构建层级 ──────────────────────────────────
-    # 收集所有 heading：{level, id, text, start_offset}
-    heading_map = []   # list of (level, h_id, text, start)
+    heading_map = []
     for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
         lvl = int(m.group(1))
         h_id = m.group(2)
         h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
         heading_map.append((lvl, h_id, h_text, m.start()))
 
-    # ── 辅助：使用模块级函数 ──────────────────────────────────────
+    # ── 辅助 ──────────────────────────────────────────────────────
     def _extract_table_items(table_html: str, max_items: int = 8) -> list[str]:
         """从 wiki table 中提取第一列的 item 名称列表。"""
         items = []
         rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL)
-        for row in rows[1:]:  # 跳过表头
+        for row in rows[1:]:
             cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.DOTALL)
             if not cells:
                 continue
-            # 第一列：提取纯文本
             cell_text = _clean_html_text(cells[0])
-            # 过滤按钮/控件类文字
             if cell_text and len(cell_text) >= _MIN_TABLE_CELL_LEN and not re.match(r"^[\s\-\d]+$", cell_text):
                 items.append(cell_text)
             if len(items) >= max_items:
                 break
         return items
 
-    def _is_valid_para(text: str) -> bool:
-        """判断是否为有意义的正文段落（英文 wiki）。"""
-        if text.startswith("History of") or text.startswith("v ") or text.startswith("[edit"):
-            return False
-        return _is_valid_paragraph(text, lang="en")
-
     # ── 提取每个叶章节的正文内容 ──────────────────────────────────
-    # 从 h2 顶层遍历，对每个 h2 及其下层 h3/h4 进行内容收集
-    sections_output = []   # list of {"heading": "H3 Text", "parent": "H2 Text", "content": [lines]}
-    paragraphs = []         # 兼容旧接口：把所有有意义段落平铺
+    sections_output = []
+    paragraphs = []
+    current_h2 = None
 
-    current_h2 = None       # 追踪当前父级 h2
     for i, (lvl, h_id, h_text, h_start) in enumerate(heading_map):
-        # 跳过目录和无关 heading
-        if h_id in ("mw-toc-heading", "References", "Navigation", "Videos", "Trivia"):
+        if h_id in heading_skip_ids:
             continue
-        # h2：更新当前父级标题，但不作为章节输出
         if lvl == 2:
             current_h2 = h_text
             continue
 
-        # 该章节内容范围：heading 结束 → 下一 heading 开始
         next_start = heading_map[i + 1][3] if i + 1 < len(heading_map) else len(content_html)
         section_html = content_html[h_start:next_start]
 
-        # 找 intro paragraph（<p> 或 <li> 中带描述性动词的条目）
         section_paragraphs = []
         for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
             if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
                 continue
             clean = _clean_html_text(p)
-            if _is_valid_para(clean):
+            if any(clean.startswith(prefix) for prefix in para_skip_prefixes):
+                continue
+            if _is_valid_paragraph(clean, lang="en" if source == "minecraft.wiki" else "zh"):
                 section_paragraphs.append(clean)
                 if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
                     break
 
-        # 也从 <li> 中提取描述性条目（版本页的 intro 常在 <li> 里）
-        if not section_paragraphs:
+        # 英文 wiki：从 <li> 中提取描述性条目（版本页的 intro 常在 <li> 里）
+        if source == "minecraft.wiki" and not section_paragraphs:
             for li in re.findall(r"<li[^>]*>(.*?)</li>", section_html, re.DOTALL):
                 clean = _clean_html_text(li)
-                # 描述性 <li>：较长（>=50 chars）且以动词开头
-                if len(clean) >= _MIN_DESCRIPTIVE_LI_LEN and re.match(r"^(Added|Changed|Fixed|Updated|Removed|Introduced|Can now|Made|New|Affects?|Allows?|Prevents?|Makes?|Provides?)", clean):
+                if len(clean) >= _MIN_DESCRIPTIVE_LI_LEN and re.match(
+                        r"^(Added|Changed|Fixed|Updated|Removed|Introduced|Can now|Made|New|Affects?|Allows?|Prevents?|Makes?|Provides?)", clean):
                     section_paragraphs.append(clean)
                     break
 
-        # 提取 table 中的 item 名称（版本页的主要内容）
+        # 英文 wiki：提取 table 中的 item 名称（版本页的主要内容）
         table_items = []
-        if len(section_paragraphs) < _MAX_SECTION_PARAGRAPHS:
+        if source == "minecraft.wiki" and len(section_paragraphs) < _MAX_SECTION_PARAGRAPHS:
             tables = re.findall(r"<table[^>]*class=\"[^\"]*wikitable[^\"]*\"[^>]*>.*?</table>",
                                 section_html, re.DOTALL)
-            for tbl in tables[:3]:  # 最多 3 个 table
+            for tbl in tables[:3]:
                 items = _extract_table_items(tbl, max_items=_MAX_TABLE_ITEMS)
                 table_items.extend(items)
 
-        # 合并输出
         section_lines = section_paragraphs[:_MAX_SECTION_PARAGRAPHS]
         if table_items and not section_paragraphs:
             section_lines = [f"[{len(table_items)} items: {', '.join(table_items[:6])}{'...' if len(table_items) > 6 else ''}]"]
@@ -1239,108 +1226,31 @@ def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
     return {
         "name": title,
         "url": url,
-        "source": "minecraft.wiki",
-        "content": paragraphs,
-        "_sections": sections_output,   # 内部结构化数据，供 CLI 渲染层级
-    }
-
-
-def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
-    """
-    读取 minecraft.wiki/zh 中文 wiki 页面正文（复用 read_wiki 解析逻辑）。
-    """
-    html = _curl(url)
-    if not html or len(html) < 500:
-        return {"error": "NO_CONTENT"}
-
-    m_title = re.search(r'<h1[^>]*id="firstHeading"[^>]*>(.*?)</h1>', html, re.DOTALL)
-    title = html_module.unescape(re.sub(r"<[^>]+>", "", m_title.group(1)).strip()) if m_title else "UNKNOWN"
-
-    # 提取正文区块
-    m_content = re.search(
-        r'<div[^>]+id="mw-content-text"[^>]*>(.*?)'
-        r'(?:<div[^>]+class="[^"]*navbox|<div[^>]+id="catlinks|<div[^>]+class="[^"]*printfooter)',
-        html, re.DOTALL
-    )
-    if not m_content:
-        return {"error": "NO_CONTENT"}
-
-    content_html = m_content.group(1)
-
-    # 预过滤
-    content_html = re.sub(
-        r'<script[^>]+type="application/ld\+json"[^>]*>.*?</script>',
-        "", content_html, flags=re.DOTALL
-    )
-    content_html = re.sub(
-        r'<table[^>]+class="[^"]*infobox[^"]*"[^>]*>.*?</table>',
-        "", content_html, flags=re.DOTALL
-    )
-    content_html = re.sub(
-        r'<table[^>]+class="[^"]*navbox[^"]*"[^>]*>.*?</table>',
-        "", content_html, flags=re.DOTALL
-    )
-
-    # 解析 heading
-    heading_map = []
-    for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
-        lvl = int(m.group(1))
-        h_id = m.group(2)
-        h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
-        heading_map.append((lvl, h_id, h_text, m.start()))
-
-    def _is_valid_para(text: str) -> bool:
-        """判断是否为有意义的正文段落（中文 wiki）。"""
-        # 中英文过滤词：中文 wiki 页面中也可能包含英文版块标题
-        if (text.startswith("历史") or text.startswith("编辑") or
-                text.startswith("History of") or text.startswith("v ") or text.startswith("[edit")):
-            return False
-        return _is_valid_paragraph(text, lang="zh")
-
-    sections_output = []
-    paragraphs = []
-    current_h2 = None
-
-    for i, (lvl, h_id, h_text, h_start) in enumerate(heading_map):
-        if h_id in ("mw-toc-heading", "References", "Navigation", "Videos", "Trivia", "参考资料", "导航", "视频", "琐事"):
-            continue
-        if lvl == 2:
-            current_h2 = h_text
-            continue
-
-        next_start = heading_map[i + 1][3] if i + 1 < len(heading_map) else len(content_html)
-        section_html = content_html[h_start:next_start]
-
-        section_paragraphs = []
-        for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
-            if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
-                continue
-            clean = _clean_html_text(p)
-            if _is_valid_para(clean):
-                section_paragraphs.append(clean)
-                if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                    break
-
-        section_lines = section_paragraphs[:_MAX_SECTION_PARAGRAPHS]
-        if section_lines:
-            sections_output.append({
-                "heading": h_text,
-                "parent": current_h2,
-                "content": section_lines,
-            })
-            paragraphs.extend(section_lines)
-
-        if len(paragraphs) >= max_paragraphs:
-            paragraphs = paragraphs[:max_paragraphs]
-            break
-
-    return {
-        "name": title,
-        "url": url,
-        "source": "minecraft.wiki/zh",
+        "source": source,
         "content": paragraphs,
         "_sections": sections_output,
     }
+
+
+def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
+    """读取 minecraft.wiki 英文 wiki 页面正文。"""
+    return _read_wiki_impl(
+        url, max_paragraphs,
+        para_skip_prefixes=("History of", "v ", "[edit"),
+        heading_skip_ids={"mw-toc-heading", "References", "Navigation", "Videos", "Trivia"},
+        source="minecraft.wiki",
+    )
+
+
+def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
+    """读取 minecraft.wiki/zh 中文 wiki 页面正文。"""
+    return _read_wiki_impl(
+        url, max_paragraphs,
+        para_skip_prefixes=("历史", "编辑", "History of", "v ", "[edit"),
+        heading_skip_ids={"mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
+                          "参考资料", "导航", "视频", "琐事"},
+        source="minecraft.wiki/zh",
+    )
 
 
 def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
@@ -1408,18 +1318,14 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
             except Exception:
                 results[key] = []
 
+        # 取消未完成的 futures，避免后台线程泄漏
+        for f in workers:
+            f.cancel()
+
     if fuse:
         return _fuse_results(results, content_type=content_type)
     return results
 
-
-def detect_language(keyword: str) -> str:
-    """返回 'zh' | 'en' | 'mixed'"""
-    has_zh = any('\u4e00' <= c <= '\u9fff' for c in keyword)
-    has_en = any(c.isalpha() and ord(c) < 128 for c in keyword)
-    if has_zh and has_en:
-        return 'mixed'
-    return 'zh' if has_zh else 'en'
 
 
 def _fuse_results(results: dict, content_type: str = "mod") -> list[dict]:

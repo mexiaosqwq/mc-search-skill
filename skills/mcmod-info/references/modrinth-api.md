@@ -36,4 +36,4 @@ https://api.modrinth.com/v2/search?query=sodium&index=relevance&limit=5
 - `project_type` 包含 `mod`、`shader`、`resourcepack` 等，需过滤 `mod`
 - 不使用 facets 参数（URL encode 问题），在代码中过滤
 - 支持匿名访问，无需 API key
-- 限速：每小时 360 次（约 1 req/s），实际使用间隔 0.3s 无问题
+- 限速：每小时 360 次（由 Modrinth API 强制，代码无本地限速）

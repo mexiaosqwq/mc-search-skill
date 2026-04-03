@@ -1,6 +1,6 @@
 # mcmod-info
 
-**Minecraft 模组 + 游戏内容信息查询Skills工具**，专为 AI Agent 设计，同时搜索三大平台。
+**Minecraft 模组 + 游戏内容信息查询Skills工具**，专为 AI Agent 设计，同时搜索四大平台。
 
 ## 核心能力
 
@@ -20,7 +20,7 @@ pip install mcmod-info
 
 | 场景 | 命令 |
 |------|------|
-| 三平台搜索 | `mcmod-search search <关键词>` |
+| 四平台搜索 | `mcmod-search search <关键词>` |
 | 物品搜索 | `mcmod-search search <关键词> --type item` |
 | 作者搜索 | `mcmod-search search --author <名>` |
 | Modrinth 搜索 | `mcmod-search mr <关键词>` |
@@ -28,6 +28,7 @@ pip install mcmod-info
 | 版本检查 | `mcmod-search update-check <mod> --installed <版本>` |
 | 作者作品 | `mcmod-search author <用户名>` |
 | 模组详情 | `mcmod-search info <名称或URL>` |
+| 一键完整信息 | `mcmod-search full <名称>` |
 | wiki 搜索 | `mcmod-search wiki <关键词>` |
 | wiki 正文 | `mcmod-search read <url>` |
 
@@ -45,4 +46,4 @@ pip install mcmod-info
 
 ## 许可证
 
-CC0-1.0 Universal (Public Domain)
+MIT License

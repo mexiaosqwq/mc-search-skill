@@ -74,7 +74,7 @@ skills/mcmod-info/
 
 ## 开发规范
 
-- 除 `search_all()` 返回 `{platform: [results]}` 外，其余搜索函数统一返回 `list[dict]`，格式见 `references/result-schema.md`
+- `search_all()` 在 `--json` 模式下返回融合后的 `list[dict]`，否则返回 `{platform: [results]}`；其余搜索函数统一返回 `list[dict]`，格式见 `references/result-schema.md`
 - 平台调用失败时返回空列表，不抛出异常
 - 所有网络请求通过 `core._curl()` 统一发出
 - 无外部依赖，仅使用 Python 标准库 + curl

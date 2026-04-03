@@ -1,7 +1,7 @@
 ---
 name: mcmod-info
 description: "Minecraft 模组 + 游戏内容信息查询工具。供 AI Agent 在对话中调用，同时搜索 MC百科（中文模组/物品）、Modrinth（英文 mod/依赖/版本）、minecraft.wiki（原版游戏内容）。触发场景：用户询问模组信息、物品资料、mod 依赖、版本对比、原版游戏内容、作者作品等。"
-license: CC0-1.0
+license: MIT
 context: open
 user-invocable: true
 ---
@@ -43,10 +43,12 @@ mcmod-search <command> [options]
 **始终使用 `--json`** 获取结构化输出，便于解析：
 
 ```bash
-mcmod-search search <关键词> --json
-mcmod-search info <模组名> --json
-mcmod-search dep <mod_slug> --json
+mcmod-search --json search <关键词>
+mcmod-search --json info <模组名>
+mcmod-search --json dep <mod_slug>
 ```
+
+> 注意：全局选项（`--json`、`--cache`、平台开关）必须放在子命令 **之前**。
 
 ---
 
@@ -56,6 +58,7 @@ mcmod-search dep <mod_slug> --json
 用户询问模组/游戏内容
 ├── 不知道具体哪个平台 → search（自动四平台搜索）
 ├── 知道是中文内容/物品 → search --type item
+├── 想一键获取完整信息 → full（推荐，一次=search+info+dep+update-check）
 ├── 想看详细信息/依赖/版本 → info / dep / update-check
 ├── 想查 Modrinth（英文） → mr / dep / update-check
 ├── 想查原版游戏内容 → wiki / read
@@ -81,7 +84,7 @@ mcmod-search search <关键词> [options]
 |------|------|
 | `--type item` | 搜索物品/方块（MC百科），默认搜索模组 |
 | `--type mod` | 搜索模组（默认） |
-| `--type entity` | 融合时 wiki 权威结果优先（entity/biome/dimension 同） |
+| `--type entity` | 融合时 wiki 权威结果优先（biome/dimension 同） |
 | `--type biome` | 融合时 wiki 权威结果优先 |
 | `--type dimension` | 融合时 wiki 权威结果优先 |
 | `--author <作者名>` | MC百科作者搜索（作者名需精确匹配） |
@@ -92,9 +95,9 @@ mcmod-search search <关键词> [options]
 
 **示例**：
 ```bash
-mcmod-search search 钠 --json
-mcmod-search search 钻石剑 --type item --json
-mcmod-search search --author Notch --json
+mcmod-search --json search 钠
+mcmod-search --json search 钻石剑 --type item
+mcmod-search --json search --author Notch
 ```
 
 ---
@@ -115,8 +118,8 @@ mcmod-search mr <关键词> [options]
 
 **示例**：
 ```bash
-mcmod-search mr sodium --json
-mcmod-search mr shaders -t shader --json
+mcmod-search --json mr sodium
+mcmod-search --json mr shaders -t shader
 ```
 
 ---
@@ -148,16 +151,66 @@ mcmod-search info <模组名或URL或ID> [options]
 - MC百科 URL：`mcmod-search info https://www.mcmod.cn/class/23352.html`
 - 纯数字 ID：`mcmod-search info 23352`
 
+> **不支持 Modrinth URL**，如需查询 Modrinth 信息请使用 `full` 命令。
+
 **示例**：
 ```bash
-mcmod-search info 钠 --json
-mcmod-search info Sodium -m --json
-mcmod-search info https://www.mcmod.cn/class/23352.html -d -v --json
+mcmod-search --json info 钠
+mcmod-search --json info Sodium -m
+mcmod-search --json info https://www.mcmod.cn/class/23352.html -d -v
 ```
 
 ---
 
-### 4. dep — Modrinth 依赖树
+### 4. full — 一键获取完整信息（推荐）
+
+**使用场景**：需要模组的全部信息（MC百科 + Modrinth + 依赖 + 版本），只需**一次调用**。
+
+```bash
+mcmod-search full <模组名或URL或slug> [options]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--installed <版本>` | 当前安装版本，用于判断是否有更新 |
+| `--skip-dep` | 跳过依赖查询（加速） |
+| `--skip-mr` | 跳过 Modrinth 查询（加速） |
+| `--json` | JSON 输出（默认启用） |
+
+**一次返回**：
+- `mcmod`: MC百科完整详情（名称/作者/版本/前置/截图）
+- `modrinth`: Modrinth 详情（下载量/版本/许可证）
+- `dependencies`: 依赖树（必需+可选）
+- `update_check`: 版本对比（是否有新版本）
+- `search_results`: 原始搜索结果列表（**仅按名称查询时填充**，按 ID/URL 查询时为空）
+
+**示例**：
+```bash
+# 推荐：一次获取所有信息
+mcmod-search --json full 钠
+
+# 已知版本，检查是否有更新
+mcmod-search --json full Sodium --installed 0.5.0
+
+# 加速：不查依赖
+mcmod-search --json full 钠 --skip-dep
+```
+
+**对比传统调用链**（需要 4 次调用）：
+```bash
+# 旧方式（4次调用）
+mcmod-search --json search 钠
+mcmod-search --json info 钠
+mcmod-search --json dep sodium
+mcmod-search --json update-check sodium --installed 0.5.0
+
+# 新方式（1次调用）
+mcmod-search --json full 钠 --installed 0.5.0
+```
+
+---
+
+### 5. dep — Modrinth 依赖树
 
 **使用场景**：想知道一个 mod 需要哪些前置/被哪些 mod 需要。
 
@@ -167,13 +220,13 @@ mcmod-search dep <mod_slug或project_id> [options]
 
 | 选项 | 说明 |
 |------|------|
-| `--installed <版本>` | 当前安装版本（用于参考，不做对比） |
+| `--installed <版本>` | 当前安装版本（用于参考，不做对比，仅 dep） |
 | `--json` | JSON 输出 |
 
 **示例**：
 ```bash
-mcmod-search dep sodium --json
-mcmod-search dep fabric-api --installed 0.15.0 --json
+mcmod-search --json dep sodium
+mcmod-search --json dep fabric-api --installed 0.15.0
 ```
 
 **JSON 返回字段**：
@@ -183,7 +236,7 @@ mcmod-search dep fabric-api --installed 0.15.0 --json
 
 ---
 
-### 5. update-check — Modrinth 版本检查
+### 6. update-check — Modrinth 版本检查
 
 **使用场景**：想知道安装的 mod 是否有新版本。
 
@@ -202,12 +255,12 @@ mcmod-search update-check <mod_slug> --installed <版本>  (必填)
 
 **示例**：
 ```bash
-mcmod-search update-check sodium --installed 0.5.0 --json
+mcmod-search --json update-check sodium --installed 0.5.0
 ```
 
 ---
 
-### 6. author — Modrinth 作者搜索
+### 7. author — Modrinth 作者搜索
 
 **使用场景**：想知道某作者在 Modrinth 上发布了哪些作品。
 
@@ -222,7 +275,7 @@ mcmod-search author <用户名> [options]
 
 **示例**：
 ```bash
-mcmod-search author jellysquid_ --json
+mcmod-search --json author jellysquid_
 ```
 
 ---
@@ -243,8 +296,8 @@ mcmod-search wiki <关键词> [options]
 
 **示例**：
 ```bash
-mcmod-search wiki 附魔台 --json
-mcmod-search wiki 凋灵 -r --json
+mcmod-search --json wiki 附魔台
+mcmod-search --json wiki 凋灵 -r
 ```
 
 ---
@@ -264,7 +317,7 @@ mcmod-search read <url> [options]
 
 **示例**：
 ```bash
-mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
+mcmod-search --json read https://minecraft.wiki/w/Diamond_Sword -p 8
 ```
 
 ---
@@ -309,6 +362,7 @@ mcmod-search read https://minecraft.wiki/w/Diamond_Sword -p 8 --json
   "url": "页面链接",
   "source_id": "平台内ID",
   "type": "mod | item | shader | resourcepack | block | entity | mechanic",
+  # 注：block / mechanic / dimension 由平台搜索结果自动推断，非 --type CLI 选项
   "description": "MC百科描述",
   "snippet": "Modrinth摘要",
   "status": "活跃 | 不活跃（仅mcmod）",

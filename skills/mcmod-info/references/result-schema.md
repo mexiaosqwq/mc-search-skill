@@ -62,6 +62,12 @@
 
 ---
 
+## MC百科 — `search_mcmod_author` 作者搜索结果
+
+与 `search_mcmod`（模组）返回字段相同，包含完整详情页字段：name / name_en / name_zh / url / source / source_id / type / description / status / source_type / author / categories / tags / supported_versions / cover_image / screenshots / relationships / has_changelog / is_vanilla。
+
+---
+
 ## Modrinth — `search_modrinth` 搜索结果（轻量）
 
 `search_modrinth` 仅返回以下 8 个字段：
@@ -92,7 +98,7 @@
 | `source` | `modrinth` |
 | `source_id` | slug |
 | `description` | 项目完整描述（来自详情 API，非搜索摘要） |
-| `body` | 完整 Markdown 描述（**已截断至 5000 字符**，--json 专用） |
+| `body` | 完整 Markdown 描述（**已截断至 5000 字符**，详情 API 始终截断） |
 | `type` | `mod` / `shader` / `resourcepack` |
 | `author` | 作者用户名 |
 | `license` | 许可证 ID |
