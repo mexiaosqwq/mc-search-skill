@@ -10,6 +10,24 @@ user-invocable: true
 
 AI Agent 专用工具，用于 Minecraft 内容聚合搜索。
 
+## 初始化
+
+**首次使用前必须安装**：
+
+```bash
+cd skills/mc-search && bash setup.sh
+```
+
+或手动安装：
+
+```bash
+pip install mc-search
+```
+
+验证安装：`mc-search --help`
+
+---
+
 ## 触发判断
 
 **当用户询问以下内容时，应调用此工具：**
