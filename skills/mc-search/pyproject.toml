@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mcmod-info"
-version = "0.2.0"
-description = "Minecraft 模组 + 游戏内容信息查询工具（三平台并行搜索）"
+name = "mc-search"
+version = "0.3.0"
+description = "Minecraft 聚合搜索工具（模组/物品/原版内容，四平台并行）"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"
 authors = [
-    {name = "mcmod-info contributors"}
+    {name = "mc-search contributors"}
 ]
-keywords = ["minecraft", "mod", "mcmod", "modrinth", "wiki", "skill"]
+keywords = ["minecraft", "search", "modrinth", "mcmod", "wiki", "aggregate"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -32,16 +32,16 @@ classifiers = [
 ]
 
 [project.scripts]
-mcmod-search = "scripts.cli:main"
+mc-search = "scripts.cli:main"
 
 [project.optional-dependencies]
 dev = []
 
 [project.urls]
-Homepage = "https://github.com/mexiaosqwq/mcmod-info"
-Documentation = "https://github.com/mexiaosqwq/mcmod-info#readme"
-Repository = "https://github.com/mexiaosqwq/mcmod-info"
-Issues = "https://github.com/mexiaosqwq/mcmod-info/issues"
+Homepage = "https://github.com/mexiaosqwq/mc-search"
+Documentation = "https://github.com/mexiaosqwq/mc-search#readme"
+Repository = "https://github.com/mexiaosqwq/mc-search"
+Issues = "https://github.com/mexiaosqwq/mc-search/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

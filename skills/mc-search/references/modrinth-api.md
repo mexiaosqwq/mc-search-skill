@@ -10,7 +10,7 @@
 | `index` | 排序：`relevance`（默认） |
 | `limit` | 返回数量（API 默认 20；CLI `mr` 命令默认传入 5，由 `-n` 参数控制） |
 
-**请求头**: `User-Agent: mcmod-search/1.0`（必须有）
+**请求头**: `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`（模拟浏览器请求）
 
 **示例**:
 ```

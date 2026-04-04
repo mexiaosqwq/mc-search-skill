@@ -28,7 +28,10 @@ htmlcov/
 # Cache
 .cache/
 *.pyc
-.mcmod-info/  # local cache
+.mc-search/  # local cache
+
+# Runs (skill execution artifacts)
+runs/
 
 # OS
 .DS_Store

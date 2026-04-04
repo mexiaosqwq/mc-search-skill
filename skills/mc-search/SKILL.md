@@ -1,14 +1,14 @@
 ---
-name: mcmod-info
-description: "Minecraft 模组 + 游戏内容信息查询工具。供 AI Agent 在对话中调用，同时搜索 MC百科（中文模组/物品）、Modrinth（英文 mod/依赖/版本）、minecraft.wiki（原版游戏内容）。触发场景：用户询问模组信息、物品资料、mod 依赖、版本对比、原版游戏内容、作者作品等。"
+name: mc-search
+description: "Minecraft 聚合搜索工具。供 AI Agent 在对话中调用，同时搜索 MC百科（中文模组/物品）、Modrinth（英文 mod/依赖/版本）、minecraft.wiki（原版游戏内容）。触发场景：用户询问模组信息、物品资料、mod 依赖、版本对比、原版游戏内容、作者作品等。"
 license: MIT
 context: open
 user-invocable: true
 ---
 
-# mcmod-info
+# mc-search
 
-AI Agent 专用工具，用于 Minecraft 模组和游戏内容信息查询。
+AI Agent 专用工具，用于 Minecraft 内容聚合搜索。
 
 ## 触发判断
 
@@ -30,12 +30,12 @@ AI Agent 专用工具，用于 Minecraft 模组和游戏内容信息查询。
 
 ## 工具调用
 
-通过 `Bash` 工具执行 `mcmod-search` 命令。
+通过 `Bash` 工具执行 `mc-search` 命令。
 
 ### 通用格式
 
 ```bash
-mcmod-search <command> [options]
+mc-search <command> [options]
 ```
 
 ### Agent 首选用法
@@ -43,9 +43,9 @@ mcmod-search <command> [options]
 **始终使用 `--json`** 获取结构化输出，便于解析：
 
 ```bash
-mcmod-search --json search <关键词>
-mcmod-search --json info <模组名>
-mcmod-search --json dep <mod_slug>
+mc-search --json search <关键词>
+mc-search --json info <模组名>
+mc-search --json dep <mod_slug>
 ```
 
 > 注意：全局选项（`--json`、`--cache`、平台开关）必须放在子命令 **之前**。
@@ -77,7 +77,7 @@ mcmod-search --json dep <mod_slug>
 **使用场景**：用户询问"帮我搜一下 xxx"，不知道具体要哪个平台。
 
 ```bash
-mcmod-search search <关键词> [options]
+mc-search search <关键词> [options]
 ```
 
 | 选项 | 说明 |
@@ -95,9 +95,9 @@ mcmod-search search <关键词> [options]
 
 **示例**：
 ```bash
-mcmod-search --json search 钠
-mcmod-search --json search 钻石剑 --type item
-mcmod-search --json search --author Notch
+mc-search --json search 钠
+mc-search --json search 钻石剑 --type item
+mc-search --json search --author Notch
 ```
 
 ---
@@ -107,7 +107,7 @@ mcmod-search --json search --author Notch
 **使用场景**：明确要查英文 mod/光影包/材质包。
 
 ```bash
-mcmod-search mr <关键词> [options]
+mc-search mr <关键词> [options]
 ```
 
 | 选项 | 说明 |
@@ -118,8 +118,8 @@ mcmod-search mr <关键词> [options]
 
 **示例**：
 ```bash
-mcmod-search --json mr sodium
-mcmod-search --json mr shaders -t shader
+mc-search --json mr sodium
+mc-search --json mr shaders -t shader
 ```
 
 ---
@@ -129,7 +129,7 @@ mcmod-search --json mr shaders -t shader
 **使用场景**：用户选中了一个模组，想看详细信息。
 
 ```bash
-mcmod-search info <模组名或URL或ID> [options]
+mc-search info <模组名或URL或ID> [options]
 ```
 
 | 选项 | 说明 |
@@ -147,17 +147,17 @@ mcmod-search info <模组名或URL或ID> [options]
 | `--json` | JSON 输出（全字段） |
 
 **参数格式**（`info` 接受三种输入）：
-- 模组名称：`mcmod-search info 钠`
-- MC百科 URL：`mcmod-search info https://www.mcmod.cn/class/23352.html`
-- 纯数字 ID：`mcmod-search info 23352`
+- 模组名称：`mc-search info 钠`
+- MC百科 URL：`mc-search info https://www.mcmod.cn/class/23352.html`
+- 纯数字 ID：`mc-search info 23352`
 
 > **不支持 Modrinth URL**，如需查询 Modrinth 信息请使用 `full` 命令。
 
 **示例**：
 ```bash
-mcmod-search --json info 钠
-mcmod-search --json info Sodium -m
-mcmod-search --json info https://www.mcmod.cn/class/23352.html -d -v
+mc-search --json info 钠
+mc-search --json info Sodium -m
+mc-search --json info https://www.mcmod.cn/class/23352.html -d -v
 ```
 
 ---
@@ -167,7 +167,7 @@ mcmod-search --json info https://www.mcmod.cn/class/23352.html -d -v
 **使用场景**：需要模组的全部信息（MC百科 + Modrinth + 依赖 + 版本），只需**一次调用**。
 
 ```bash
-mcmod-search full <模组名或URL或slug> [options]
+mc-search full <模组名或URL或slug> [options]
 ```
 
 | 选项 | 说明 |
@@ -187,25 +187,25 @@ mcmod-search full <模组名或URL或slug> [options]
 **示例**：
 ```bash
 # 推荐：一次获取所有信息
-mcmod-search --json full 钠
+mc-search --json full 钠
 
 # 已知版本，检查是否有更新
-mcmod-search --json full Sodium --installed 0.5.0
+mc-search --json full Sodium --installed 0.5.0
 
 # 加速：不查依赖
-mcmod-search --json full 钠 --skip-dep
+mc-search --json full 钠 --skip-dep
 ```
 
 **对比传统调用链**（需要 4 次调用）：
 ```bash
 # 旧方式（4次调用）
-mcmod-search --json search 钠
-mcmod-search --json info 钠
-mcmod-search --json dep sodium
-mcmod-search --json update-check sodium --installed 0.5.0
+mc-search --json search 钠
+mc-search --json info 钠
+mc-search --json dep sodium
+mc-search --json update-check sodium --installed 0.5.0
 
 # 新方式（1次调用）
-mcmod-search --json full 钠 --installed 0.5.0
+mc-search --json full 钠 --installed 0.5.0
 ```
 
 ---
@@ -215,7 +215,7 @@ mcmod-search --json full 钠 --installed 0.5.0
 **使用场景**：想知道一个 mod 需要哪些前置/被哪些 mod 需要。
 
 ```bash
-mcmod-search dep <mod_slug或project_id> [options]
+mc-search dep <mod_slug或project_id> [options]
 ```
 
 | 选项 | 说明 |
@@ -225,8 +225,8 @@ mcmod-search dep <mod_slug或project_id> [options]
 
 **示例**：
 ```bash
-mcmod-search --json dep sodium
-mcmod-search --json dep fabric-api --installed 0.15.0
+mc-search --json dep sodium
+mc-search --json dep fabric-api --installed 0.15.0
 ```
 
 **JSON 返回字段**：
@@ -241,7 +241,7 @@ mcmod-search --json dep fabric-api --installed 0.15.0
 **使用场景**：想知道安装的 mod 是否有新版本。
 
 ```bash
-mcmod-search update-check <mod_slug> --installed <版本>  (必填)
+mc-search update-check <mod_slug> --installed <版本>  (必填)
 ```
 
 | 字段 | 说明 |
@@ -255,7 +255,7 @@ mcmod-search update-check <mod_slug> --installed <版本>  (必填)
 
 **示例**：
 ```bash
-mcmod-search --json update-check sodium --installed 0.5.0
+mc-search --json update-check sodium --installed 0.5.0
 ```
 
 ---
@@ -265,7 +265,7 @@ mcmod-search --json update-check sodium --installed 0.5.0
 **使用场景**：想知道某作者在 Modrinth 上发布了哪些作品。
 
 ```bash
-mcmod-search author <用户名> [options]
+mc-search author <用户名> [options]
 ```
 
 | 选项 | 说明 |
@@ -275,17 +275,17 @@ mcmod-search author <用户名> [options]
 
 **示例**：
 ```bash
-mcmod-search --json author jellysquid_
+mc-search --json author jellysquid_
 ```
 
 ---
 
-### 7. wiki — minecraft.wiki 搜索
+### 8. wiki — minecraft.wiki 搜索
 
 **使用场景**：查原版游戏内容（附魔、合成、生物、方块等）。
 
 ```bash
-mcmod-search wiki <关键词> [options]
+mc-search wiki <关键词> [options]
 ```
 
 | 选项 | 说明 |
@@ -296,18 +296,18 @@ mcmod-search wiki <关键词> [options]
 
 **示例**：
 ```bash
-mcmod-search --json wiki 附魔台
-mcmod-search --json wiki 凋灵 -r
+mc-search --json wiki 附魔台
+mc-search --json wiki 凋灵 -r
 ```
 
 ---
 
-### 8. read — 读取 wiki 页面正文
+### 9. read — 读取 wiki 页面正文
 
 **使用场景**：用户选中了一个 wiki 页面，想看完整内容。
 
 ```bash
-mcmod-search read <url> [options]
+mc-search read <url> [options]
 ```
 
 | 选项 | 说明 |
@@ -317,7 +317,7 @@ mcmod-search read <url> [options]
 
 **示例**：
 ```bash
-mcmod-search --json read https://minecraft.wiki/w/Diamond_Sword -p 8
+mc-search --json read https://minecraft.wiki/w/Diamond_Sword -p 8
 ```
 
 ---
@@ -462,9 +462,9 @@ mcmod-search --json read https://minecraft.wiki/w/Diamond_Sword -p 8
 
 - 依赖：**Python 3.8+**、**curl**
 - 无需 API key
-- 安装：`pip install mcmod-info`
-- 命令入口：`mcmod-search`
-- 缓存目录：`~/.cache/mcmod-info/`
+- 安装：`pip install mc-search`
+- 命令入口：`mc-search`
+- 缓存目录：`~/.cache/mc-search/`
 
 ---
 

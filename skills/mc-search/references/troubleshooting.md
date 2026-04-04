@@ -11,7 +11,7 @@
 
 ## MC百科返回空结果
 
-**症状**：`三个平台均无 [关键词] 相关结果`，但网络正常
+**症状**：`四个平台均无 [关键词] 相关结果`，但网络正常
 
 **排查**：
 ```bash
@@ -31,7 +31,7 @@ curl -s "https://search.mcmod.cn/s?key=关键词&filter=3" | head -c 500
 ## 缓存清理
 
 ```bash
-rm -rf ~/.cache/mcmod-info/
+rm -rf ~/.cache/mc-search/
 ```
 
 ## Modrinth API 错误
@@ -40,7 +40,7 @@ rm -rf ~/.cache/mcmod-info/
 
 **排查**：
 ```bash
-curl -s "https://api.modrinth.com/v2/project/sodium" -H "User-Agent: mcmod-search/1.0"
+curl -s "https://api.modrinth.com/v2/project/sodium" -H "User-Agent: Mozilla/5.0"
 ```
 
 - HTTP 429：触发了限速，等待 1 小时
@@ -68,7 +68,7 @@ curl -s "https://minecraft.wiki/api.php?action=query&list=search&srsearch=关键
 
 **解决**：直接传入 class URL：
 ```bash
-mcmod-search info https://www.mcmod.cn/class/18710.html
+mc-search info https://www.mcmod.cn/class/18710.html
 ```
 
 ## --installed 参数不生效
@@ -79,7 +79,7 @@ mcmod-search info https://www.mcmod.cn/class/18710.html
 
 ## 速度问题
 
-- **三平台搜索** 默认超时 12 秒，每平台最多 3 结果
+- **四平台搜索** 默认超时 12 秒，每平台最多 3 结果
 - **单平台搜索** 响应通常在 1-3 秒内
 - **Modrinth API** 360 req/hr 限制，正常使用不会触发
 
@@ -87,5 +87,5 @@ mcmod-search info https://www.mcmod.cn/class/18710.html
 
 使用 `--json` 查看完整返回数据：
 ```bash
-mcmod-search --json search 关键词
+mc-search --json search 关键词
 ```

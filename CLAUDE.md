@@ -1,65 +1,101 @@
-# mcmod-info 项目指南
+# mc-search 项目指南
 
 ## 项目概述
 
-Minecraft 模组 + 游戏内容信息查询工具，供 AI Agent 调用。
+Minecraft 聚合搜索工具，供 AI Agent 调用。
 
 **四大平台：**
 - MC百科 (mcmod.cn) — 中文模组/物品
 - Modrinth — 英文 mod/光影/材质包
-- minecraft.wiki — 原版游戏内容 wiki
+- minecraft.wiki — 原版游戏内容 wiki（英文）
 - minecraft.wiki/zh — 原版游戏内容 wiki（中文）
+
+---
 
 ## Agent 工具接口
 
-工具名：`mcmod-search`（通过 Bash 执行）
+工具名：`mc-search`（通过 Bash 执行）
 
-**常用调用：**
+### 首选调用方式
+
+**始终使用 `--json`** 获取结构化输出：
+
 ```bash
-# 搜索
-mcmod-search search <关键词>          # 四平台并行
-mcmod-search search <词> --type item  # 物品
-mcmod-search mr <关键词>              # 仅 Modrinth
-
-# 信息查询
-mcmod-search info <模组>              # MC百科详情
-mcmod-search dep <mod_slug>           # Modrinth 依赖树
-mcmod-search update-check <mod> --installed <版本>  # 版本对比
-mcmod-search author <用户名>          # Modrinth 作者作品
-
-# wiki
-mcmod-search wiki <关键词>            # minecraft.wiki 搜索
-mcmod-search read <url>               # 读取正文
-
-# 全局选项（所有命令共享）
-mcmod-search <cmd> --json            # JSON 输出（Agent 推荐）
-mcmod-search <cmd> --cache           # 启用本地缓存（TTL 1小时）
-mcmod-search <cmd> --no-mcmod        # 禁用 MC百科
-mcmod-search <cmd> --no-mr           # 禁用 Modrinth
-mcmod-search <cmd> --no-wiki         # 禁用 minecraft.wiki
-mcmod-search <cmd> --no-wiki-zh      # 禁用 minecraft.wiki/zh
-mcmod-search <cmd> -o <file>         # 输出到文件
-
-# info 子选项
-mcmod-search info <模组> -T          # 仅名称/别名
-mcmod-search info <模组> -a          # 仅作者
-mcmod-search info <模组> -d          # 仅前置/联动模组
-mcmod-search info <模组> -v          # 仅支持版本
-mcmod-search info <模组> -g          # 仅截图/封面
-mcmod-search info <模组> -c          # 仅分类/标签
-mcmod-search info <模组> -s          # 仅来源链接
-mcmod-search info <模组> -S          # 仅状态/开源属性
-mcmod-search info <模组> -m          # 同时查询 Modrinth
-mcmod-search info <模组> -r          # 显示物品合成表（仅 item 类型）
-
-# 输出格式（Agent 推荐）
-mcmod-search <command> --json
+mc-search --json search <关键词>
+mc-search --json info <模组名>
+mc-search --json full <模组名>
 ```
+
+> **重要**：全局选项（`--json`、`--cache`、平台开关）必须放在子命令 **之前**。
+
+---
+
+## 决策树
+
+```
+用户询问模组/游戏内容
+├── 不知道具体哪个平台 → search（四平台并行）
+├── 想一键获取完整信息 → full（推荐，一次调用=搜索+详情+依赖+版本）
+├── 想看详细信息 → info / dep / update-check
+├── 想查原版游戏内容 → wiki / read
+└── 想查作者作品 → search --author（MC百科）/ author（Modrinth）
+```
+
+---
+
+## 常用命令
+
+### 搜索
+
+```bash
+mc-search --json search 钠              # 四平台并行
+mc-search --json search 钻石剑 --type item  # 物品搜索
+mc-search --json search --author Notch  # MC百科作者
+```
+
+### 详情
+
+```bash
+mc-search --json info 钠                # MC百科详情
+mc-search --json info 钠 -m             # 同时查 Modrinth
+mc-search --json dep sodium             # Modrinth 依赖树
+mc-search --json update-check sodium --installed 0.5.0  # 版本检查
+```
+
+### 一键全量（推荐）
+
+```bash
+mc-search --json full 钠                # 一次获取全部信息
+mc-search --json full 钠 --installed 0.5.0  # 带版本检查
+```
+
+### Wiki
+
+```bash
+mc-search --json wiki 附魔台            # 原版内容搜索
+mc-search --json read https://minecraft.wiki/w/Diamond_Sword  # 读取正文
+```
+
+---
+
+## 全局选项
+
+| 选项 | 说明 |
+|------|------|
+| `--json` | JSON 格式输出（Agent 推荐） |
+| `--cache` | 启用本地缓存（TTL 1小时） |
+| `--no-mcmod` | 禁用 MC百科 |
+| `--no-mr` | 禁用 Modrinth |
+| `--no-wiki` | 禁用 minecraft.wiki |
+| `--no-wiki-zh` | 禁用中文 wiki |
+| `-o <file>` | 输出到文件 |
+
+---
 
 ## 目录结构
 
 ```
-skills/mcmod-info/
+skills/mc-search/
 ├── SKILL.md              # Agent 接口定义（核心文档）
 ├── pyproject.toml        # Python 包配置
 ├── scripts/
@@ -68,30 +104,26 @@ skills/mcmod-info/
 └── references/
     ├── result-schema.md  # 结果字段说明
     ├── mcmod-api.md      # MC百科 API
-    ├── modrinth-api.md   # Modrinth API
-    └── troubleshooting.md
+    └── modrinth-api.md   # Modrinth API
 ```
+
+---
 
 ## 开发规范
 
-- `search_all()` 在 `--json` 模式下返回融合后的 `list[dict]`，否则返回 `{platform: [results]}`；其余搜索函数统一返回 `list[dict]`，格式见 `references/result-schema.md`
-- 平台调用失败时返回空列表，不抛出异常
-- 所有网络请求通过 `core._curl()` 统一发出
-- 无外部依赖，仅使用 Python 标准库 + curl
-- Agent 调用优先使用 `--json` 便于解析
+1. **返回格式**：`--json` 模式返回 `list[dict]`，字段见 `references/result-schema.md`
+2. **错误处理**：平台调用失败返回空列表，不抛出异常
+3. **网络请求**：统一通过 `core._curl()` 发出
+4. **依赖**：仅使用 Python 标准库 + curl，无外部依赖
+5. **Agent 调用**：优先使用 `--json` 便于解析
+
+---
 
 ## 本地测试
 
 ```bash
-# 安装
 pip install -e .
-
-# 测试搜索
-mcmod-search search 钠
-
-# 测试 JSON 输出
-mcmod-search search 钠 --json
-
-# 查看帮助
-mcmod-search --help
+mc-search search 钠
+mc-search --json search 钠
+mc-search --help
 ```

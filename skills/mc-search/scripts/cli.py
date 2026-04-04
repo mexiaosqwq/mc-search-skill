@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-mcmod-info CLI — Minecraft 模组+游戏内容信息查询
-统一入口，四平台并行，结果格式一致
+mc-search CLI — Minecraft 聚合搜索工具
+四平台并行，结果格式一致
 """
 
 import argparse
@@ -75,7 +75,7 @@ def _parse_mod_identifier(mod_arg: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="mcmod-info: Minecraft 模组+游戏内容查询",
+        description="mc-search: Minecraft 聚合搜索",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--json", action="store_true", help="以 JSON 格式输出（所有命令）")
@@ -204,15 +204,16 @@ def main():
             return
         results = core.search_all(args.keyword, max_per_source=args.max,
                                   timeout=args.timeout, content_type=args.content_type,
-                                  fuse=args.fuse or args.json)
+                                  fuse=True)
         if args.json:
             _json(results)
-        elif isinstance(results, list):
-            # fuse=True 时返回融合列表，逐条打印
-            for h in results:
-                print_hit(h)
         else:
-            print_results(results, keyword=args.keyword)
+            # 融合结果：统一按相关性排序，逐条打印（platform_stats 仅在 JSON 中显示）
+            if not results.get("results"):
+                print(f"所有平台均无 [{args.keyword}] 相关结果")
+            else:
+                for h in results["results"]:
+                    print_hit(h)
 
     @_timed
     def _cmd_wiki():
@@ -261,13 +262,13 @@ def main():
 
     @_timed
     def _cmd_mr():
-        hits = core.search_modrinth(args.keyword, max_results=args.max, project_type=args.ptype)
+        data = core.search_modrinth(args.keyword, max_results=args.max, project_type=args.ptype)
         if args.json:
-            _json(hits)
-        elif not hits:
+            _json(data)
+        elif not data.get("results"):
             print(f"Modrinth 无 [{args.keyword}] 相关结果（类型：{args.ptype}）")
         else:
-            for h in hits:
+            for h in data["results"]:
                 print_hit(h)
 
     @_timed
@@ -385,7 +386,10 @@ def main():
         if ident["class_id"]:
             class_id = ident["class_id"]
         elif ident["mcmod_name"]:
-            results = core.search_mcmod(ident["mcmod_name"], max_results=1)
+            try:
+                results = core.search_mcmod(ident["mcmod_name"], max_results=1)
+            except core._SearchError:
+                results = []
             if not results:
                 print(f"未找到名为 [{ident['mcmod_name']}] 的模组")
                 return
@@ -478,8 +482,10 @@ def main():
                     print(f"    {s}")
 
         if show_all or args.source:
-            print(f"  来源：{info.get('source', 'mcmod.cn')}")
-            print(f"  页面：{info.get('url', '')}")
+            # 仅在 -s 选项时显示平台/链接（默认输出已在 title 段显示）
+            if args.source and not show_all:
+                print(f"  平台：{info.get('source', 'mcmod.cn')}")
+                print(f"  链接：{info.get('url', '')}")
             sid = info.get("source_id", "")
             print(f"  Class ID：{sid}")
 
@@ -487,7 +493,8 @@ def main():
         if args.modrinth:
             mr_name = info.get("name_en") or info.get("name", "")
             if mr_name:
-                mr_results = core.search_modrinth(mr_name, max_results=3)
+                mr_data = core.search_modrinth(mr_name, max_results=3)
+                mr_results = mr_data.get("results", [])
                 if mr_results:
                     # 找最匹配的（名字最相近的）
                     best = mr_results[0]
@@ -511,14 +518,14 @@ def main():
                 else:
                     print(f"\n  ── Modrinth ──  未找到相关项目")
 
-        # 作者引导
+        # 作者引导（仅在无过滤参数时显示）
         author = info.get("author")
-        if author and not args.modrinth:
+        if author and show_all and not args.modrinth:
             safe_author = author.replace(" ", "_")
             print(f"\n  💡 同作者其他作品：search --author {safe_author}")
 
-        # 合成表提示
-        if info.get("has_recipe"):
+        # 合成表提示（仅在无过滤参数时显示）
+        if info.get("has_recipe") and show_all:
             print(f"\n  💡 该物品有合成表：info {mod_arg} -r")
 
         # 合成表查询
@@ -642,9 +649,10 @@ def main():
         mr_info = None
         if mr_search_name and not args.skip_mr:
             try:
-                hits = core.search_modrinth(mr_search_name, max_results=1)
+                data = core.search_modrinth(mr_search_name, max_results=1)
             except Exception:
-                hits = []
+                data = {"results": [], "total": 0, "returned": 0}
+            hits = data.get("results", [])
             if hits:
                 hit_name = hits[0].get("name") or hits[0].get("name_en") or ""
                 norm_search = re.sub(r"[^a-z0-9]", "", mr_search_name.lower())
@@ -723,7 +731,8 @@ def main():
                 print(f"  参考搜索词：{mr_search_name} → Modrinth 结果：{result['_mr_tentative']}")
             if deps and deps.get('deps'):
                 print(f"\n  ── 依赖 ──")
-                print_deps(deps)
+                mod_name = mr.get('name', '') if mr else mc.get('name_zh', '') if mc else ''
+                print_deps(deps, mod_name)
             if uc:
                 print_update_status(uc)
 
@@ -752,58 +761,6 @@ def main():
 # 打印函数
 # ─────────────────────────────────────────
 
-def print_results(results: dict, keyword: str):
-    """打印四平台搜索结果（同结果合并提示 + 同名消歧）。"""
-    total = sum(len(v) for v in results.values())
-    if total == 0:
-        print(f"所有平台均无 [{keyword}] 相关结果")
-        return
-
-    # 收集第一个模组结果（用于后续提示）
-    first_mod_name = None
-    first_mcmod_hit = None
-    for src, hits in results.items():
-        for h in hits:
-            if h.get("type") == "mod" and first_mod_name is None:
-                first_mod_name = h.get("name_en") or h.get("name") or h.get("name_zh") or ""
-                if h.get("source") == "mcmod.cn":
-                    first_mcmod_hit = h
-
-    for src, hits in results.items():
-        if not hits:
-            continue
-        print(f"\n  [{src}]")
-        # 检测同名碰撞（按 name 统计出现次数）
-        name_count: dict[str, int] = {}
-        for h in hits:
-            n = (h.get("name_zh") or h.get("name") or "").lower()
-            name_count[n] = name_count.get(n, 0) + 1
-
-        for i, h in enumerate(hits):
-            # 统计同名出现次数，用于消歧
-            n = (h.get("name_zh") or h.get("name") or "").lower()
-            dup_count = name_count.get(n, 1)
-            print_hit(h, index=i, total=dup_count)
-
-    # 操作提示
-    if first_mod_name:
-        slug = first_mcmod_hit.get("source_id", "") if first_mcmod_hit else ""
-        author = first_mcmod_hit.get("author") if first_mcmod_hit else None
-        mod_name_for_info = first_mcmod_hit.get("name_zh") or first_mod_name if first_mcmod_hit else first_mod_name
-        print(f"\n  💡 更多操作：")
-        print(f"     info {mod_name_for_info}        # 查看详细信息（MC百科）")
-        if slug:
-            print(f"     dep {slug}              # 查看依赖（Modrinth）")
-            print(f"     update-check {slug} --installed <ver>  # 检查更新")
-        if author:
-            safe_author = author.replace(" ", "_")
-            print(f"     search --author {safe_author}  # 查看作者其他作品（MC百科）")
-        else:
-            en_name = first_mcmod_hit.get("name_en") if first_mcmod_hit else ""
-            if en_name:
-                print(f"     author {en_name}          # 查看作者其他作品（Modrinth）")
-
-
 def _type_badge(h: dict) -> str:
     """返回类型标识字符串（用于消歧）。"""
     t = h.get("type", "mod")
@@ -820,79 +777,80 @@ def _type_badge(h: dict) -> str:
 
 def print_hit(h: dict, index: int = 0, total: int = 1):
     """
-    打印单个搜索结果（含消歧信息）。
-    index/total: 该结果在其分组中的位置，用于检测同名项。
+    打印单个搜索结果（规整格式）。
     """
-    # ── 名称行 ──
     name = h.get("name_zh") or h.get("name", "?")
     en = h.get("name_en", "")
-    badge = _type_badge(h)
-    name_line = f"{name} {badge}".strip()
-    if en and en != name:
-        name_line = f"{name_line} ({en})"
-    print(f"  {name_line}")
-
-    # ── 消歧信息（当同名或多项时显示） ──
     src = h.get("source", "")
     htype = h.get("type", "mod")
+    badge = _type_badge(h)
 
-    # MC百科：显示分类（模组）或资料分类（物品）
+    # 头部：名称 + 类型 + 来源
+    header = f"  ── {name}"
+    if en and en != name:
+        header += f" ({en})"
+    if badge:
+        header += f" {badge}"
+    header += f" 【{src}】"
+    print(header)
+
+    # ── 元数据 ──
     if src == "mcmod.cn":
         if htype == "item":
-            # 物品：资料分类 + 所属模组 + 耐久/堆叠
             cat = h.get("category")
             mod_name = h.get("source_mod_name")
-            mod_url = h.get("source_mod_url")
             dur = h.get("max_durability")
             stack = h.get("max_stack")
             meta = []
             if cat:
-                meta.append(f"分类:{cat}")
+                meta.append(f"分类: {cat}")
             if dur:
-                meta.append(f"耐久:{dur}")
+                meta.append(f"耐久: {dur}")
             if stack:
-                meta.append(f"堆叠:{stack}")
+                meta.append(f"堆叠: {stack}")
             if meta:
-                print(f"    {' | '.join(meta)}")
+                print(f"     {' | '.join(meta)}")
             if mod_name:
-                print(f"    来自: {mod_name}")
-                if mod_url:
-                    print(f"    {mod_url}")
+                print(f"     来自: {mod_name}")
         else:
-            # 模组：分类 + 状态
             cats = h.get("categories", [])
-            if cats:
-                print(f"    分类: {' | '.join(cats)}")
             st = h.get("status")
             source_type = h.get("source_type")
+            author = h.get("author")
             meta = []
+            if cats:
+                meta.append(f"分类: {' | '.join(cats)}")
             if st:
-                meta.append(st)
+                meta.append(f"状态: {st}")
             if source_type:
                 meta.append(_SOURCE_TYPE_LABELS.get(source_type, source_type))
-            if meta:
-                print(f"    {' '.join(meta)}")
-
-    # Modrinth：显示类型（同名不同类时）
-    elif src == "modrinth" and total > 1:
+            for m in meta:
+                print(f"     {m}")
+            if author:
+                print(f"     作者: {author}")
+    elif src == "modrinth":
         pt = h.get("type", "mod")
-        print(f"    类型: {pt}")
+        print(f"     类型: {pt}")
 
-    # ── URL ──
-    if h.get("url"):
-        print(f"    {h['url']}")
-
-    # ── 描述/摘要（MC百科有 description，Modrinth 有 snippet） ──
+    # ── 描述 ──
     desc = h.get("description") or h.get("snippet", "")
     if desc:
-        first_line = desc.strip().split("\n")[0][:120]
-        if first_line:
-            print(f"    {first_line}")
+        # 清洗 HTML 标签和多余空白
+        desc = re.sub(r"<[^>]+>", "", desc)
+        desc = re.sub(r"\s+", " ", desc).strip()
+        if len(desc) > 200:
+            desc = desc[:200] + "…"
+        print(f"     {desc}")
 
     # ── Wiki 章节 ──
     if h.get("sections"):
         for s in h["sections"][:5]:
-            print(f"    · {s}")
+            print(f"     · {s}")
+
+    # ── URL ──
+    url = h.get("url")
+    if url:
+        print(f"     → {url}")
 
 
 # ─────────────────────────────────────────

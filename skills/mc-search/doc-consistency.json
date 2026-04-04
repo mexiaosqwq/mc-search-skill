@@ -1,0 +1,186 @@
+{
+  "metadata": {
+    "check_scope": "skills/mc-search/",
+    "check_time": "2026-04-04",
+    "tool_version": "mc-search 0.3.0",
+    "verdict": "Pass",
+    "summary": {
+      "P0": 0,
+      "P1": 0,
+      "P2": 0,
+      "P3": 0,
+      "Pending": 0
+    },
+    "note": "重命名后复查，已修复所有遗留问题"
+  },
+  "issues": [],
+  "previously_fixed": [
+    {
+      "id": 1,
+      "title": "search_all() 返回类型文档与实现不符",
+      "status": "FIXED"
+    },
+    {
+      "id": 2,
+      "title": "full 命令未在 README.md 中记录",
+      "status": "FIXED"
+    },
+    {
+      "id": 3,
+      "title": "update-check 命令未在 README.md 中记录",
+      "status": "FIXED"
+    },
+    {
+      "id": 4,
+      "title": "--type block 和 --type mechanic 文档有但代码未实现",
+      "status": "FIXED"
+    },
+    {
+      "id": 6,
+      "title": "Troubleshooting.md 示例使用代码中不存在的 filter 值",
+      "status": "FIXED"
+    },
+    {
+      "id": 7,
+      "title": "search --author JSON 输出中 modrinth: [] 字段误导",
+      "status": "FIXED"
+    },
+    {
+      "id": 8,
+      "title": "result-schema.md 缺少 search_mcmod_author 返回格式说明",
+      "status": "FIXED"
+    },
+    {
+      "id": 11,
+      "title": "result-schema.md body 截断描述不精确",
+      "status": "FIXED"
+    },
+    {
+      "id": 12,
+      "title": "dep --installed SKILL.md 缺少 '仅 dep' 说明",
+      "status": "FIXED"
+    },
+    {
+      "id": 13,
+      "title": "Dead code: search_wiki_zh 和 read_wiki_zh 重复定义",
+      "status": "FIXED"
+    },
+    {
+      "id": 14,
+      "title": "SKILL.md 章节编号错误 (dep/update-check/author)",
+      "status": "FIXED"
+    },
+    {
+      "id": 15,
+      "title": "README.md 平台数量说明矛盾",
+      "status": "FIXED"
+    },
+    {
+      "id": 16,
+      "title": "Modrinth API 文档限速描述不完整",
+      "status": "FIXED"
+    },
+    {
+      "id": 17,
+      "title": "CLI full 命令 search_results 说明不完整",
+      "status": "FIXED"
+    },
+    {
+      "id": 19,
+      "title": "info 命令 Modrinth URL 支持不明确",
+      "status": "FIXED"
+    },
+    {
+      "id": 20,
+      "title": "troubleshooting.md 缓存目录与实现不一致",
+      "status": "FIXED"
+    },
+    {
+      "id": 21,
+      "title": "troubleshooting.md 命令名未更新",
+      "status": "FIXED"
+    },
+    {
+      "id": 22,
+      "title": "troubleshooting.md 平台数量描述错误",
+      "status": "FIXED"
+    },
+    {
+      "id": 23,
+      "title": "modrinth-api.md User-Agent 描述与实现不一致",
+      "status": "FIXED"
+    },
+    {
+      "id": 24,
+      "title": "SKILL.md 章节编号重复",
+      "status": "FIXED"
+    },
+    {
+      "id": 25,
+      "title": "CLAUDE.md 命令名已验证一致",
+      "status": "FIXED"
+    }
+  ],
+  "verified_consistent": [
+    {
+      "item": "SKILL.md 命令格式",
+      "status": "一致",
+      "note": "所有命令示例使用 mc-search"
+    },
+    {
+      "item": "CLAUDE.md 命令格式",
+      "status": "一致",
+      "note": "所有命令示例使用 mc-search"
+    },
+    {
+      "item": "result-schema.md body 截断",
+      "status": "一致",
+      "note": "_MAX_BODY_CHARS = 5000"
+    },
+    {
+      "item": "result-schema.md version_groups",
+      "status": "一致",
+      "note": "_MAX_VERSION_GROUPS = 5"
+    },
+    {
+      "item": "result-schema.md changelogs",
+      "status": "一致",
+      "note": "_MAX_CHANGELOGS = 5"
+    },
+    {
+      "item": "core.py 缓存目录",
+      "status": "一致",
+      "note": "~/.cache/mc-search/ 与项目名称一致"
+    },
+    {
+      "item": "pyproject.toml 包名",
+      "status": "一致",
+      "note": "mc-search 0.3.0"
+    },
+    {
+      "item": "troubleshooting.md 缓存目录",
+      "status": "一致",
+      "note": "~/.cache/mc-search/"
+    },
+    {
+      "item": "troubleshooting.md 命令名",
+      "status": "一致",
+      "note": "使用 mc-search"
+    },
+    {
+      "item": "troubleshooting.md 平台数量",
+      "status": "一致",
+      "note": "四个平台"
+    },
+    {
+      "item": "modrinth-api.md User-Agent",
+      "status": "一致",
+      "note": "Mozilla/5.0 模拟浏览器请求"
+    },
+    {
+      "item": "SKILL.md 章节编号",
+      "status": "一致",
+      "note": "author=7, wiki=8, read=9"
+    }
+  ]
+}

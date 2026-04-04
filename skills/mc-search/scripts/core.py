@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mcmod-info 核心搜索模块
+mc-search 核心搜索模块
 统一接口：四平台并行搜索 + 统一结果格式 + 智能路由
 """
 
@@ -60,6 +60,13 @@ _MAX_TABLE_ITEMS = 8        # table 最大 item 数
 _MAX_BODY_CHARS = 5000      # ModRinth 详情 body 字段最大截断长度
 _MAX_VERSION_GROUPS = 5     # 版本组最多显示数
 _MAX_CHANGELOGS = 5         # 更新日志最多显示数
+_SOURCE_MAX = {              # search_all 每平台最多结果（按 content_type 分级）
+    "mod": 3,
+    "item": 10,
+    "entity": 6,
+    "biome": 6,
+    "dimension": 4,
+}
 _MAX_ITEM_DESC_PARAGRAPHS = 5   # 物品页面描述最多段落数
 _MAX_MOD_DESC_PARAGRAPHS = 8    # 模组页面描述最多段落数
 
@@ -118,7 +125,7 @@ _cache_ttl = 3600  # 默认 1 小时
 
 
 def _cache_dir() -> Path:
-    return Path(os.path.expanduser("~/.cache/mcmod-info"))
+    return Path(os.path.expanduser("~/.cache/mc-search"))
 
 
 def _cache_key(*parts: str) -> str:
@@ -270,14 +277,24 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
                     text = re.sub(r"<[^>]+>", "", segment)
                     text = html_module.unescape(text)
                     text = re.sub(r"[ \t\r]+", " ", text).strip()
-                    skip_prefixes = ["MC百科的目标是", "MC百科(mcmod.cn)的目标",
-                                     "提供Minecraft(我的世界)MOD(模组)物品资料介绍"]
+                    skip_prefixes = [
+                        "MC百科的目标是", "MC百科(mcmod.cn)的目标",
+                        "提供Minecraft(我的世界)MOD(模组)物品资料介绍",
+                        "暂无简介，欢迎协助完善",
+                        "MCmod does not have a description with this game data yet",
+                        "This page still working because",
+                        "player can edit description, instead of navigation",
+                        "for navigation",
+                        "<!--", "-->",
+                    ]
                     lines = []
                     for line in text.split("\n"):
                         line = line.strip()
                         if len(line) < 10:
                             continue
                         if any(line.startswith(p) for p in skip_prefixes):
+                            continue
+                        if any(p in line for p in ("MCmod does not have a description", "for navigation", "player can edit description")):
                             continue
                         lines.append(line)
                     description = "\n".join(lines[:_MAX_ITEM_DESC_PARAGRAPHS])
@@ -417,6 +434,8 @@ def _extract_mcmod_description(html: str) -> str:
         "mcmod.cn | ", "鄂ICP备", "鄂公网安备",
     ]
     para_title_pat = r"^(?:概述|简介|正文)\s*"
+    # 匹配论坛元数据，如 (7)Mod讨论 (2)
+    _mod_meta_pat = re.compile(r"^\(\d+\)\s*Mod(?:讨论|教程)\s*\(\d+\)")
     lines = []
     for line in text.split("\n"):
         line = line.strip()
@@ -425,6 +444,8 @@ def _extract_mcmod_description(html: str) -> str:
         if len(line) < 10:
             continue
         if any(line.startswith(p) for p in skip_fragments):
+            continue
+        if _mod_meta_pat.match(line):
             continue
         if re.search(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是", line):
             line = re.sub(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是.*", "", line).strip()
@@ -670,10 +691,11 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
     return results
 
 
-def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> list[dict]:
+def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
     """
     Modrinth API 搜索。
 
+    返回 {"results": [...], "total": int, "returned": int}
     project_type: "mod" | "shader" | "resourcepack"
     """
     key = _cache_key("modrinth", keyword, max_results, project_type)
@@ -687,7 +709,7 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
         raw = _curl(url)
         data = json.loads(raw)
     except Exception:
-        return []
+        return {"results": [], "total": 0, "returned": 0}
 
     results = []
     for hit in data.get("hits", []):
@@ -704,8 +726,10 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "type": pt or project_type or "mod",
             "snippet": hit.get("description", ""),
         })
-    _cache_set("search", key, results)
-    return results
+    total = data.get("total_hits", 0)
+    ret = {"results": results, "total": total, "returned": len(results)}
+    _cache_set("search", key, ret)
+    return ret
 
 
 def get_mod_info(mod_id: str) -> dict | None:
@@ -949,6 +973,7 @@ def _search_wiki_impl(
             'id="firstHeading"' in html
             and "Special:Search" not in title_text
             and "Search results" not in title_text
+            and "的搜索结果" not in title_text
         )
 
         if is_direct:
@@ -1254,40 +1279,46 @@ def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
 
 
 def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
-               content_type: str = "mod", fuse: bool = False) -> dict | list[dict]:
+               content_type: str = "mod", fuse: bool = False) -> dict:
     """
     四平台并行搜索，返回统一格式。
     timeout: 整体超时秒数
     content_type: "mod" | "item" | "entity" | "biome" | "dimension"
-      - 用于融合排序偏好（不影响搜索范围，永远查全部平台）
-    fuse: True 时返回跨平台融合后的列表（默认 False）
+      - 同时决定每平台最大结果数（_SOURCE_MAX 字典）
+    fuse: True 时返回 {"results": [...融合列表...], "platform_stats": {platform: {total, returned}}}
+         False 时返回 {platform: [results]}（向后兼容）
     """
+    # 按 content_type 分级设置每平台结果数
+    per_source = _SOURCE_MAX.get(content_type, max_per_source)
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
+    stats = {"mcmod.cn": {"total": 0, "returned": 0},
+             "modrinth": {"total": 0, "returned": 0},
+             "minecraft.wiki": {"total": 0, "returned": 0},
+             "minecraft.wiki/zh": {"total": 0, "returned": 0}}
     pe = _platform_enabled
 
     def _wrap_mcmod():
         try:
-            # entity/biome/dimension 透传会导致 filter=0 模组搜索，质量低
             ct = content_type if content_type in ("mod", "item") else "mod"
-            return search_mcmod(keyword, max_per_source, content_type=ct)
+            return search_mcmod(keyword, per_source, content_type=ct)
         except Exception:
             return []
 
     def _wrap_mr():
         try:
-            return search_modrinth(keyword, max_per_source)
+            return search_modrinth(keyword, per_source)
         except Exception:
-            return []
+            return {"results": [], "total": 0, "returned": 0}
 
     def _wrap_wiki():
         try:
-            return search_wiki(keyword, max_per_source)
+            return search_wiki(keyword, per_source)
         except Exception:
             return []
 
     def _wrap_wiki_zh():
         try:
-            return search_wiki_zh(keyword, max_per_source)
+            return search_wiki_zh(keyword, per_source)
         except Exception:
             return []
 
@@ -1314,55 +1345,170 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
         for future in concurrent.futures.as_completed(workers):
             key = futures_map[future]
             try:
-                results[key] = future.result(timeout=timeout)
+                raw = future.result(timeout=timeout)
             except Exception:
-                results[key] = []
+                raw = [] if key != "modrinth" else {"results": [], "total": 0, "returned": 0}
+
+            if key == "modrinth" and isinstance(raw, dict):
+                results[key] = raw.get("results", [])
+                stats[key] = {"total": raw.get("total", 0), "returned": raw.get("returned", 0)}
+            else:
+                results[key] = raw if isinstance(raw, list) else []
+                stats[key] = {"total": len(results[key]), "returned": len(results[key])}
 
         # 取消未完成的 futures，避免后台线程泄漏
         for f in workers:
             f.cancel()
 
     if fuse:
-        return _fuse_results(results, content_type=content_type)
+        fused = _fuse_results(results, content_type=content_type, query_keyword=keyword)
+        return {"results": fused, "platform_stats": stats}
     return results
 
 
+def _is_cjk(text: str) -> bool:
+    """检测文本是否包含 CJK 字符。"""
+    return bool(re.search(r'[\u4e00-\u9fff]', text))
 
-def _fuse_results(results: dict, content_type: str = "mod") -> list[dict]:
-    """按 name_en/name_zh 跨平台去重合并，并按 content_type 调整平台优先级排序。
 
-    Platform priority:
-      - entity/biome/block/mechanic/dimension → wiki 权威排前面
-      - mod/item → mcmod.cn/Modrinth 优先
+def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
+    """计算单条搜索结果与查询词的相关性分数（0-110）。
+
+    评分规则：
+      - 精确等于 → 100
+      - 完整包含查询词 → 50
+      - 名称以查询词开头 → 30
+      - 查询词包含于名称 → 20
+      - 无匹配 → 0
+    对于 item 类型，wiki 来源的分数额外 +5（vanilla 物品权威来源）。
     """
-    # 平台优先级定义
-    if content_type in ("entity", "biome", "block", "mechanic", "dimension"):
-        priority = {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3}
-    else:
-        priority = {"mcmod.cn": 0, "modrinth": 1, "minecraft.wiki": 2, "minecraft.wiki/zh": 3}
+    if not query or not hit:
+        return 0.0
 
-    fused = []
-    by_name = {}
+    # 决定用哪个名字字段评分
+    name_zh = hit.get("name_zh") or ""
+    name_en = hit.get("name_en") or ""
+    name = hit.get("name") or ""
+
+    q = query.strip().lower()
+    if not q:
+        return 0.0
+
+    # 优先用搜索词对应语言的名称
+    if _is_cjk(q):
+        primary = name_zh
+        secondary = name_en
+    else:
+        primary = name_en
+        secondary = name_zh
+
+    # 如果主字段为空，用次字段
+    if not primary:
+        primary = secondary
+        secondary = ""
+
+    primary_lc = primary.lower()
+    secondary_lc = secondary.lower()
+
+    score = 0
+
+    # 精确等于
+    if primary_lc == q:
+        score = 100
+    # 完整包含
+    elif q in primary_lc:
+        score = 50
+    # 名称以查询词开头
+    elif primary_lc.startswith(q):
+        score = 30
+    # 查询词包含于名称
+    elif q in primary_lc:
+        score = 20
+    # 次字段检查
+    elif secondary_lc and q == secondary_lc:
+        score = 90   # 次字段精确匹配，略低于主字段精确
+    elif secondary_lc and q in secondary_lc:
+        score = 40
+
+    # item 类型：wiki 是 vanilla 物品的权威来源，+5 加权
+    platform = hit.get("_platform", hit.get("source", ""))
+    if content_type == "item" and platform in ("minecraft.wiki", "minecraft.wiki/zh"):
+        score += 5
+
+    return score
+
+
+# 平台优先级（数字越小越权威，用于 tiebreaker）
+_PLATFORM_PRIORITY = {
+    "mcmod.cn": 0,
+    "modrinth": 1,
+    "minecraft.wiki": 2,
+    "minecraft.wiki/zh": 3,
+}
+
+# 按 content_type 调整的平台优先级
+_CONTENT_PLATFORM_PRIORITY = {
+    "item": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
+    "entity": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
+    "biome": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
+    "block": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
+    "mechanic": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
+    "dimension": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
+}
+
+
+def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str = "") -> list[dict]:
+    """跨平台去重合并，按相关性分数排序。
+
+    排序规则：相关性分数 DESC → 平台优先级 ASC（tiebreaker）
+    content_type 用于调整不同类型内容的平台优先级。
+    """
+    platform_prio = (_CONTENT_PLATFORM_PRIORITY.get(content_type)
+                     or {"mcmod.cn": 0, "modrinth": 1, "minecraft.wiki": 2, "minecraft.wiki/zh": 3})
+
+    # 第一步：给所有结果打分，同时过滤无关结果
+    scored = []
     for platform, hits in results.items():
         for h in hits:
-            key = (h.get("name_zh") or h.get("name_en") or h.get("name") or "").lower()
-            if not key:
-                continue
-            if key not in by_name:
-                by_name[key] = []
-            by_name[key].append({**h, "_platform": platform})
+            # 当搜索 mod 时，过滤 wiki 的 type="other" 结果（非模组相关内容）
+            if content_type == "mod" and platform in ("minecraft.wiki", "minecraft.wiki/zh"):
+                if h.get("type") == "other":
+                    continue  # 跳过 wiki 的杂项结果
+            score = _score_relevance(query_keyword, h, content_type=content_type)
+            # platform_prio: 数值越小越权威；sort by (-score, priority) 使 同分时高优先级（即 priority 大）排前面
+            priority = platform_prio.get(platform, 99)
+            scored.append({**h, "_platform": platform, "_score": score, "_priority": priority})
 
-    for key, entries in by_name.items():
-        # 按平台优先级排序（priority 越低越靠前）
-        entries_sorted = sorted(entries, key=lambda e: priority.get(e["_platform"], 99))
-        merged = entries_sorted[0].copy()
-        # 始终记录来源（统一结构）
-        merged["_sources"] = [e["_platform"] for e in entries_sorted]
-        if len(entries_sorted) > 1:
-            for e in entries_sorted[1:]:
-                for field in ("name_zh", "name_en", "description", "snippet"):
-                    if not merged.get(field) and e.get(field):
-                        merged[field] = e[field]
+    # 第二步：同名去重（按分数从高到低，同分时保留平台权威度高的）
+    by_name = {}
+    for entry in scored:
+        key = (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()
+        if not key:
+            continue
+        if key not in by_name:
+            by_name[key] = entry
+        elif entry["_score"] > by_name[key]["_score"]:
+            by_name[key] = entry
+        elif entry["_score"] == by_name[key]["_score"]:
+            # 同分时：priority 数值大（即更权威）的赢
+            if entry["_priority"] > by_name[key]["_priority"]:
+                by_name[key] = entry
+
+    # 第三步：排序（分数 DESC，同分时 priority DESC）
+    sorted_entries = sorted(by_name.values(),
+                            key=lambda e: (e["_score"] * -1, e["_priority"] * -1))
+
+    # 第四步：构建融合结果
+    fused = []
+    for entry in sorted_entries:
+        merged = {k: v for k, v in entry.items() if not k.startswith("_")}
+        # 收集所有同名结果的平台，并去重
+        platforms = [e["_platform"] for e in scored
+                     if (e.get("name_zh") or e.get("name_en") or e.get("name") or "").lower()
+                     == (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()]
+        merged["_sources"] = list(dict.fromkeys(platforms))  # 去重并保持顺序
+        if len(merged["_sources"]) > 1:
             merged["source"] = "|".join(merged["_sources"])
         fused.append(merged)
+
     return fused
