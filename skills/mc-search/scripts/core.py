@@ -69,8 +69,6 @@ _SOURCE_MAX = {              # search_all 每平台最多结果（按 content_ty
     "biome": 6,
     "dimension": 4,
 }
-_MAX_ITEM_DESC_PARAGRAPHS = 5   # 物品页面描述最多段落数
-_MAX_MOD_DESC_PARAGRAPHS = 20   # 模组页面描述最多段落数
 
 # ─────────────────────────────────────────
 # Wiki 解析辅助（read_wiki / read_wiki_zh 共用）
@@ -299,7 +297,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
                         if any(p in line for p in ("MCmod does not have a description", "for navigation", "player can edit description")):
                             continue
                         lines.append(line)
-                    description = "\n".join(lines[:_MAX_ITEM_DESC_PARAGRAPHS])
+                    description = "\n".join(lines)  # 不限制段落数
                     break
 
     return {
@@ -457,7 +455,8 @@ def _extract_mcmod_description(html: str) -> str:
         if any(p in line for p in ["©Copyright MC百科", "鄂ICP备", "鄂公网安备", "mcmod.cn | ", "百科帮助", "开发日志"]):
             continue
         lines.append(line)
-    return "\n".join(lines[:_MAX_MOD_DESC_PARAGRAPHS])
+    # 不限制段落数，返回完整描述（JSON 模式下用户可自行处理）
+    return "\n".join(lines)
 
 
 def _extract_mcmod_relationships(html: str) -> dict:
