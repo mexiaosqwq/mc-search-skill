@@ -44,6 +44,70 @@
 
 ---
 
+## `_truncated` 元数据字段（可选）
+
+当返回数据被截断时，`_truncated` 字段描述截断情况。AI Agent 可据此判断是否需要调用 `full` 命令获取完整数据。
+
+### 结构
+
+```json
+{
+  "_truncated": {
+    "{field_name}": {
+      "returned": 5,
+      "total": 62
+    }
+  }
+}
+```
+
+### 可能被截断的字段
+
+| 平台 | 字段 | 默认限制 | 说明 |
+|------|------|----------|------|
+| MC百科 | `screenshots` | 6 张 | 详情页截图 |
+| Modrinth | `body` | 5000 字符 | 项目描述正文 |
+| Modrinth | `gallery` | 10 张 | 项目截图 |
+| Modrinth | `version_groups` | 5 组 | 版本分组 |
+| Modrinth | `changelogs` | 5 条 | 更新日志 |
+
+### 使用示例
+
+**普通搜索（有截断）**：
+```json
+{
+  "name": "sodium",
+  "version_groups": [["0.6.0", {...}, ...]],
+  "_truncated": {
+    "version_groups": {"returned": 5, "total": 62},
+    "changelogs": {"returned": 5, "total": 144}
+  }
+}
+```
+
+**`full` 命令（无截断）**：
+```json
+{
+  "name": "sodium",
+  "version_groups": [["0.6.0", {...}], ["0.5.0", {...}], ...]
+  // Modrinth 数据无 _truncated 字段，完整返回
+  // MC百科 screenshots 仍有默认限制（6张）
+}
+```
+
+> **注意**：`full` 命令仅 Modrinth 数据无截断，MC百科截图仍有默认限制。
+
+### AI Agent 决策逻辑
+
+```
+if result._truncated exists:
+    # 数据不完整，告知用户或调用 full 命令
+    truncated_fields = list(result._truncated.keys())
+    # 可提示：部分数据已截断，如需完整信息请使用 full 命令
+```
+
+---
+
 ## MC百科 — item 搜索结果（`_parse_mcmod_item_result`）
 
 | 字段 | 说明 |
@@ -63,9 +127,29 @@
 
 ---
 
-## MC百科 — `search_mcmod_author` 作者搜索结果
+## MC百科 — 作者搜索 `search_mcmod_author`
 
-与 `search_mcmod`（模组）返回字段相同，包含完整详情页字段：name / name_en / name_zh / url / source / source_id / type / description / status / source_type / author / categories / tags / supported_versions / cover_image / screenshots / relationships / has_changelog / is_vanilla。
+与模组搜索返回字段相同，包含完整详情页字段：
+
+| 字段 | 说明 |
+|------|------|
+| `name` / `name_en` / `name_zh` | 模组名称 |
+| `url` | MC百科页面 URL |
+| `source` | `mcmod.cn` |
+| `source_id` | class ID |
+| `type` | `mod` |
+| `description` | 模组描述 |
+| `status` | 状态 |
+| `source_type` | `open_source` / `closed_source` |
+| `author` | 作者名（与搜索参数一致） |
+| `categories` | 分类列表 |
+| `tags` | 标签列表 |
+| `supported_versions` | 支持的版本列表 |
+| `cover_image` | 封面图 URL |
+| `screenshots` | 截图 URL 列表 |
+| `relationships` | 前置/联动模组 |
+| `has_changelog` | 是否有更新日志 |
+| `is_vanilla` | 是否为原版内容 |
 
 ---
 
@@ -130,8 +214,21 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `source` | str | 来源平台，多平台时为 `\|` 分隔（如 `mcmod.cn\|modrinth`） |
-| `_sources` | list[str] | 融合来源平台列表（所有来源，**始终存在**） |
+| `_sources` | list[str] | 融合来源平台列表（**仅融合模式下存在**） |
 | 其余字段 | | 来自优先级最高平台的结果 |
+
+**融合示例**：
+```json
+{
+  "name": "钠",
+  "name_en": "Sodium",
+  "url": "https://www.mcmod.cn/class/2655.html",
+  "source": "mcmod.cn|modrinth",
+  "_sources": ["mcmod.cn", "modrinth"],
+  "description": "现代渲染引擎和客户端优化模组...",
+  "type": "mod"
+}
+```
 
 **平台优先级**：
 - entity/biome/block/mechanic/dimension → `minecraft.wiki` > `minecraft.wiki/zh` > `mcmod.cn` > `modrinth`

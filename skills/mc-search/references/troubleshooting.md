@@ -71,16 +71,11 @@ curl -s "https://minecraft.wiki/api.php?action=query&list=search&srsearch=关键
 mc-search info https://www.mcmod.cn/class/18710.html
 ```
 
-## --installed 参数不生效
-
-**症状**：`update-check` 接受 `--installed` 但不用于版本比较
-
-**说明**：`--installed` 仅用于 `update-check` 的输出对比；`dep` 命令的 `--installed` 仅作为参数接受，不做版本对比。
-
 ## 速度问题
 
 - **四平台搜索** 默认超时 12 秒，每平台最多 3 结果
-- **单平台搜索** 响应通常在 1-3 秒内
+- **单平台搜索** (mr/wiki/author) 默认超时 12 秒
+- **详情查询** (info/full/dep) 默认超时 12 秒
 - **Modrinth API** 360 req/hr 限制，正常使用不会触发
 
 ## 调试模式

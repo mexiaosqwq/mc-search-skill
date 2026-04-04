@@ -62,6 +62,14 @@ _MAX_BODY_CHARS = 5000      # ModRinth 详情 body 字段最大截断长度
 _MAX_VERSION_GROUPS = 5     # 版本组最多显示数
 _MAX_CHANGELOGS = 5         # 更新日志最多显示数
 _MAX_FETCH_WORKERS = 4      # 并行抓取最大线程数
+_MAX_SCREENSHOTS = 6        # 模组截图最多显示数
+_MAX_GALLERY = 10           # Modrinth 图库最多显示数
+_MAX_TAG_SECTION_LEN = 500  # 标签区域提取长度
+_MAX_TAG_TEXT_LEN = 20  # 标签文本最大长度，过滤过长的非标签内容
+_MAX_SEARCH_SEGMENT = 2000  # 搜索片段提取长度
+_MAX_DESCRIPTION_SEGMENT = 10000  # 描述段落提取长度
+_MAX_AUTHOR_SECTION = 15000  # 作者页面区域提取长度
+_MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
 _SOURCE_MAX = {              # search_all 每平台最多结果（按 content_type 分级）
     "mod": 3,
     "item": 10,
@@ -204,6 +212,17 @@ def _curl(url: str, timeout: int = 10) -> str:
     return r.stdout.decode("utf-8", errors="replace")
 
 
+def _fetch_json(url: str, default=None) -> dict | list | None:
+    """统一处理 JSON 获取，失败返回默认值。"""
+    try:
+        raw = _curl(url)
+        if not raw:
+            return default if default is not None else {}
+        return json.loads(raw)
+    except Exception:
+        return default if default is not None else {}
+
+
 # ─────────────────────────────────────────
 # 物品/方块解析（MC百科 /item/ 页面）
 # ─────────────────────────────────────────
@@ -238,7 +257,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
 
     info_idx = html.find('item-info-table"')
     if info_idx >= 0:
-        info_section = html[info_idx:info_idx + 2000]
+        info_section = html[info_idx:info_idx + _MAX_INFO_TABLE_SECTION]
         # 资料分类
         cat_m = re.search(r'资料分类：</td><td[^>]*>([^<]+)<', info_section)
         if cat_m:
@@ -263,7 +282,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
     tag_m = re.search(r'<div[^>]*class="[^"]*item-content[^"]*font14[^"]*"[^>]*>', html)
     if tag_m:
         tag_end = tag_m.end()  # position of '>' in opening tag
-        search = html[tag_end:tag_end + 2000]
+        search = html[tag_end:tag_end + _MAX_SEARCH_SEGMENT]
         depth = 1  # already inside the div
         for i in range(len(search)):
             if search[i:i+4] == '<div':
@@ -300,7 +319,11 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
                     description = "\n".join(lines)  # 不限制段落数
                     break
 
-    return {
+    # 截图截断信息
+    screenshots_total = len(screenshots)
+    screenshots_limited = screenshots[:_MAX_SCREENSHOTS]
+
+    result = {
         "name": name_zh or raw_title or name,
         "name_en": name_en,
         "name_zh": name_zh or raw_title or name,
@@ -309,7 +332,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
         "source_id": re.search(r"/item/(\d+)", url).group(1) if url else "",
         "type": "item",
         "cover_image": cover_image,
-        "screenshots": screenshots[:6],
+        "screenshots": screenshots_limited,
         "category": category,
         "max_durability": max_durability,
         "max_stack": max_stack,
@@ -318,6 +341,12 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
         "description": description,
         "has_recipe": "recipe" in html.lower() or "合成" in html,
     }
+
+    # 截断元信息
+    if screenshots_total > _MAX_SCREENSHOTS:
+        result["_truncated"] = {"screenshots": {"returned": _MAX_SCREENSHOTS, "total": screenshots_total}}
+
+    return result
 
 
 def get_item_recipe(item_url: str) -> dict:
@@ -386,19 +415,24 @@ def _extract_mcmod_versions(html: str) -> list[str]:
     return list(set(re.findall(r'mcver=(\d+\.\d+(?:\.\d+)?)', ver_section)))
 
 
+def _is_valid_tag_text(text: str) -> bool:
+    """判断文本是否为有效标签（过滤过长文本和冒号结尾的标签名）。"""
+    t = text.strip()
+    return bool(t and len(t) < _MAX_TAG_TEXT_LEN and not t.endswith(':'))
+
+
 def _extract_mcmod_categories(html: str) -> tuple[list[str], list[str]]:
     """提取分类（面包屑）和模组标签。返回 (categories, tags)。"""
     categories = re.findall(r'href="/class/category/\d+-1\.html"[^>]*>([^<]+)</a>', html)
     tags_idx = html.find("模组标签:")
     tags = []
     if tags_idx >= 0:
-        tag_section = html[tags_idx:tags_idx + 500]
+        tag_section = html[tags_idx:tags_idx + _MAX_TAG_SECTION_LEN]
         # 查找标签容器内的链接文本
         tags = re.findall(r'<a[^>]*class="[^"]*tag[^"]*"[^>]*>([^<]+)</a>', tag_section, re.IGNORECASE)
         if not tags:
-            # 备用：提取尖括号内的文本，但过滤掉非标签内容
-            tags = re.findall(r'>([^<]+)<', tag_section)
-            tags = [t.strip() for t in tags if t.strip() and len(t.strip()) < 20 and not t.strip().endswith(':')]
+            # 备用：提取尖括号内的文本，过滤掉非标签内容
+            tags = [t.strip() for t in re.findall(r'>([^<]+)<', tag_section) if _is_valid_tag_text(t)]
     return categories, tags
 
 
@@ -407,7 +441,7 @@ def _extract_mcmod_description(html: str) -> str:
     intro_idx = html.find("Mod介绍")
     if intro_idx < 0:
         return ""
-    segment = html[intro_idx:intro_idx + 10000]
+    segment = html[intro_idx:intro_idx + _MAX_DESCRIPTION_SEGMENT]
     section_markers = ["配方", "Mod关系", "Mod前置", "Mod联动",
                        "更新日志", "常见问题", "排行榜", "相关链接",
                        "text-area-post", "class-post-list"]
@@ -493,7 +527,7 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
     author = None
     author_idx = html.find("Mod作者/开发团队")
     if author_idx >= 0:
-        auth_section = html[author_idx:author_idx + 500]
+        auth_section = html[author_idx:author_idx + _MAX_TAG_SECTION_LEN]
         author_m = re.search(r'title="([^"-]+)', auth_section)
         if author_m:
             author = author_m.group(1).strip()
@@ -501,7 +535,7 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
     log_idx = html.find("更新日志")
     has_changelog = False
     if log_idx >= 0:
-        has_changelog = "暂无日志" not in html[log_idx:log_idx + 500]
+        has_changelog = "暂无日志" not in html[log_idx:log_idx + _MAX_TAG_SECTION_LEN]
 
     status = None
     status_m = re.search(r'class="class-status[^"]*"[^>]*>([^<]+)<', html)
@@ -539,14 +573,6 @@ def _extract_mcmod_external_links(html: str) -> dict:
             return decoded
         except Exception:
             return ""
-
-    # 辅助函数：判断是否为主模组链接（过滤子模块）
-    def _is_main_mod_url(url: str, platform: str) -> bool:
-        if platform == "curseforge":
-            # 过滤 ender-io-machines, ender-io-conduits 等子模块
-            # 保留主模组链接（通常名称最短）
-            return True
-        return True
 
     # 收集所有解码后的链接
     all_decoded = []
@@ -666,7 +692,11 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     # 原版内容识别：class/1 是 MC百科"原版内容"分类
     is_vanilla = bool(re.search(r"/class/1\.html", url))
 
-    return {
+    # 截图截断信息
+    screenshots_total = len(screenshots)
+    screenshots_limited = screenshots[:_MAX_SCREENSHOTS]
+
+    result = {
         "name": name_zh or raw_title or name,
         "name_en": name_en,
         "name_zh": name_zh or raw_title or name,
@@ -676,7 +706,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "type": "mod",
         "is_vanilla": is_vanilla,
         "cover_image": cover_image,
-        "screenshots": screenshots[:6],
+        "screenshots": screenshots_limited,
         "supported_versions": supported_versions,
         "categories": categories,
         "tags": tags,
@@ -688,6 +718,12 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "has_changelog": has_changelog,
         "external_links": external_links if external_links else None,
     }
+
+    # 截断元信息
+    if screenshots_total > _MAX_SCREENSHOTS:
+        result["_truncated"] = {"screenshots": {"returned": _MAX_SCREENSHOTS, "total": screenshots_total}}
+
+    return result
 
 
 def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") -> list[dict]:
@@ -796,7 +832,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
     if idx == -1:
         raise _SearchError(f"MC百科 作者搜索结果页结构变化：{author_name}")
 
-    section = html[idx:idx + 15000]
+    section = html[idx:idx + _MAX_AUTHOR_SECTION]
     clean = re.sub(r"<em[^>]*>|</em>", "", section)
 
     # 找 /author/ URL（搜索词精确匹配作者名时会出现）
@@ -865,10 +901,8 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
 
     q = urllib.parse.quote(keyword)
     url = f"https://api.modrinth.com/v2/search?query={q}&index=relevance&limit={max_results}"
-    try:
-        raw = _curl(url)
-        data = json.loads(raw)
-    except Exception:
+    data = _fetch_json(url, {"hits": []})
+    if not data or "hits" not in data:
         return {"results": [], "total": 0, "returned": 0}
 
     results = []
@@ -892,20 +926,19 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
     return ret
 
 
-def get_mod_info(mod_id: str) -> dict | None:
+def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
     """
     获取 mod 完整信息（Modrinth）。
     mod_id 可以是 slug 或 project_id。
+    no_limit: True 时返回完整数据（用于 full 命令），False 时使用默认限制并返回 _truncated 元信息。
     """
-    cache_key = _cache_key("modinfo", mod_id)
+    cache_key = _cache_key("modinfo", mod_id, "full" if no_limit else "limited")
     cached = _cache_get("mod", cache_key)
     if cached is not None:
         return cached
 
-    try:
-        raw = _curl(f"https://api.modrinth.com/v2/project/{mod_id}")
-        data = json.loads(raw)
-    except Exception:
+    data = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
+    if not data:
         return None
 
     project_id = data.get("id", "")
@@ -913,12 +946,22 @@ def get_mod_info(mod_id: str) -> dict | None:
     raw_license = data.get("license")
     license_id = raw_license.get("id", "") if isinstance(raw_license, dict) else (raw_license or "")
 
+    # body 处理
+    raw_body = data.get("body") or ""
+    body_total_len = len(raw_body)
+    body = raw_body if no_limit else raw_body[:_MAX_BODY_CHARS]
+
+    # gallery 处理
+    raw_gallery = [g.get("url") for g in data.get("gallery", []) if g.get("url")]
+    gallery_total = len(raw_gallery)
+    gallery = raw_gallery if no_limit else raw_gallery[:_MAX_GALLERY]
+
     result = {
         "name": data.get("title", ""),
         "slug": data.get("slug", ""),
         "id": project_id,
         "description": data.get("description", ""),
-        "body": (data.get("body") or "")[:_MAX_BODY_CHARS],
+        "body": body,
         "author": None,
         "license": license_id,
         "categories": data.get("categories", []),
@@ -931,7 +974,7 @@ def get_mod_info(mod_id: str) -> dict | None:
         "published": data.get("published", ""),
         "followers": data.get("followers", 0),
         "icon_url": data.get("icon_url") or "",
-        "gallery": [g.get("url") for g in data.get("gallery", []) if g.get("url")][:10],   # 最多 10 张
+        "gallery": gallery,
         "latest_version": None,
         "game_versions": [],
         "loaders": [],
@@ -940,61 +983,72 @@ def get_mod_info(mod_id: str) -> dict | None:
         "url": f"https://modrinth.com/mod/{data.get('slug', '')}",
     }
 
+    # 截断元信息（仅非 no_limit 模式）
+    truncated = {}
+    if not no_limit:
+        if body_total_len > _MAX_BODY_CHARS:
+            truncated["body"] = {"returned": _MAX_BODY_CHARS, "total": body_total_len}
+        if gallery_total > _MAX_GALLERY:
+            truncated["gallery"] = {"returned": _MAX_GALLERY, "total": gallery_total}
+
     # 获取团队成员（作者）
-    try:
-        team_raw = _curl(f"https://api.modrinth.com/v2/project/{project_id}/members")
-        team = json.loads(team_raw)
-        for m in team:
-            if m.get("role") in ("Owner", "Developer", "Project Lead"):
-                result["author"] = m.get("user", {}).get("username") or m.get("user", {}).get("name", "")
-                break
-    except Exception:
-        pass
+    team = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/members", [])
+    for m in team:
+        if m.get("role") in ("Owner", "Developer", "Project Lead"):
+            result["author"] = m.get("user", {}).get("username") or m.get("user", {}).get("name", "")
+            break
 
     # 获取所有版本，聚合：按 mod 版本号分组（去掉 loader 前缀和 mc<ver>- 前缀）
-    try:
-        ver_raw = _curl(f"https://api.modrinth.com/v2/project/{project_id}/version?max=20")
-        versions = json.loads(ver_raw)
-        if versions:
-            latest = versions[0]
-            result["latest_version"] = latest.get("version_number", "")
-            result["game_versions"] = latest.get("game_versions", [])
-            result["loaders"] = latest.get("loaders", [])
+    versions = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/version?max=50", [])
+    if versions:
+        latest = versions[0]
+        result["latest_version"] = latest.get("version_number", "")
+        result["game_versions"] = latest.get("game_versions", [])
+        result["loaders"] = latest.get("loaders", [])
 
-            known_loaders = {"fabric", "forge", "neoforge", "quilt"}
-            seen_mod_vers = {}
-            for v in versions:
-                vn = v.get("version_number", "")
-                if not vn:
-                    continue
-                # Strip -<loader> suffix, then mc<game_ver>- prefix
-                tmp = vn
-                for ld in known_loaders:
-                    if tmp.endswith(f"-{ld}"):
-                        tmp = tmp[:-len(ld) - 1]
-                        break
-                mod_ver = re.sub(r'^mc[\d\.]+-', '', tmp) or tmp
-                if mod_ver not in seen_mod_vers:
-                    seen_mod_vers[mod_ver] = {"game_versions": set(), "loaders": set()}
-                seen_mod_vers[mod_ver]["game_versions"].update(v.get("game_versions", []))
-                seen_mod_vers[mod_ver]["loaders"].update(v.get("loaders", []))
-            items = [(k, {"game_versions": sorted(v["game_versions"]), "loaders": sorted(v["loaders"])})
-                     for k, v in seen_mod_vers.items()]
-            result["version_groups"] = items[:_MAX_VERSION_GROUPS]
+        known_loaders = {"fabric", "forge", "neoforge", "quilt"}
+        seen_mod_vers = {}
+        for v in versions:
+            vn = v.get("version_number", "")
+            if not vn:
+                continue
+            # Strip -<loader> suffix, then mc<game_ver>- prefix
+            tmp = vn
+            for ld in known_loaders:
+                if tmp.endswith(f"-{ld}"):
+                    tmp = tmp[:-len(ld) - 1]
+                    break
+            mod_ver = re.sub(r'^mc[\d\.]+-', '', tmp) or tmp
+            if mod_ver not in seen_mod_vers:
+                seen_mod_vers[mod_ver] = {"game_versions": set(), "loaders": set()}
+            seen_mod_vers[mod_ver]["game_versions"].update(v.get("game_versions", []))
+            seen_mod_vers[mod_ver]["loaders"].update(v.get("loaders", []))
+        items = [(k, {"game_versions": sorted(v["game_versions"]), "loaders": sorted(v["loaders"])})
+                 for k, v in seen_mod_vers.items()]
 
-            # 最近 5 条 changelog
-            changelogs = []
-            for v in versions[:_MAX_CHANGELOGS]:
-                cl = v.get("changelog", "").strip()
-                if cl:
-                    changelogs.append({
-                        "version": v.get("version_number", ""),
-                        "date": (v.get("date_published") or "")[:10],
-                        "changelog": cl,
-                    })
-            result["changelogs"] = changelogs
-    except Exception:
-        pass
+        version_total = len(items)
+        result["version_groups"] = items if no_limit else items[:_MAX_VERSION_GROUPS]
+        if not no_limit and version_total > _MAX_VERSION_GROUPS:
+            truncated["version_groups"] = {"returned": _MAX_VERSION_GROUPS, "total": version_total}
+
+        # changelog 处理
+        changelogs = []
+        for v in (versions if no_limit else versions[:_MAX_CHANGELOGS]):
+            cl = v.get("changelog", "").strip()
+            if cl:
+                changelogs.append({
+                    "version": v.get("version_number", ""),
+                    "date": (v.get("date_published") or "")[:10],
+                    "changelog": cl,
+                })
+        changelog_total = sum(1 for v in versions if v.get("changelog", "").strip())
+        result["changelogs"] = changelogs
+        if not no_limit and changelog_total > _MAX_CHANGELOGS:
+            truncated["changelogs"] = {"returned": _MAX_CHANGELOGS, "total": changelog_total}
+
+    # 添加截断元信息
+    if truncated:
+        result["_truncated"] = truncated
 
     _cache_set("mod", cache_key, result)
     return result
@@ -1015,10 +1069,8 @@ def search_author(username: str, max_results: int = 10) -> list[dict]:
     q = urllib.parse.quote(username)
     # colon in filter=authors: must stay unencoded
     url = f"https://api.modrinth.com/v2/search?query={q}&filter=authors:{q}&index=relevance&limit={max_results}"
-    try:
-        raw = _curl(url)
-        data = json.loads(raw)
-    except Exception:
+    data = _fetch_json(url)
+    if not data or "hits" not in data:
         return []
 
     results = []
@@ -1048,21 +1100,17 @@ def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
     if cached is not None:
         return cached
 
-    try:
-        if not project_id:
-            proj_raw = _curl(f"https://api.modrinth.com/v2/project/{mod_id}")
-            proj = json.loads(proj_raw)
-            project_id = proj.get("id", mod_id)
-    except Exception:
-        return {"deps": {}, "optional_count": 0, "required_count": 0, "error": "PROJECT_NOT_FOUND"}
+    if not project_id:
+        proj = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
+        if not proj:
+            return {"deps": {}, "optional_count": 0, "required_count": 0, "error": "PROJECT_NOT_FOUND"}
+        project_id = proj.get("id", mod_id)
 
     deps = {}
     optional_count = 0
     required_count = 0
-    try:
-        raw = _curl(f"https://api.modrinth.com/v2/project/{project_id}/dependencies")
-        deps_data = json.loads(raw)
-    except Exception:
+    deps_data = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/dependencies")
+    if not deps_data:
         return {"deps": {}, "optional_count": 0, "required_count": 0, "error": "API_ERROR"}
 
     for dep_proj in deps_data.get("projects", []):

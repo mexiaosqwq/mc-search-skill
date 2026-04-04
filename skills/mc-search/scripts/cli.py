@@ -5,7 +5,6 @@ mc-search CLI — Minecraft 聚合搜索工具
 """
 
 import argparse
-import concurrent.futures
 import contextlib
 import functools
 import json
@@ -127,13 +126,6 @@ def main():
 
     dp = sub.add_parser("dep", help="查看 mod 依赖树（Modrinth）")
     dp.add_argument("mod_id", help="Mod ID（slug 或 project id）")
-    dp.add_argument("--installed", dest="installed_version", default=None,
-                    help="当前安装的版本号（用于参考，不做版本对比，仅 dep）")
-
-    uc = sub.add_parser("update-check", help="检查 mod 是否有新版本")
-    uc.add_argument("mod_id", help="Mod ID（slug 或 project id）")
-    uc.add_argument("--installed", dest="installed_version", required=True,
-                    help="当前安装的版本号（必填，用于判断是否需要更新）")
 
     at = sub.add_parser("author", help="按作者搜索 Modrinth 项目（支持模糊匹配）")
     at.add_argument("username", help="作者用户名（Modrinth username）")
@@ -154,11 +146,9 @@ def main():
     if_info.add_argument("-r", "--recipe", action="store_true",
                         help="显示物品/方块合成表（仅 item 类型有效）")
 
-    # 全量信息命令：一次获取搜索+详情+Modrinth+依赖+版本检查
-    fl = sub.add_parser("full", help="一键获取模组完整信息（搜索→详情→Modrinth→依赖→版本）")
+    # 全量信息命令：一次获取搜索+详情+Modrinth+依赖
+    fl = sub.add_parser("full", help="一键获取模组完整信息（搜索→详情→Modrinth→依赖）")
     fl.add_argument("mod", help="模组名称 / MC百科 class ID / class URL / Modrinth slug")
-    fl.add_argument("--installed", dest="installed_version", default=None,
-                    help="当前安装版本（用于判断是否有更新）")
     fl.add_argument("--skip-dep", dest="skip_dep", action="store_true",
                     help="跳过依赖查询（加速）")
     fl.add_argument("--skip-mr", dest="skip_mr", action="store_true",
@@ -296,79 +286,6 @@ def main():
             print(f"[{args.mod_id}]（{info.get('name', args.mod_id)}）无声明依赖")
         else:
             print_deps(result, info.get('name', args.mod_id))
-
-    @_timed
-    def _cmd_update_check():
-        info = core.get_mod_info(args.mod_id)
-        if not info:
-            print(f"[{args.mod_id}] 未找到该 mod（Modrinth）")
-            return
-
-        latest = info.get("latest_version") or "未知"
-        installed = args.installed_version or "未知"
-        is_latest = latest == installed or installed == "未知"
-        game_versions = info.get("game_versions", [])
-        loaders = info.get("loaders", [])
-        source_url = info.get("source_url")
-        issues_url = info.get("issues_url")
-        discord_url = info.get("discord_url")
-        updated = info.get("updated", "")[:10]
-        downloads = info.get("downloads", 0)
-        followers = info.get("followers", 0)
-        author = info.get("author") or "未知"
-        license_id = info.get("license", "")
-        version_groups = info.get("version_groups", [])
-        changelogs = info.get("changelogs", [])
-        body = info.get("body", "")
-
-        if args.json:
-            _json({
-                "name": info.get("name"),
-                "slug": info.get("slug"),
-                "author": author,
-                "license": license_id,
-                "source_url": source_url,
-                "issues_url": issues_url,
-                "discord_url": discord_url,
-                "icon_url": info.get("icon_url", ""),
-                "installed": installed,
-                "latest": latest,
-                "game_versions": game_versions,
-                "loaders": loaders,
-                "downloads": downloads,
-                "followers": followers,
-                "updated": updated,
-                "is_latest": is_latest,
-                "url": info.get("url"),
-                "version_groups": version_groups,
-                "changelogs": changelogs,
-                "body": body,
-            })
-        else:
-            print(f"[{info.get('name')}]  by {author}")
-            print(f"  最新版本: {latest}  ({', '.join(loaders) if loaders else '无加载器'} | {', '.join(game_versions) if game_versions else '无版本信息'})")
-            if version_groups:
-                print(f"  版本历史：")
-                for mod_ver, meta in version_groups:
-                    ld = ", ".join(meta["loaders"])
-                    gv = ", ".join(meta["game_versions"][:4])
-                    print(f"    {mod_ver}  [{ld}]  游戏: {gv}")
-            if changelogs:
-                cl = changelogs[0]
-                clines = cl["changelog"].split("\n")
-                preview = clines[0][:_DISPLAY_CHANGELOG_MAX] + ("..." if len(clines[0]) > _DISPLAY_CHANGELOG_MAX or len(clines) > 1 else "")
-                print(f"  最新更新 ({cl['version']} / {cl['date']})：")
-                print(f"    {preview}")
-            print_update_status({"is_latest": is_latest, "installed": installed, "latest": latest})
-            print(f"  下载: {downloads:,}  |  关注: {followers:,}")
-            print(f"  更新时间: {updated}")
-            if source_url:
-                print(f"  开源: {source_url}")
-            if discord_url:
-                print(f"  Discord: {discord_url}")
-            if issues_url:
-                print(f"  Issues: {issues_url}")
-            print(f"  {info.get('url')}")
 
     @_timed
     def _cmd_author():
@@ -557,7 +474,7 @@ def main():
                         print(f"  合成表：无材料数据")
 
     def _cmd_full():
-        """一键获取模组完整信息：MC百科详情 + Modrinth详情 + 依赖树 + 版本检查（全部并行）。"""
+        """一键获取模组完整信息：MC百科详情 + Modrinth详情 + 依赖树（全部并行）。"""
 
         t0 = time.time()
         mod_arg = args.mod
@@ -565,7 +482,6 @@ def main():
             "mcmod": None,
             "modrinth": None,
             "dependencies": None,
-            "update_check": None,
             "search_results": [],
         }
 
@@ -574,26 +490,15 @@ def main():
 
         # Modrinth URL：单独处理（直接返回，无须查 MC百科）
         if ident["mr_slug"]:
-            result["modrinth"] = core.get_mod_info(ident["mr_slug"])
+            result["modrinth"] = core.get_mod_info(ident["mr_slug"], no_limit=True)
             if not args.skip_dep:
                 result["dependencies"] = core.get_mod_dependencies(
                     ident["mr_slug"], project_id=result["modrinth"].get("id"))
-            if args.installed_version and result["modrinth"]:
-                mr_info = result["modrinth"]
-                latest = mr_info.get("latest_version") or "未知"
-                result["update_check"] = {
-                    "installed": args.installed_version,
-                    "latest": latest,
-                    "is_latest": latest == args.installed_version,
-                    "game_versions": mr_info.get("game_versions", []),
-                    "loaders": mr_info.get("loaders", []),
-                }
             if args.json:
                 print(json.dumps(result, ensure_ascii=False))
             else:
                 mr = result.get("modrinth")
                 deps = result.get("dependencies")
-                uc = result.get("update_check")
                 if mr:
                     print(f"  名称：{mr.get('name')} ({mr.get('slug', '')})")
                     print(f"  平台：Modrinth | {mr.get('url', '')}")
@@ -602,8 +507,6 @@ def main():
                 if deps and deps.get('deps'):
                     print(f"\n  ── 依赖 ──")
                     print_deps(deps)
-                if uc:
-                    print_update_status(uc)
             print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
 
@@ -672,39 +575,20 @@ def main():
                     slug = hits[0].get("source_id", "")
                     if slug:
                         try:
-                            mr_info = core.get_mod_info(slug)
+                            mr_info = core.get_mod_info(slug, no_limit=True)
                         except Exception:
                             mr_info = None
                 else:
                     result["_mr_tentative"] = hit_name
         result["modrinth"] = mr_info
 
-        # ── 阶段三：依赖和更新检查（并行）────────────────────────
-        def _fetch_deps():
-            if args.skip_dep or not mr_info:
-                return None
+        # ── 阶段三：依赖查询 ───────────────────────────
+        if not args.skip_dep and mr_info:
             try:
-                return core.get_mod_dependencies(mr_info.get("slug", ""), project_id=mr_info.get("id"))
+                result["dependencies"] = core.get_mod_dependencies(
+                    mr_info.get("slug", ""), project_id=mr_info.get("id"))
             except Exception:
-                return None
-
-        def _fetch_update():
-            if not args.installed_version or not mr_info:
-                return None
-            return {
-                "installed": args.installed_version,
-                "latest": mr_info.get("latest_version") or "未知",
-                "is_latest": (mr_info.get("latest_version") or "未知") == args.installed_version,
-                "game_versions": mr_info.get("game_versions", []),
-                "loaders": mr_info.get("loaders", []),
-            }
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-            f_dep = ex.submit(_fetch_deps)
-            f_uc = ex.submit(_fetch_update) if mr_info else None
-            result["dependencies"] = f_dep.result()
-            if f_uc:
-                result["update_check"] = f_uc.result()
+                pass
 
         # ── 输出 ─────────────────────────────────────────────────
         if args.json:
@@ -713,7 +597,6 @@ def main():
             mc = result.get("mcmod")
             mr = result.get("modrinth")
             deps = result.get("dependencies")
-            uc = result.get("update_check")
             if mc:
                 print(f"  名称：{mc.get('name_zh')} ({mc.get('name_en', '')})")
                 print(f"  平台：MC百科 | {mc.get('url', '')}")
@@ -742,8 +625,6 @@ def main():
                 print(f"\n  ── 依赖 ──")
                 mod_name = mr.get('name', '') if mr else mc.get('name_zh', '') if mc else ''
                 print_deps(deps, mod_name)
-            if uc:
-                print_update_status(uc)
 
         print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 
@@ -754,7 +635,6 @@ def main():
         "read": _cmd_read,
         "mr": _cmd_mr,
         "dep": _cmd_dep,
-        "update-check": _cmd_update_check,
         "author": _cmd_author,
         "info": _cmd_info,
         "full": _cmd_full,
@@ -881,17 +761,6 @@ def print_deps(deps: dict, mod_name: str = ""):
         if dep.get("url"):
             print(f"    {dep['url']}")
 
-
-def print_update_status(uc: dict):
-    """打印版本更新状态。"""
-    is_latest = uc.get("is_latest", False)
-    installed = uc.get("installed", "未知")
-    latest = uc.get("latest", "未知")
-    if is_latest:
-        print(f"  状态: ✅ 已是最新（当前: {installed}）")
-    else:
-        print(f"  当前版本: {installed}  →  最新版本: {latest}")
-        print(f"  状态: 🔁 有新版本！")
 
 
 if __name__ == "__main__":
