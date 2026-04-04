@@ -590,9 +590,13 @@ def _extract_mcmod_external_links(html: str) -> dict:
         elif "mcbbs" in url and "mcbbs" not in links:
             links["mcbbs"] = url
 
-    # 选择最短的 CurseForge 链接（通常是主模组）
+    # 选择 CurseForge 链接：优先 mc-mods，其次最短
     if curseforge_links:
-        links["curseforge"] = min(curseforge_links, key=len)
+        mc_mods_links = [u for u in curseforge_links if "/mc-mods/" in u]
+        if mc_mods_links:
+            links["curseforge"] = min(mc_mods_links, key=len)
+        else:
+            links["curseforge"] = min(curseforge_links, key=len)
 
     # 选择最短的 GitHub 链接（通常是主仓库）
     if github_links:
