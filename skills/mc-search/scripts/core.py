@@ -777,6 +777,10 @@ def get_mod_info(mod_id: str) -> dict | None:
         return None
 
     project_id = data.get("id", "")
+    # 解析 license 字段（可能是 dict 或 string）
+    raw_license = data.get("license")
+    license_id = raw_license.get("id", "") if isinstance(raw_license, dict) else (raw_license or "")
+
     result = {
         "name": data.get("title", ""),
         "slug": data.get("slug", ""),
@@ -784,7 +788,7 @@ def get_mod_info(mod_id: str) -> dict | None:
         "description": data.get("description", ""),
         "body": (data.get("body") or "")[:_MAX_BODY_CHARS],
         "author": None,
-        "license": data.get("license", {}).get("id", "") if isinstance(data.get("license"), dict) else (data.get("license", "") or ""),
+        "license": license_id,
         "categories": data.get("categories", []),
         "client_side": data.get("client_side", ""),
         "server_side": data.get("server_side", ""),
@@ -1402,11 +1406,13 @@ def _is_cjk(text: str) -> bool:
 def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
     """计算单条搜索结果与查询词的相关性分数（0-110）。
 
-    评分规则：
-      - 精确等于 → 100
-      - 完整包含查询词 → 50
-      - 名称以查询词开头 → 30
-      - 查询词包含于名称 → 20
+    评分规则（主字段，条件互斥，从强到弱）：
+      - 精确等于 → 100           e.g. 搜"钠"，匹配"钠"
+      - 名称以查询词开头 → 50   e.g. 搜"sod"，匹配"Sodium"
+      - 名称包含查询词 → 30     e.g. 搜"钠"，匹配"钠-汉化模组"
+      - 名称包含于查询词 → 20   e.g. 搜"Sodium Renderer"，匹配"Sodium"
+      - 次字段精确匹配 → 90
+      - 次字段包含查询词 → 40
       - 无匹配 → 0
     对于 item 类型，wiki 来源的分数额外 +5（vanilla 物品权威来源）。
     """
@@ -1440,17 +1446,20 @@ def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
 
     score = 0
 
-    # 精确等于
+    # 精确等于（最强）
     if primary_lc == q:
         score = 100
-    # 完整包含
-    elif q in primary_lc:
-        score = 50
-    # 名称以查询词开头
+    # 名称以查询词开头（强前缀匹配）
     elif primary_lc.startswith(q):
-        score = 30
-    # 查询词包含于名称
+        score = 50
+    # 名称包含查询词（弱包含，查询词在名称中间）
+    # e.g. 搜"汉化"，匹配"钠-汉化模组" → 30分
     elif q in primary_lc:
+        score = 30
+    # 名称包含于查询词（查询词更长，名称是其子串）
+    # e.g. 搜"Sodium Extra"，匹配"Sodium" → 20分（用户可能输入了更长的搜索词）
+    # 注意：此条件在 q in primary_lc 之后，故 "sod" 匹配 "Sodium" 会走上面的 startswith（50分）
+    elif primary_lc in q:
         score = 20
     # 次字段检查
     elif secondary_lc and q == secondary_lc:

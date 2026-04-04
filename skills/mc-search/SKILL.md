@@ -49,8 +49,7 @@ Minecraft 内容聚合搜索。四平台并行：MC百科、Modrinth、minecraft
 ## 初始化
 
 ```bash
-cd skills/mc-search && bash setup.sh
-# 或 pip install mc-search
+pip install -e skills/mc-search
 ```
 
 ## 详细文档

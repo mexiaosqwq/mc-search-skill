@@ -21,12 +21,16 @@ from . import core
 # ─────────────────────────────────────────
 
 def _timed(func):
-    """自动计时装饰器：打印函数执行耗时到 stderr。"""
+    """自动计时装饰器：打印函数执行耗时到 stderr。
+
+    注意：必须返回 result，否则被装饰函数会返回 None。
+    """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         t0 = time.time()
-        func(*args, **kwargs)
+        result = func(*args, **kwargs)
         print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
+        return result
     return wrapper
 
 
@@ -42,6 +46,12 @@ _DEFAULT_TIMEOUT = 12    # 整体超时秒数
 _DEFAULT_WIKI_MAX = 5   # wiki 默认最多结果
 _DEFAULT_AUTHOR_MAX = 10  # 作者搜索默认最多结果
 _DEFAULT_PARAGRAPHS = 5  # wiki 页面默认段落数
+
+# 显示截断长度
+_DISPLAY_WIKI_PARAGRAPHS = 4    # wiki 搜索后自动 read 的段落数
+_DISPLAY_LINE_MAX = 200         # 单行最大显示字符数（search/wiki 命令）
+_DISPLAY_READ_LINE_MAX = 250    # read 命令正文单行最大长度
+_DISPLAY_CHANGELOG_MAX = 120    # changelog 预览最大长度
 
 
 # ─────────────────────────────────────────
@@ -173,7 +183,6 @@ def main():
     )
 
     # 全局 --output 辅助
-    _out_buf = []
     def _run_and_capture(func):
         """执行函数，stdout 写入 args.output 文件（如果指定）。"""
         if args.output:
@@ -228,10 +237,10 @@ def main():
                 print_hit(h)
             if args.read and hits:
                 print("\n[读取正文...]")
-                content = core.read_wiki(hits[0]["url"], max_paragraphs=4)
+                content = core.read_wiki(hits[0]["url"], max_paragraphs=_DISPLAY_WIKI_PARAGRAPHS)
                 if "error" not in content:
                     for i, p in enumerate(content["content"], 1):
-                        print(f"  {i}. {p[:200]}")
+                        print(f"  {i}. {p[:_DISPLAY_LINE_MAX]}")
 
     @_timed
     def _cmd_read():
@@ -254,11 +263,11 @@ def main():
                     else:
                         print(f"\n  ▸ {heading}")
                     for line in sec.get("content", []):
-                        print(f"    {line[:200]}")
+                        print(f"    {line[:_DISPLAY_LINE_MAX]}")
             else:
                 # 降级：平铺段落
                 for i, p in enumerate(content["content"], 1):
-                    print(f"\n  {i}. {p[:250]}")
+                    print(f"\n  {i}. {p[:_DISPLAY_READ_LINE_MAX]}")
 
     @_timed
     def _cmd_mr():
@@ -347,7 +356,7 @@ def main():
             if changelogs:
                 cl = changelogs[0]
                 clines = cl["changelog"].split("\n")
-                preview = clines[0][:120] + ("..." if len(clines[0]) > 120 or len(clines) > 1 else "")
+                preview = clines[0][:_DISPLAY_CHANGELOG_MAX] + ("..." if len(clines[0]) > _DISPLAY_CHANGELOG_MAX or len(clines) > 1 else "")
                 print(f"  最新更新 ({cl['version']} / {cl['date']})：")
                 print(f"    {preview}")
             print_update_status({"is_latest": is_latest, "installed": installed, "latest": latest})
@@ -404,7 +413,7 @@ def main():
 
         # 抓取 class 页面
         html = core._curl(f"https://www.mcmod.cn/class/{class_id}.html")
-        if not html or len(html) < 1000:
+        if not html or len(html) < core._MIN_HTML_LEN:
             print(f"无法获取模组页面（ID: {class_id}）")
             return
 
@@ -605,7 +614,7 @@ def main():
         # 抓取模组页面
         if class_id:
             html = core._curl(f"https://www.mcmod.cn/class/{class_id}.html")
-            if html and len(html) >= 1000:
+            if html and len(html) >= core._MIN_HTML_LEN:
                 result["mcmod"] = core._parse_mcmod_result(html, f"https://www.mcmod.cn/class/{class_id}.html", "")
         elif mcmod_name:
             try:
@@ -618,7 +627,7 @@ def main():
                 cid_match = re.search(r"/class/(\d+)", first.get("url", ""))
                 if cid_match:
                     html = core._curl(f"https://www.mcmod.cn/class/{cid_match.group(1)}.html")
-                    if html and len(html) >= 1000:
+                    if html and len(html) >= core._MIN_HTML_LEN:
                         result["mcmod"] = core._parse_mcmod_result(html, first["url"], first.get("name", ""))
 
         # 搜索结果（用于确定 Modrinth 搜索词）
@@ -838,8 +847,8 @@ def print_hit(h: dict, index: int = 0, total: int = 1):
         # 清洗 HTML 标签和多余空白
         desc = re.sub(r"<[^>]+>", "", desc)
         desc = re.sub(r"\s+", " ", desc).strip()
-        if len(desc) > 200:
-            desc = desc[:200] + "…"
+        if len(desc) > _DISPLAY_LINE_MAX:
+            desc = desc[:_DISPLAY_LINE_MAX] + "…"
         print(f"     {desc}")
 
     # ── Wiki 章节 ──
