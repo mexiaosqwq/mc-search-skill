@@ -8,20 +8,31 @@
 - **Modrinth** — 英文 mod 搜索、依赖树、版本历史、作者作品
 - **minecraft.wiki** — 原版游戏内容（附魔、合成、生物等）
 
+## 安装
+
+```bash
+pip install mc-search
+```
+
+**依赖**: Python 3.8+ 和 curl。无需 API key。
+
 ## 使用方式
 
 ### 作为 Agent Skill 使用
 
-将 `skills/mc-search/` 文件夹复制到 Agent 的 skills 目录即可，无需安装。
+1. 安装命令行工具：`pip install mc-search`
+2. 将 `skills/mc-search/` 文件夹复制到 Agent 的 skills 目录
+
+Agent 会读取 `SKILL.md` 并通过 Bash 调用 `mc-search` 命令。
 
 ### 作为命令行工具使用
 
-```bash
-pip install mc-search
-mc-search --help
-```
+直接在终端运行：
 
-**依赖**: Python 3.8+ 和 curl。无需 API key。
+```bash
+mc-search --help
+mc-search --json search 钠
+```
 
 ## 快速参考
 
