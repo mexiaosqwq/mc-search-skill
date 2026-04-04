@@ -38,6 +38,7 @@ def _timed(func):
 # ─────────────────────────────────────────
 
 _SOURCE_TYPE_LABELS = {"open_source": "开源", "closed_source": "闭源"}
+_SIDE_LABELS = {"required": "必需", "optional": "可选", "unsupported": "不支持"}
 
 # CLI 默认值
 _DEFAULT_MAX = 3        # 每平台最多结果
@@ -503,6 +504,15 @@ def main():
                     print(f"  名称：{mr.get('name')} ({mr.get('slug', '')})")
                     print(f"  平台：Modrinth | {mr.get('url', '')}")
                     print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
+                    cs = mr.get('client_side', '')
+                    ss = mr.get('server_side', '')
+                    side_info = []
+                    if cs:
+                        side_info.append(f"客户端: {_SIDE_LABELS.get(cs, cs)}")
+                    if ss:
+                        side_info.append(f"服务端: {_SIDE_LABELS.get(ss, ss)}")
+                    if side_info:
+                        print(f"  运行环境：{' | '.join(side_info)}")
                     vg = mr.get("version_groups", [])
                     if vg:
                         print(f"  版本列表：")
@@ -623,6 +633,15 @@ def main():
             if mr:
                 print(f"\n  ── Modrinth ──")
                 print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
+                cs = mr.get('client_side', '')
+                ss = mr.get('server_side', '')
+                side_info = []
+                if cs:
+                    side_info.append(f"客户端: {_SIDE_LABELS.get(cs, cs)}")
+                if ss:
+                    side_info.append(f"服务端: {_SIDE_LABELS.get(ss, ss)}")
+                if side_info:
+                    print(f"  运行环境：{' | '.join(side_info)}")
                 vg = mr.get("version_groups", [])
                 if vg:
                     print(f"  版本列表：")
