@@ -41,6 +41,34 @@
 | `has_changelog` | 是否有更新日志布尔值（MC百科 detail 才有） |
 | `is_vanilla` | 是否为 MC百科原版内容分类（URL 含 `/class/1.html`） |
 | `external_links` | 外部平台链接字典（无时为 null）：`official` / `curseforge` / `modrinth` / `github` / `wiki` / `discord` / `jenkins` / `mcbbs` |
+| `content_list` | MC百科资料列表（无时为 null），见下方说明 |
+
+### `content_list` 字段结构
+
+当模组在 MC百科 有资料列表时，返回如下结构：
+
+```json
+{
+  "content_list": {
+    "1": {"label": "物品/方块", "count": 1016, "url": "https://www.mcmod.cn/item/list/2021-1.html"},
+    "4": {"label": "生物/实体", "count": 2, "url": "https://www.mcmod.cn/item/list/2021-4.html"},
+    "5": {"label": "附魔/魔咒", "count": 2, "url": "https://www.mcmod.cn/item/list/2021-5.html"}
+  }
+}
+```
+
+| type_id | 类型 |
+|---------|------|
+| `1` | 物品/方块 |
+| `4` | 生物/实体 |
+| `5` | 附魔/魔咒 |
+| `6` | BUFF/DEBUFF |
+| `7` | 多方块结构 |
+| `8` | 自然生成 |
+| `9` | 绑定热键 |
+| `10` | 游戏设定 |
+
+> 注：type_id 可能还有其他值，具体以页面实际返回为准。代码会动态提取标题。
 
 ---
 

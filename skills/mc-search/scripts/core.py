@@ -67,6 +67,9 @@ _MAX_FETCH_WORKERS = 4      # 并行抓取最大线程数
 _MAX_SCREENSHOTS = 6        # 模组截图最多显示数
 _MAX_GALLERY = 10           # Modrinth 图库最多显示数
 _MAX_TAG_SECTION_LEN = 500  # 标签区域提取长度
+_EXTERNAL_LINK_EXCLUDE_DOMAINS = [  # 排除的外部链接域名（非官方网站）
+    "curseforge", "modrinth", "github", "discord", "wikipedia", "mcbbs", "jenkins", "archive"
+]
 _MAX_TAG_TEXT_LEN = 20  # 标签文本最大长度，过滤过长的非标签内容
 _MAX_SEARCH_SEGMENT = 2000  # 搜索片段提取长度
 _MAX_DESCRIPTION_SEGMENT = 10000  # 描述段落提取长度
@@ -75,11 +78,11 @@ _MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
 _MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
 _MAX_VERSIONS_FETCH = 50    # 获取版本详情时最多拉取的版本数
 _SOURCE_MAX = {              # search_all 每平台最多结果（按 content_type 分级）
-    "mod": 3,
-    "item": 10,
-    "entity": 6,
-    "biome": 6,
-    "dimension": 4,
+    "mod": 15,
+    "item": 15,
+    "entity": 15,
+    "biome": 15,
+    "dimension": 15,
 }
 
 # ─────────────────────────────────────────
@@ -591,12 +594,10 @@ def _extract_mcmod_external_links(html: str) -> dict:
     github_links = []
 
     for url in all_decoded:
-        # 官方网站（非 GitHub/Modrinth/CurseForge/Discord 的独立域名）
+        # 官方网站（非已知平台的独立域名）
         if "official" not in links:
-            if not any(x in url for x in ["curseforge", "modrinth", "github", "discord", "wikipedia", "mcbbs", "jenkins", "archive"]):
-                # 可能是官方网站
-                if "official" not in links:
-                    links["official"] = url
+            if not any(x in url for x in _EXTERNAL_LINK_EXCLUDE_DOMAINS):
+                links["official"] = url
 
         # CurseForge
         if "curseforge.com" in url:
@@ -665,6 +666,45 @@ def _extract_mcmod_external_links(html: str) -> dict:
     return links
 
 
+def _extract_mcmod_content_list(html: str, class_id: str) -> dict:
+    """提取模组的资料列表信息（物品/方块、生物/实体、附魔等）。
+
+    MC百科 使用 /item/list/{class_id}-{type_id}.html 格式。
+    标题从页面动态提取，fallback 使用预定义映射。
+    """
+    # 预定义映射（仅作 fallback，优先使用页面标题）
+    content_types = {
+        "1": "物品/方块",
+        "4": "生物/实体",
+        "5": "附魔/魔咒",
+        "6": "BUFF/DEBUFF",
+        "7": "多方块结构",
+        "8": "自然生成",
+        "9": "绑定热键",
+        "10": "游戏设定",
+    }
+
+    result = {}
+
+    # 查找所有 item/list 链接
+    pattern = rf'href="/item/list/{class_id}-(\d+)\.html"[^>]*>.*?<span class="title">([^<]+)</span>.*?<span class="count">\((\d+)条\)</span>'
+    matches = re.findall(pattern, html, re.DOTALL)
+
+    for type_id, title, count in matches:
+        type_id = type_id.strip()
+        count = int(count.strip())
+        if count > 0:
+            # 使用提取的标题，回退到预定义映射
+            label = title.strip() or content_types.get(type_id, f"类型{type_id}")
+            result[type_id] = {
+                "label": label,
+                "count": count,
+                "url": f"https://www.mcmod.cn/item/list/{class_id}-{type_id}.html",
+            }
+
+    return result
+
+
 def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     """从 MC百科 class 页面解析。name 来自搜索页，html 仅用于提取扩展字段。"""
     m = re.search(r"<title>([^<]+)</title>", html)
@@ -692,6 +732,10 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     relationships = _extract_mcmod_relationships(html)
     author, status, source_type, has_changelog = _extract_mcmod_author_status(html)
     external_links = _extract_mcmod_external_links(html)
+
+    # 提取 class_id 并获取资料列表
+    class_id = re.search(r"/class/(\d+)", url).group(1) if url else ""
+    content_list = _extract_mcmod_content_list(html, class_id) if class_id else {}
 
     # 原版内容识别：class/1 是 MC百科"原版内容"分类
     is_vanilla = bool(re.search(r"/class/1\.html", url))
@@ -721,6 +765,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "relationships": relationships if relationships["requires"] or relationships["integrates"] else None,
         "has_changelog": has_changelog,
         "external_links": external_links if external_links else None,
+        "content_list": content_list or None,
     }
 
     # 截断元信息
@@ -1589,13 +1634,13 @@ def _is_cjk(text: str) -> bool:
 
 
 def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
-    """计算单条搜索结果与查询词的相关性分数（0-110）。
+    """计算单条搜索结果与查询词的相关性分数（0-130）。
 
     评分规则（主字段，条件互斥，从强到弱）：
-      - 精确等于 → 100           e.g. 搜"钠"，匹配"钠"
-      - 名称以查询词开头 → 50   e.g. 搜"sod"，匹配"Sodium"
-      - 名称包含查询词 → 30     e.g. 搜"钠"，匹配"钠-汉化模组"
-      - 名称包含于查询词 → 20   e.g. 搜"Sodium Renderer"，匹配"Sodium"
+      - 精确等于 → 100 + 短名称加权（最长20字符，每少1字符+1分）
+      - 名称以查询词开头 → 50 + 短名称加权
+      - 名称包含查询词 → 30
+      - 名称包含于查询词 → 20
       - 次字段精确匹配 → 90
       - 次字段包含查询词 → 40
       - 无匹配 → 0
@@ -1630,25 +1675,30 @@ def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
     secondary_lc = secondary.lower()
 
     score = 0
+    max_name_len = 20  # 名称长度上限，用于计算短名称加权
 
-    # 精确等于（最强）
+    # 精确等于（最强）+ 短名称加权
     if primary_lc == q:
-        score = 100
-    # 名称以查询词开头（强前缀匹配）
+        base_score = 100
+        # 短名称加权：名称越短越精确，最多+20分
+        len_bonus = max(0, max_name_len - len(primary_lc))
+        score = base_score + min(len_bonus, 20)
+    # 名称以查询词开头 + 短名称加权
     elif primary_lc.startswith(q):
-        score = 50
+        base_score = 50
+        len_bonus = max(0, max_name_len - len(primary_lc))
+        score = base_score + min(len_bonus, 15)
     # 名称包含查询词（弱包含，查询词在名称中间）
-    # e.g. 搜"汉化"，匹配"钠-汉化模组" → 30分
     elif q in primary_lc:
         score = 30
     # 名称包含于查询词（查询词更长，名称是其子串）
-    # e.g. 搜"Sodium Extra"，匹配"Sodium" → 20分（用户可能输入了更长的搜索词）
-    # 注意：此条件在 q in primary_lc 之后，故 "sod" 匹配 "Sodium" 会走上面的 startswith（50分）
     elif primary_lc in q:
         score = 20
     # 次字段检查
     elif secondary_lc and q == secondary_lc:
-        score = 90   # 次字段精确匹配，略低于主字段精确
+        base_score = 90
+        len_bonus = max(0, max_name_len - len(secondary_lc))
+        score = base_score + min(len_bonus, 15)
     elif secondary_lc and q in secondary_lc:
         score = 40
 
@@ -1682,7 +1732,7 @@ _CONTENT_PLATFORM_PRIORITY = {
 def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str = "") -> list[dict]:
     """跨平台去重合并，按相关性分数排序。
 
-    排序规则：相关性分数 DESC → 平台优先级 ASC（tiebreaker）
+    排序规则：相关性分数 DESC → 多平台命中加权 → 平台优先级 ASC（tiebreaker）
     content_type 用于调整不同类型内容的平台优先级。
     """
     platform_prio = (_CONTENT_PLATFORM_PRIORITY.get(content_type)
@@ -1701,12 +1751,25 @@ def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str =
             priority = platform_prio.get(platform, 99)
             scored.append({**h, "_platform": platform, "_score": score, "_priority": priority})
 
-    # 第二步：同名去重（按分数从高到低，同分时保留平台权威度高的）
+    # 第二步：统计每个名称在多少个平台出现（用于多平台命中加权）
+    name_platform_count = {}
+    for entry in scored:
+        key = (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()
+        if key:
+            if key not in name_platform_count:
+                name_platform_count[key] = set()
+            name_platform_count[key].add(entry["_platform"])
+
+    # 第三步：同名去重（按分数从高到低，同分时保留平台权威度高的）
     by_name = {}
     for entry in scored:
         key = (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()
         if not key:
             continue
+        # 多平台命中加权：每个额外平台 +5 分
+        platform_count = len(name_platform_count.get(key, set()))
+        if platform_count > 1:
+            entry["_score"] += (platform_count - 1) * 5  # 多平台加权
         if key not in by_name:
             by_name[key] = entry
         elif entry["_score"] > by_name[key]["_score"]:
@@ -1716,11 +1779,11 @@ def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str =
             if entry["_priority"] > by_name[key]["_priority"]:
                 by_name[key] = entry
 
-    # 第三步：排序（分数 DESC，同分时 priority DESC）
+    # 第四步：排序（分数 DESC，同分时 priority DESC）
     sorted_entries = sorted(by_name.values(),
                             key=lambda e: (e["_score"] * -1, e["_priority"] * -1))
 
-    # 第四步：构建融合结果
+    # 第五步：构建融合结果
     fused = []
     for entry in sorted_entries:
         merged = {k: v for k, v in entry.items() if not k.startswith("_")}
