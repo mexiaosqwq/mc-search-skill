@@ -40,6 +40,7 @@
 | `relationships.integrates` | 联动 Mod 列表（MC百科 detail 才有；无时为 null） |
 | `has_changelog` | 是否有更新日志布尔值（MC百科 detail 才有） |
 | `is_vanilla` | 是否为 MC百科原版内容分类（URL 含 `/class/1.html`） |
+| `external_links` | 外部平台链接字典（无时为 null）：`curseforge` / `modrinth` / `github` / `discord` |
 
 ---
 

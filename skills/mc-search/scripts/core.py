@@ -509,6 +509,36 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
     return author, status, source_type, has_changelog
 
 
+def _extract_mcmod_external_links(html: str) -> dict:
+    """提取模组的外部平台链接（CurseForge、Modrinth、GitHub、Discord）。"""
+    links = {}
+
+    # CurseForge 主页链接
+    cf = re.search(r'https?://(?:www\.)?curseforge\.com/minecraft/mc-mods/[^/\s"<>\)]+', html)
+    if cf:
+        links['curseforge'] = cf.group(0)
+
+    # Modrinth 主页链接
+    mr = re.search(r'https?://modrinth\.com/(?:mod|shader|resourcepack)/[^/\s"<>\)]+', html)
+    if mr:
+        links['modrinth'] = mr.group(0)
+
+    # GitHub 仓库链接（过滤掉 issues、commit、blob 等子路径）
+    all_gh = re.findall(r'https?://github\.com/[^\s"<>\)]+', html)
+    main_gh = [u.rstrip(').,') for u in all_gh
+               if not any(x in u for x in ['/issues', '/commit', '/blob', '/wiki', '/releases/tag', '/pull/'])]
+    if main_gh:
+        # 优先选择最短的（通常是仓库主页）
+        links['github'] = min(main_gh, key=len)
+
+    # Discord 邀请链接
+    dc = re.search(r'https?://(?:www\.)?(?:discord\.gg|discord\.com/invite)/[^\s"<>\)]+', html)
+    if dc:
+        links['discord'] = dc.group(0).rstrip(').,')
+
+    return links
+
+
 def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     """从 MC百科 class 页面解析。name 来自搜索页，html 仅用于提取扩展字段。"""
     m = re.search(r"<title>([^<]+)</title>", html)
@@ -535,6 +565,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     description = _extract_mcmod_description(html)
     relationships = _extract_mcmod_relationships(html)
     author, status, source_type, has_changelog = _extract_mcmod_author_status(html)
+    external_links = _extract_mcmod_external_links(html)
 
     # 原版内容识别：class/1 是 MC百科"原版内容"分类
     is_vanilla = bool(re.search(r"/class/1\.html", url))
@@ -559,6 +590,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "description": description,
         "relationships": relationships if relationships["requires"] or relationships["integrates"] else None,
         "has_changelog": has_changelog,
+        "external_links": external_links if external_links else None,
     }
 
 
