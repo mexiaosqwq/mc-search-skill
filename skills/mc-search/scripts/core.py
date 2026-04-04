@@ -60,6 +60,7 @@ _MAX_TABLE_ITEMS = 8        # table 最大 item 数
 _MAX_BODY_CHARS = 5000      # ModRinth 详情 body 字段最大截断长度
 _MAX_VERSION_GROUPS = 5     # 版本组最多显示数
 _MAX_CHANGELOGS = 5         # 更新日志最多显示数
+_MAX_FETCH_WORKERS = 4      # 并行抓取最大线程数
 _SOURCE_MAX = {              # search_all 每平台最多结果（按 content_type 分级）
     "mod": 3,
     "item": 10,
@@ -479,7 +480,7 @@ def _extract_mcmod_relationships(html: str) -> dict:
     return relationships
 
 
-def _extract_mcmod_author_status(html: str) -> tuple:
+def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str | None, bool]:
     """提取作者、状态、开源属性。返回 (author, status, source_type)。"""
     author = None
     author_idx = html.find("Mod作者/开发团队")
@@ -626,8 +627,18 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
             return _parse_mcmod_item_result(page_html, raw_url, name)
         return _parse_mcmod_result(page_html, raw_url, name)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(limited_pairs), 4)) as ex:
-        results = list(ex.map(_fetch_one, limited_pairs))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(limited_pairs), _MAX_FETCH_WORKERS)) as ex:
+        # 单个页面抓取失败不应中断整个搜索
+        results = []
+        try:
+            results = list(ex.map(_fetch_one, limited_pairs))
+        except Exception:
+            # 回退到逐个抓取，跳过失败的页面
+            for pair in limited_pairs:
+                try:
+                    results.append(_fetch_one(pair))
+                except Exception:
+                    continue
 
     _cache_set("search", key, results)
     return results
@@ -678,14 +689,31 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
             seen.add(url)
             unique_mods.append((url, name.strip()))
 
-    # 解析每个模组页面（取前 max_mods 个）
-    results = []
-    for url, name in unique_mods[:max_mods]:
+    # 并行解析每个模组页面（取前 max_mods 个）
+    def _fetch_mod(args):
+        url, name = args
         full_url = f"https://www.mcmod.cn{url}"
         page = _curl(full_url)
         if page and len(page) >= _MIN_HTML_LEN:
-            result = _parse_mcmod_result(page, full_url, name)
-            results.append(result)
+            return _parse_mcmod_result(page, full_url, name)
+        return None
+
+    limited_mods = unique_mods[:max_mods]
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(limited_mods), _MAX_FETCH_WORKERS)) as ex:
+        try:
+            for r in ex.map(_fetch_mod, limited_mods):
+                if r:
+                    results.append(r)
+        except Exception:
+            # 回退到逐个抓取
+            for mod in limited_mods:
+                try:
+                    r = _fetch_mod(mod)
+                    if r:
+                        results.append(r)
+                except Exception:
+                    continue
 
     _cache_set("search", key, results)
     return results
