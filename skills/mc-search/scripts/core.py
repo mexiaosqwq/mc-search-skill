@@ -55,6 +55,8 @@ _MIN_HTML_LEN_ITEM = 500    # HTML 内容最小长度阈值（item/recipe 页面
 _MIN_PARAGRAPH_LEN = 20     # 正文段落最小长度
 _MIN_SHORT_TEXT_LEN = 35    # 短文本判定阈值（用于判断是否为 item 名）
 _MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性 <li> 最小长度
+_MIN_DESCRIPTION_LINE_LEN = 10   # 描述行最小长度
+_MIN_SECTION_MARKER_DISTANCE = 200  # section marker 最小距离
 _MAX_SECTION_PARAGRAPHS = 2  # 每 wiki 章节最多段落数
 _MIN_TABLE_CELL_LEN = 2     # table cell 最小长度
 _MAX_TABLE_ITEMS = 8        # table 最大 item 数
@@ -70,6 +72,8 @@ _MAX_SEARCH_SEGMENT = 2000  # 搜索片段提取长度
 _MAX_DESCRIPTION_SEGMENT = 10000  # 描述段落提取长度
 _MAX_AUTHOR_SECTION = 15000  # 作者页面区域提取长度
 _MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
+_MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
+_MAX_VERSIONS_FETCH = 50    # 获取版本详情时最多拉取的版本数
 _SOURCE_MAX = {              # search_all 每平台最多结果（按 content_type 分级）
     "mod": 3,
     "item": 10,
@@ -411,7 +415,7 @@ def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
 def _extract_mcmod_versions(html: str) -> list[str]:
     """从版本检索区提取支持的游戏版本列表。"""
     ver_idx = html.find("版本检索")
-    ver_section = html[ver_idx:ver_idx + 3000] if ver_idx >= 0 else ""
+    ver_section = html[ver_idx:ver_idx + _MAX_VERSION_SECTION_LEN] if ver_idx >= 0 else ""
     return list(set(re.findall(r'mcver=(\d+\.\d+(?:\.\d+)?)', ver_section)))
 
 
@@ -448,7 +452,7 @@ def _extract_mcmod_description(html: str) -> str:
     end = len(segment)
     for marker in section_markers:
         idx = segment.find(marker)
-        if idx > 200:
+        if idx > _MIN_SECTION_MARKER_DISTANCE:
             end = min(end, idx)
     content = segment[:end]
     content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
@@ -480,7 +484,7 @@ def _extract_mcmod_description(html: str) -> str:
         line = line.strip()
         line = re.sub(para_title_pat, "", line).strip()
         line = re.sub(r"[。！？]\s*概述(?=[^\s])", lambda m: m.group(0)[0], line)
-        if len(line) < 10:
+        if len(line) < _MIN_DESCRIPTION_LINE_LEN:
             continue
         if any(line.startswith(p) for p in skip_fragments):
             continue
@@ -488,7 +492,7 @@ def _extract_mcmod_description(html: str) -> str:
             continue
         if re.search(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是", line):
             line = re.sub(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是.*", "", line).strip()
-        if len(line) < 10:
+        if len(line) < _MIN_DESCRIPTION_LINE_LEN:
             continue
         if any(p in line for p in ["©Copyright MC百科", "鄂ICP备", "鄂公网安备", "mcmod.cn | ", "百科帮助", "开发日志"]):
             continue
@@ -999,7 +1003,7 @@ def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
             break
 
     # 获取所有版本，聚合：按 mod 版本号分组（去掉 loader 前缀和 mc<ver>- 前缀）
-    versions = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/version?max=50", [])
+    versions = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/version?max={_MAX_VERSIONS_FETCH}", [])
     if versions:
         latest = versions[0]
         result["latest_version"] = latest.get("version_number", "")

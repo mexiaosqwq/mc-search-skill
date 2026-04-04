@@ -40,6 +40,38 @@ def _timed(func):
 _SOURCE_TYPE_LABELS = {"open_source": "开源", "closed_source": "闭源"}
 _SIDE_LABELS = {"required": "必需", "optional": "可选", "unsupported": "不支持"}
 
+
+# ─────────────────────────────────────────
+# Modrinth 显示辅助函数
+# ─────────────────────────────────────────
+
+def _print_side_info(mr: dict):
+    """打印 Modrinth 运行环境信息。"""
+    cs = mr.get('client_side', '')
+    ss = mr.get('server_side', '')
+    side_info = []
+    if cs:
+        side_info.append(f"客户端: {_SIDE_LABELS.get(cs, cs)}")
+    if ss:
+        side_info.append(f"服务端: {_SIDE_LABELS.get(ss, ss)}")
+    if side_info:
+        print(f"  运行环境：{' | '.join(side_info)}")
+
+
+def _print_version_groups(vg: list, max_display: int = 10):
+    """打印 Modrinth 版本列表。"""
+    if vg:
+        print(f"  版本列表：")
+        for mod_ver, meta in vg[:max_display]:
+            ld = ", ".join(meta.get("loaders", []))
+            gv = ", ".join(meta.get("game_versions", [])[:4])
+            print(f"    {mod_ver}  [{ld}]  游戏: {gv}")
+
+
+def _json_print(obj):
+    """打印 JSON 格式输出。"""
+    print(json.dumps(obj, ensure_ascii=False))
+
 # CLI 默认值
 _DEFAULT_MAX = 3        # 每平台最多结果
 _DEFAULT_TIMEOUT = 12    # 整体超时秒数
@@ -496,7 +528,7 @@ def main():
                 result["dependencies"] = core.get_mod_dependencies(
                     ident["mr_slug"], project_id=result["modrinth"].get("id"))
             if args.json:
-                print(json.dumps(result, ensure_ascii=False))
+                _json_print(result)
             else:
                 mr = result.get("modrinth")
                 deps = result.get("dependencies")
@@ -504,22 +536,10 @@ def main():
                     print(f"  名称：{mr.get('name')} ({mr.get('slug', '')})")
                     print(f"  平台：Modrinth | {mr.get('url', '')}")
                     print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
-                    cs = mr.get('client_side', '')
-                    ss = mr.get('server_side', '')
-                    side_info = []
-                    if cs:
-                        side_info.append(f"客户端: {_SIDE_LABELS.get(cs, cs)}")
-                    if ss:
-                        side_info.append(f"服务端: {_SIDE_LABELS.get(ss, ss)}")
-                    if side_info:
-                        print(f"  运行环境：{' | '.join(side_info)}")
+                    _print_side_info(mr)
                     vg = mr.get("version_groups", [])
                     if vg:
-                        print(f"  版本列表：")
-                        for mod_ver, meta in vg[:10]:
-                            ld = ", ".join(meta.get("loaders", []))
-                            gv = ", ".join(meta.get("game_versions", [])[:4])
-                            print(f"    {mod_ver}  [{ld}]  游戏: {gv}")
+                        _print_version_groups(vg)
                     else:
                         print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
                 if deps and deps.get('deps'):
@@ -561,7 +581,7 @@ def main():
         # 无任何结果时提前退出
         if not result["mcmod"] and not result["modrinth"]:
             if args.json:
-                print(json.dumps(result, ensure_ascii=False))
+                _json_print(result)
             else:
                 print(f"未找到名为 [{mod_arg}] 的模组信息")
             print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
@@ -633,22 +653,10 @@ def main():
             if mr:
                 print(f"\n  ── Modrinth ──")
                 print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
-                cs = mr.get('client_side', '')
-                ss = mr.get('server_side', '')
-                side_info = []
-                if cs:
-                    side_info.append(f"客户端: {_SIDE_LABELS.get(cs, cs)}")
-                if ss:
-                    side_info.append(f"服务端: {_SIDE_LABELS.get(ss, ss)}")
-                if side_info:
-                    print(f"  运行环境：{' | '.join(side_info)}")
+                _print_side_info(mr)
                 vg = mr.get("version_groups", [])
                 if vg:
-                    print(f"  版本列表：")
-                    for mod_ver, meta in vg[:10]:
-                        ld = ", ".join(meta.get("loaders", []))
-                        gv = ", ".join(meta.get("game_versions", [])[:4])
-                        print(f"    {mod_ver}  [{ld}]  游戏: {gv}")
+                    _print_version_groups(vg)
                 else:
                     print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
                 print(f"  {mr.get('url', '')}")
