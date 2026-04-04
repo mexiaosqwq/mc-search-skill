@@ -503,7 +503,15 @@ def main():
                     print(f"  名称：{mr.get('name')} ({mr.get('slug', '')})")
                     print(f"  平台：Modrinth | {mr.get('url', '')}")
                     print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
-                    print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
+                    vg = mr.get("version_groups", [])
+                    if vg:
+                        print(f"  版本列表：")
+                        for mod_ver, meta in vg[:10]:
+                            ld = ", ".join(meta.get("loaders", []))
+                            gv = ", ".join(meta.get("game_versions", [])[:4])
+                            print(f"    {mod_ver}  [{ld}]  游戏: {gv}")
+                    else:
+                        print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
                 if deps and deps.get('deps'):
                     print(f"\n  ── 依赖 ──")
                     print_deps(deps)
@@ -615,7 +623,15 @@ def main():
             if mr:
                 print(f"\n  ── Modrinth ──")
                 print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
-                print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
+                vg = mr.get("version_groups", [])
+                if vg:
+                    print(f"  版本列表：")
+                    for mod_ver, meta in vg[:10]:
+                        ld = ", ".join(meta.get("loaders", []))
+                        gv = ", ".join(meta.get("game_versions", [])[:4])
+                        print(f"    {mod_ver}  [{ld}]  游戏: {gv}")
+                else:
+                    print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
                 print(f"  {mr.get('url', '')}")
             elif result.get("_mr_tentative"):
                 print(f"\n  ── Modrinth ──")
