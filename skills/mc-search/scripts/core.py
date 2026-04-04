@@ -590,7 +590,11 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     if idx == -1:
         raise _SearchError(f"MC百科 搜索结果页结构变化（无 search-result-list）：{keyword}")
 
-    section = html[idx:idx + 15000]
+    # 找到结果区域的结束位置（分页区域）
+    end_idx = html.find('class="pagination"', idx)
+    if end_idx == -1:
+        end_idx = len(html)
+    section = html[idx:end_idx]
     clean = re.sub(r"<em[^>]*>|</em>", "", section)
 
     # 物品用 /item/ URL，模组用 /class/ URL
@@ -1320,8 +1324,9 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     fuse: True 时返回 {"results": [...融合列表...], "platform_stats": {platform: {total, returned}}}
          False 时返回 {platform: [results]}（向后兼容）
     """
-    # 按 content_type 分级设置每平台结果数
-    per_source = _SOURCE_MAX.get(content_type, max_per_source)
+    # 按 content_type 分级设置每平台结果数（用户指定优先）
+    default_max = _SOURCE_MAX.get(content_type, 3)
+    per_source = max_per_source if max_per_source != 3 else default_max
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
     stats = {"mcmod.cn": {"total": 0, "returned": 0},
              "modrinth": {"total": 0, "returned": 0},
