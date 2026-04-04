@@ -392,9 +392,13 @@ def _extract_mcmod_categories(html: str) -> tuple[list[str], list[str]]:
     tags_idx = html.find("模组标签:")
     tags = []
     if tags_idx >= 0:
-        tag_section = html[tags_idx:tags_idx + 300]
-        tags = re.findall(r'>([^<]+)<', tag_section)
-        tags = [t.strip() for t in tags if t.strip()]
+        tag_section = html[tags_idx:tags_idx + 500]
+        # 查找标签容器内的链接文本
+        tags = re.findall(r'<a[^>]*class="[^"]*tag[^"]*"[^>]*>([^<]+)</a>', tag_section, re.IGNORECASE)
+        if not tags:
+            # 备用：提取尖括号内的文本，但过滤掉非标签内容
+            tags = re.findall(r'>([^<]+)<', tag_section)
+            tags = [t.strip() for t in tags if t.strip() and len(t.strip()) < 20 and not t.strip().endswith(':')]
     return categories, tags
 
 
@@ -453,6 +457,9 @@ def _extract_mcmod_description(html: str) -> str:
         if len(line) < 10:
             continue
         if any(p in line for p in ["©Copyright MC百科", "鄂ICP备", "鄂公网安备", "mcmod.cn | ", "百科帮助", "开发日志"]):
+            continue
+        # 过滤 HTML 残留（如 <li data-id=...）
+        if re.search(r"<[a-z]+[\s>]", line, re.IGNORECASE):
             continue
         lines.append(line)
     # 不限制段落数，返回完整描述（JSON 模式下用户可自行处理）
