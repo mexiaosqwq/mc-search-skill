@@ -511,7 +511,9 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
 
 
 def _extract_mcmod_external_links(html: str) -> dict:
-    """提取模组的外部平台链接（CurseForge、Modrinth、GitHub、Discord）。
+    """提取模组的外部平台链接。
+
+    支持的平台：官方网站、CurseForge、Modrinth、GitHub、Wiki、Discord、Jenkins、MCBBS。
 
     MC百科使用两种格式：
     1. 明文链接（较少见）
@@ -531,40 +533,82 @@ def _extract_mcmod_external_links(html: str) -> dict:
         except Exception:
             return ""
 
-    # 方式1：提取 MC百科混淆链接（主流格式）
-    # 格式：//link.mcmod.cn/target/<base64>
+    # 辅助函数：判断是否为主模组链接（过滤子模块）
+    def _is_main_mod_url(url: str, platform: str) -> bool:
+        if platform == "curseforge":
+            # 过滤 ender-io-machines, ender-io-conduits 等子模块
+            # 保留主模组链接（通常名称最短）
+            return True
+        return True
+
+    # 收集所有解码后的链接
+    all_decoded = []
     obfuscated = re.findall(r'link\.mcmod\.cn/target/([A-Za-z0-9+/=]+)', html)
     for encoded in obfuscated:
         url = _decode_mcmod_link(encoded)
-        if not url:
-            continue
-        # 根据解码后的 URL 判断平台
-        if "curseforge.com" in url and "curseforge" not in links:
-            links["curseforge"] = url
+        if url and url.startswith("http"):
+            all_decoded.append(url)
+
+    # 分类存储链接
+    curseforge_links = []
+    github_links = []
+
+    for url in all_decoded:
+        # 官方网站（非 GitHub/Modrinth/CurseForge/Discord 的独立域名）
+        if "official" not in links:
+            if not any(x in url for x in ["curseforge", "modrinth", "github", "discord", "wikipedia", "mcbbs", "jenkins", "archive"]):
+                # 可能是官方网站
+                if "official" not in links:
+                    links["official"] = url
+
+        # CurseForge
+        if "curseforge.com" in url:
+            curseforge_links.append(url)
+
+        # Modrinth
         elif "modrinth.com" in url and "modrinth" not in links:
             links["modrinth"] = url
-        elif "github.com" in url and "github" not in links:
-            # 过滤掉非主页链接
-            if not any(x in url for x in ["/issues", "/commit", "/blob", "/wiki", "/releases/tag", "/pull/"]):
-                links["github"] = url
-        elif "discord.gg" in url or "discord.com/invite" in url:
-            if "discord" not in links:
-                links["discord"] = url
+
+        # GitHub
+        elif "github.com" in url:
+            if not any(x in url for x in ["/blob/", "/wiki", "/issues", "/pull/"]):
+                github_links.append(url)
+
+        # Wiki（非 GitHub Wiki）
+        elif "wiki" in url.lower() and "github.com" not in url and "wiki" not in links:
+            links["wiki"] = url
+
+        # Discord
+        elif ("discord.gg" in url or "discord.com/invite" in url) and "discord" not in links:
+            links["discord"] = url
+
+        # Jenkins CI
+        elif "jenkins" in url.lower() or "ci." in url and "jenkins" not in links:
+            links["jenkins"] = url
+
+        # MCBBS
+        elif "mcbbs" in url and "mcbbs" not in links:
+            links["mcbbs"] = url
+
+    # 选择最短的 CurseForge 链接（通常是主模组）
+    if curseforge_links:
+        links["curseforge"] = min(curseforge_links, key=len)
+
+    # 选择最短的 GitHub 链接（通常是主仓库）
+    if github_links:
+        links["github"] = min(github_links, key=len)
 
     # 方式2：提取明文链接（向后兼容）
-    # CurseForge
     if "curseforge" not in links:
         cf = re.search(r'https?://(?:www\.)?curseforge\.com/minecraft/mc-mods/[^/\s"<>\)]+', html)
         if cf:
             links['curseforge'] = cf.group(0)
 
-    # Modrinth
     if "modrinth" not in links:
         mr = re.search(r'https?://modrinth\.com/(?:mod|shader|resourcepack)/[^/\s"<>\)]+', html)
         if mr:
             links['modrinth'] = mr.group(0)
 
-    # GitHub（过滤子路径）
     if "github" not in links:
         all_gh = re.findall(r'https?://github\.com/[^\s"<>\)]+', html)
         main_gh = [u.rstrip(').,') for u in all_gh
@@ -572,7 +616,6 @@ def _extract_mcmod_external_links(html: str) -> dict:
         if main_gh:
             links['github'] = min(main_gh, key=len)
 
-    # Discord
     if "discord" not in links:
         dc = re.search(r'https?://(?:www\.)?(?:discord\.gg|discord\.com/invite)/[^\s"<>\)]+', html)
         if dc:
