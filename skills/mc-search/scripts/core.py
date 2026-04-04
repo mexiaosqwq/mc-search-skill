@@ -70,7 +70,7 @@ _SOURCE_MAX = {              # search_all 每平台最多结果（按 content_ty
     "dimension": 4,
 }
 _MAX_ITEM_DESC_PARAGRAPHS = 5   # 物品页面描述最多段落数
-_MAX_MOD_DESC_PARAGRAPHS = 8    # 模组页面描述最多段落数
+_MAX_MOD_DESC_PARAGRAPHS = 20   # 模组页面描述最多段落数
 
 # ─────────────────────────────────────────
 # Wiki 解析辅助（read_wiki / read_wiki_zh 共用）
@@ -420,6 +420,7 @@ def _extract_mcmod_description(html: str) -> str:
     content = re.sub(r"<img[^>]*>", "", content)
     content = re.sub(r"<br\s*/?>", "\n", content)
     content = re.sub(r"<p[^>]*>", "\n", content)
+    content = re.sub(r"</li>", "\n", content)  # 列表项单独一行
     text = re.sub(r"<[^>]+>", "", content)
     text = html_module.unescape(text)
     text = re.sub(r"[ \t\r]+", " ", text).strip()
@@ -436,8 +437,8 @@ def _extract_mcmod_description(html: str) -> str:
         "mcmod.cn | ", "鄂ICP备", "鄂公网安备",
     ]
     para_title_pat = r"^(?:概述|简介|正文)\s*"
-    # 匹配论坛元数据，如 (7)Mod讨论 (2)
-    _mod_meta_pat = re.compile(r"^\(\d+\)\s*Mod(?:讨论|教程)\s*\(\d+\)")
+    # 匹配论坛元数据，如 (7)Mod讨论 (2) 或 Mod讨论 (19)
+    _mod_meta_pat = re.compile(r"^(?:\(\d+\)\s*)?Mod(?:讨论|教程)\s*\(\d+\)")
     lines = []
     for line in text.split("\n"):
         line = line.strip()
