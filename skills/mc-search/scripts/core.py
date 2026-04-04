@@ -4,6 +4,7 @@ mc-search 核心搜索模块
 统一接口：四平台并行搜索 + 统一结果格式 + 智能路由
 """
 
+import base64
 import hashlib
 import html as html_module
 import json
@@ -510,31 +511,72 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
 
 
 def _extract_mcmod_external_links(html: str) -> dict:
-    """提取模组的外部平台链接（CurseForge、Modrinth、GitHub、Discord）。"""
+    """提取模组的外部平台链接（CurseForge、Modrinth、GitHub、Discord）。
+
+    MC百科使用两种格式：
+    1. 明文链接（较少见）
+    2. 混淆链接：//link.mcmod.cn/target/<base64编码的URL>
+    """
     links = {}
 
-    # CurseForge 主页链接
-    cf = re.search(r'https?://(?:www\.)?curseforge\.com/minecraft/mc-mods/[^/\s"<>\)]+', html)
-    if cf:
-        links['curseforge'] = cf.group(0)
+    # 辅助函数：解码 MC百科的 Base64 混淆链接
+    def _decode_mcmod_link(encoded: str) -> str:
+        try:
+            # URL 中可能有缺失的 padding，补齐
+            padding = 4 - len(encoded) % 4
+            if padding != 4:
+                encoded += "=" * padding
+            decoded = base64.b64decode(encoded).decode("utf-8")
+            return decoded
+        except Exception:
+            return ""
 
-    # Modrinth 主页链接
-    mr = re.search(r'https?://modrinth\.com/(?:mod|shader|resourcepack)/[^/\s"<>\)]+', html)
-    if mr:
-        links['modrinth'] = mr.group(0)
+    # 方式1：提取 MC百科混淆链接（主流格式）
+    # 格式：//link.mcmod.cn/target/<base64>
+    obfuscated = re.findall(r'link\.mcmod\.cn/target/([A-Za-z0-9+/=]+)', html)
+    for encoded in obfuscated:
+        url = _decode_mcmod_link(encoded)
+        if not url:
+            continue
+        # 根据解码后的 URL 判断平台
+        if "curseforge.com" in url and "curseforge" not in links:
+            links["curseforge"] = url
+        elif "modrinth.com" in url and "modrinth" not in links:
+            links["modrinth"] = url
+        elif "github.com" in url and "github" not in links:
+            # 过滤掉非主页链接
+            if not any(x in url for x in ["/issues", "/commit", "/blob", "/wiki", "/releases/tag", "/pull/"]):
+                links["github"] = url
+        elif "discord.gg" in url or "discord.com/invite" in url:
+            if "discord" not in links:
+                links["discord"] = url
 
-    # GitHub 仓库链接（过滤掉 issues、commit、blob 等子路径）
-    all_gh = re.findall(r'https?://github\.com/[^\s"<>\)]+', html)
-    main_gh = [u.rstrip(').,') for u in all_gh
-               if not any(x in u for x in ['/issues', '/commit', '/blob', '/wiki', '/releases/tag', '/pull/'])]
-    if main_gh:
-        # 优先选择最短的（通常是仓库主页）
-        links['github'] = min(main_gh, key=len)
+    # 方式2：提取明文链接（向后兼容）
+    # CurseForge
+    if "curseforge" not in links:
+        cf = re.search(r'https?://(?:www\.)?curseforge\.com/minecraft/mc-mods/[^/\s"<>\)]+', html)
+        if cf:
+            links['curseforge'] = cf.group(0)
 
-    # Discord 邀请链接
-    dc = re.search(r'https?://(?:www\.)?(?:discord\.gg|discord\.com/invite)/[^\s"<>\)]+', html)
-    if dc:
-        links['discord'] = dc.group(0).rstrip(').,')
+    # Modrinth
+    if "modrinth" not in links:
+        mr = re.search(r'https?://modrinth\.com/(?:mod|shader|resourcepack)/[^/\s"<>\)]+', html)
+        if mr:
+            links['modrinth'] = mr.group(0)
+
+    # GitHub（过滤子路径）
+    if "github" not in links:
+        all_gh = re.findall(r'https?://github\.com/[^\s"<>\)]+', html)
+        main_gh = [u.rstrip(').,') for u in all_gh
+                   if not any(x in u for x in ['/issues', '/commit', '/blob', '/wiki', '/releases/tag', '/pull/'])]
+        if main_gh:
+            links['github'] = min(main_gh, key=len)
+
+    # Discord
+    if "discord" not in links:
+        dc = re.search(r'https?://(?:www\.)?(?:discord\.gg|discord\.com/invite)/[^\s"<>\)]+', html)
+        if dc:
+            links['discord'] = dc.group(0).rstrip(').,')
 
     return links
 
