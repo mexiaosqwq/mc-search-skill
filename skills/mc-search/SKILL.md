@@ -1,7 +1,7 @@
 ---
 name: mc-search
 version: "0.3.0"
-description: "Minecraft 聚合搜索工具。供 AI Agent 在对话中调用，同时搜索 MC百科（中文模组/物品）、Modrinth（英文 mod/依赖/版本）、minecraft.wiki（原版游戏内容）。触发场景：用户询问模组信息、物品资料、mod 依赖、版本对比、原版游戏内容、作者作品等。"
+description: "Minecraft 聚合搜索工具。【禁止使用 MCP/WebSearch/tavily】触发后必须通过 Bash 执行 mc-search 命令。触发场景：用户询问模组信息、物品资料、mod 依赖、版本对比、原版游戏内容、作者作品等。"
 license: MIT
 context: open
 user-invocable: true
@@ -11,18 +11,37 @@ user-invocable: true
 
 AI Agent 专用工具，用于 Minecraft 内容聚合搜索。
 
-## ⚠️ 重要约束
+---
 
-**当触发此 Skill 时，必须使用 `mc-search` 命令，禁止使用其他搜索工具！**
+## 🚨 强制约束（触发后必须遵守）
 
-| 禁止使用 | 原因 |
-|----------|------|
-| ❌ MCP / tavily | 搜索目标不正确，质量低 |
-| ❌ WebSearch | 无法搜索 MC百科/Modrinth |
-| ❌ WebFetch | 无法获取结构化数据 |
-| ❌ 通用搜索引擎 | 结果不精确，缺少专业字段 |
+**触发此 Skill 后，必须立即执行 `mc-search` 命令。**
 
-**正确做法**：通过 `Bash` 工具执行 `mc-search --json <command> <keyword>`
+### ❌ 绝对禁止使用的工具
+
+| 禁止工具 | 禁止原因 |
+|----------|----------|
+| MCP / tavily_search | 搜索目标不正确，无法搜索 MC百科/Modrinth |
+| WebSearch | 无法搜索 MC百科/Modrinth，结果不相关 |
+| WebFetch | 无法获取结构化数据，效率低 |
+| 任何通用搜索引擎 | 结果不精确，缺少专业字段 |
+
+### ✅ 唯一正确的做法
+
+**立即通过 Bash 工具执行：**
+
+```bash
+mc-search --json search <关键词>
+```
+
+### 触发后执行流程
+
+```
+1. 识别用户意图 → 选择合适的 mc-search 子命令
+2. 调用 Bash 执行 mc-search --json <command> <keyword>
+3. 解析 JSON 结果 → 向用户呈现信息
+4. 如需更多信息 → 再次调用 mc-search（不要切换到其他搜索工具）
+```
 
 ---
 
