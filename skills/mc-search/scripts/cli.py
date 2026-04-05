@@ -669,9 +669,6 @@ def _print_full_modrinth_info(mr: dict):
         # 清洗 HTML 标签
         clean_body = re.sub(r'<[^>]+>', '', body)
         clean_body = re.sub(r'\s+', ' ', clean_body).strip()
-        # 截取描述长度
-        if len(clean_body) > _DISPLAY_BODY_MAX:
-            clean_body = clean_body[:_DISPLAY_BODY_MAX] + '...'
         print(f"  描述：{clean_body}")
     vg = mr.get("version_groups", [])
     if vg:
