@@ -2122,8 +2122,10 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     """
     四平台并行搜索，返回统一格式。
     timeout: 整体超时秒数
-    content_type: "mod" | "item" | "entity" | "biome" | "dimension" | "modpack"
+    content_type: "mod" | "item" | "modpack" | "entity" | "biome" | "dimension" | "shader" | "resourcepack"
       - 同时决定每平台最大结果数（_SOURCE_MAX 字典）
+      - shader/resourcepack 仅搜索 Modrinth
+      - modpack 仅搜索 MC百科 + Modrinth
     fuse: True 时返回 {"results": [...融合列表...], "platform_stats": {platform: {total, returned}}}
          False 时返回 {platform: [results]}（向后兼容）
     """
@@ -2134,11 +2136,22 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
              "modrinth": {"total": 0, "returned": 0},
              "minecraft.wiki": {"total": 0, "returned": 0},
              "minecraft.wiki/zh": {"total": 0, "returned": 0}}
-    pe = _platform_enabled
+
+    # 根据 content_type 决定启用的平台
+    pe = _platform_enabled.copy()
+    if content_type in ("shader", "resourcepack"):
+        # shader/resourcepack 仅 Modrinth 支持
+        pe["mcmod.cn"] = False
+        pe["minecraft.wiki"] = False
+        pe["minecraft.wiki/zh"] = False
+    elif content_type == "modpack":
+        # modpack 不支持 wiki
+        pe["minecraft.wiki"] = False
+        pe["minecraft.wiki/zh"] = False
 
     def _wrap_mcmod():
         try:
-            # 支持 modpack 类型
+            # 支持 mod 和 modpack 类型
             valid_types = ("mod", "item", "modpack")
             ct = content_type if content_type in valid_types else "mod"
             return search_mcmod(keyword, per_source, content_type=ct)
@@ -2147,7 +2160,9 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
 
     def _wrap_mr():
         try:
-            return search_modrinth(keyword, per_source, project_type=content_type)
+            # Modrinth 支持所有类型
+            mr_type = content_type if content_type in ("mod", "shader", "resourcepack", "modpack") else "mod"
+            return search_modrinth(keyword, per_source, project_type=mr_type)
         except Exception:
             return {"results": [], "total": 0, "returned": 0}
 
@@ -2166,19 +2181,19 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     workers = []
     futures_map = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        if pe["mcmod.cn"]:
+        if pe.get("mcmod.cn", False):
             f = ex.submit(_wrap_mcmod)
             futures_map[f] = "mcmod.cn"
             workers.append(f)
-        if pe["modrinth"]:
+        if pe.get("modrinth", False):
             f = ex.submit(_wrap_mr)
             futures_map[f] = "modrinth"
             workers.append(f)
-        if pe["minecraft.wiki"]:
+        if pe.get("minecraft.wiki", False):
             f = ex.submit(_wrap_wiki)
             futures_map[f] = "minecraft.wiki"
             workers.append(f)
-        if pe["minecraft.wiki/zh"]:
+        if pe.get("minecraft.wiki/zh", False):
             f = ex.submit(_wrap_wiki_zh)
             futures_map[f] = "minecraft.wiki/zh"
             workers.append(f)

@@ -31,6 +31,12 @@ def _timed(func):
 
 _SOURCE_TYPE_LABELS = {"open_source": "开源", "closed_source": "闭源"}
 _SIDE_LABELS = {"required": "必需", "optional": "可选", "unsupported": "不支持"}
+_PROJECT_TYPE_LABELS = {
+    "mod": "模组",
+    "shader": "光影包",
+    "resourcepack": "材质包",
+    "modpack": "整合包",
+}
 
 def _print_side_info(mr: dict):
     """打印 Modrinth 运行环境信息。"""
@@ -84,9 +90,11 @@ _DISPLAY_READ_LINE_MAX = 250    # read 命令正文单行最大长度
 
 # 共享工具函数
 
-def _parse_mod_identifier(mod_arg: str) -> dict:
+def _parse_project_identifier(project_arg: str) -> dict:
     """
-    解析模组标识参数，返回标识字典。
+    解析项目标识参数，返回标识字典。
+
+    支持：模组 (mod)、光影包 (shader)、材质包 (resourcepack)、整合包 (modpack)
 
     返回: {
         "class_id": str | None,   # MC百科 class ID
@@ -94,15 +102,16 @@ def _parse_mod_identifier(mod_arg: str) -> dict:
         "mr_slug": str | None,    # Modrinth slug
     }
     """
-    if mod_arg.startswith("https://www.mcmod.cn/class/"):
-        m = re.search(r"/class/(\d+)", mod_arg)
+    if project_arg.startswith("https://www.mcmod.cn/class/"):
+        m = re.search(r"/class/(\d+)", project_arg)
         return {"class_id": m.group(1) if m else None, "mcmod_name": None, "mr_slug": None}
-    if mod_arg.startswith("https://modrinth.com/mod/"):
-        m = re.search(r"/mod/([^/?]+)", mod_arg)
-        return {"class_id": None, "mcmod_name": None, "mr_slug": m.group(1) if m else None}
-    if mod_arg.isdigit():
-        return {"class_id": mod_arg, "mcmod_name": None, "mr_slug": None}
-    return {"class_id": None, "mcmod_name": mod_arg, "mr_slug": None}
+    # Modrinth 项目 URL（支持 mod/shader/resourcepack/modpack）
+    mr_match = re.search(r"https://modrinth\.com/(mod|shader|resourcepack|modpack)/([^/?]+)", project_arg)
+    if mr_match:
+        return {"class_id": None, "mcmod_name": None, "mr_slug": mr_match.group(2)}
+    if project_arg.isdigit():
+        return {"class_id": project_arg, "mcmod_name": None, "mr_slug": None}
+    return {"class_id": None, "mcmod_name": project_arg, "mr_slug": None}
 
 
 
@@ -127,8 +136,8 @@ def main():
     s.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX, help=f"每平台最多结果（默认{_DEFAULT_MAX}）")
     s.add_argument("-t", "--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
     s.add_argument("--type", dest="content_type", default="mod",
-                   choices=["mod", "item", "modpack", "entity", "biome", "dimension"],
-                   help="内容类型（默认 mod）；用于融合排序偏好，同时决定搜索范围（modpack 仅搜 MC百科+Modrinth）")
+                   choices=["mod", "item", "modpack", "entity", "biome", "dimension", "shader", "resourcepack"],
+                   help="内容类型（默认 mod）；用于融合排序偏好，同时决定搜索范围（modpack/shader/resourcepack 仅搜 Modrinth）")
     s.add_argument("--author", dest="author_name", default=None,
                    help="MC百科作者搜索（仅搜 MC百科，忽略 --type）")
     s.add_argument("--fuse", action="store_true",
@@ -173,8 +182,8 @@ def main():
                         help="显示物品/方块合成表（仅 item 类型有效）")
 
     # 全量信息命令：一次获取搜索+详情+Modrinth+依赖
-    fl = sub.add_parser("full", help="一键获取模组完整信息（搜索→详情→Modrinth→依赖）")
-    fl.add_argument("mod", help="模组名称 / MC百科 class ID / class URL / Modrinth slug")
+    fl = sub.add_parser("full", help="一键获取完整信息（模组/光影/材质/整合包：搜索→详情→依赖→版本）")
+    fl.add_argument("project", help="名称 / MC百科 URL/ID / Modrinth URL/slug（支持 mod/shader/resourcepack/modpack）")
     fl.add_argument("--skip-dep", dest="skip_dep", action="store_true",
                     help="跳过依赖查询（加速）")
     fl.add_argument("--skip-mr", dest="skip_mr", action="store_true",
@@ -329,7 +338,7 @@ def main():
     def _cmd_info():
         """MC百科模组详情，默认全字段，支持按 -T/-a/-d/-v/-g/-c/-s/-S/-m/-r 过滤。"""
         mod_arg = args.mod
-        ident = _parse_mod_identifier(mod_arg)
+        ident = _parse_project_identifier(mod_arg)
 
         if ident["mr_slug"]:
             print(f"info 命令不支持 Modrinth URL，请使用 mod 名称或 MC百科 URL/ID")
@@ -661,9 +670,9 @@ def main():
                 print(f"    （还有更多成员，仅显示前 10 人）")
 
     def _cmd_full():
-        """一键获取模组完整信息：MC百科详情 + Modrinth详情 + 依赖树（全部并行）。"""
+        """一键获取完整信息：支持模组/光影/材质包/整合包。"""
         t0 = time.time()
-        mod_arg = args.mod
+        project_arg = args.project
         result = {
             "mcmod": None,
             "modrinth": None,
@@ -671,13 +680,13 @@ def main():
             "search_results": [],
         }
 
-        # ── 解析模组标识 ───────────────────────────────────────────
-        ident = _parse_mod_identifier(mod_arg)
+        # ── 解析项目标识 ───────────────────────────────────────────
+        ident = _parse_project_identifier(project_arg)
 
-        # Modrinth URL：单独处理（直接返回，无须查 MC百科）
+        # Modrinth URL：直接处理（支持 mod/shader/resourcepack/modpack）
         if ident["mr_slug"]:
             result["modrinth"] = core.get_mod_info(ident["mr_slug"], no_limit=True)
-            if not args.skip_dep:
+            if result["modrinth"] and not args.skip_dep:
                 result["dependencies"] = core.get_mod_dependencies(
                     ident["mr_slug"], project_id=result["modrinth"].get("id"))
             if args.json:
@@ -688,96 +697,89 @@ def main():
                 if mr:
                     print(f"  名称：{mr.get('name')} ({mr.get('slug', '')})")
                     print(f"  平台：Modrinth | {mr.get('url', '')}")
+                    proj_type = mr.get('type', 'mod')
+                    proj_type_label = _PROJECT_TYPE_LABELS.get(proj_type, proj_type)
+                    print(f"  类型：{proj_type_label}")
                     _print_full_modrinth_info(mr)
-                if deps and deps.get('deps'):
-                    print(f"\n  ── 依赖 ──")
-                    print_deps(deps)
+                    if deps and deps.get('deps'):
+                        print(f"\n  ── 依赖 ──")
+                        print_deps(deps)
+                else:
+                    print(f"未找到该项目（slug: {ident['mr_slug']}）")
             print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
 
+        # 非 Modrinth URL：尝试通过 Modrinth 搜索匹配 slug
         class_id = ident["class_id"]
         mcmod_name = ident["mcmod_name"]
 
-        # ── 阶段一：获取 MC百科信息 ───────────────────────────────
+        # ── 阶段一：获取 Modrinth 信息（优先 slug 精确匹配）──
+        mr_info = None
+        tentative_name = None
+
+        if not args.skip_mr and mcmod_name:
+            try:
+                direct_data = core.search_modrinth(mcmod_name, max_results=5)
+                direct_hits = direct_data.get("results", [])
+
+                if direct_hits:
+                    # 尝试 slug 精确匹配
+                    norm_arg = re.sub(r"[^a-z0-9_-]", "", mcmod_name.lower().replace(" ", "-"))
+                    for hit in direct_hits:
+                        hit_slug = (hit.get("slug", "") or "").lower()
+                        hit_name_raw = hit.get("name") or hit.get("name_en") or ""
+                        hit_name_norm = re.sub(r"[^a-z0-9]", "", hit_name_raw.lower())
+
+                        # slug 完全匹配（最高优先级）
+                        if hit_slug == norm_arg:
+                            slug = hit.get("source_id", "") or hit.get("slug", "")
+                            if slug:
+                                try:
+                                    mr_info = core.get_mod_info(slug, no_limit=True)
+                                    break
+                                except Exception:
+                                    pass
+
+                        # 名称精确匹配
+                        if hit_name_norm == norm_arg:
+                            slug = hit.get("source_id", "") or hit.get("slug", "")
+                            if slug and not mr_info:
+                                try:
+                                    mr_info = core.get_mod_info(slug, no_limit=True)
+                                except Exception:
+                                    pass
+
+                    if not mr_info and direct_hits:
+                        tentative_name = direct_hits[0].get("name") or direct_hits[0].get("name_en") or ""
+            except Exception:
+                pass
+
+        # ── 阶段二：获取 MC百科信息（仅 mod/item/modpack）──
         mcmod_info, search_results = _fetch_mcmod_info(class_id, mcmod_name)
         result["mcmod"] = mcmod_info
         result["search_results"] = search_results
 
-        # 补充搜索结果（用于 Modrinth 搜索）
-        if mcmod_name and not result["search_results"]:
-            try:
-                result["search_results"] = core.search_mcmod(mcmod_name, max_results=3)
-            except core._SearchError:
-                result["search_results"] = []
-
-        # 无任何结果时提前退出
-        if not result["mcmod"] and not result["modrinth"]:
+        # 如果 MC百科 未找到且 Modrinth 也未有结果，提前退出
+        if not result["mcmod"] and not mr_info:
             if args.json:
-                _json_print(result)
+                print(json.dumps(result, ensure_ascii=False))
             else:
-                print(f"未找到名为 [{mod_arg}] 的模组信息")
+                print(f"未找到名为 [{project_arg}] 的项目信息")
             print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
 
-        # ── 阶段二：获取 Modrinth 信息 ───────────────────────────
-        # 策略：Modrinth 直搜 > MC百科名搜索
-        mr_info = None
-        tentative_name = None
-
-        if not args.skip_mr:
-            # 优先用原始关键词直搜 Modrinth
-            try:
-                import re as _re
-                norm_arg = _re.sub(r"[^a-z0-9_-]", "", mod_arg.lower().replace(" ", "-"))
-                direct_data = core.search_modrinth(mod_arg, max_results=5)
-                direct_hits = direct_data.get("results", [])
-
-                # 精确匹配策略：slug 完全匹配或名称精确匹配
-                for hit in direct_hits:
-                    hit_slug = (hit.get("slug", "") or "").lower()
-                    hit_name_raw = hit.get("name") or hit.get("name_en") or ""
-                    hit_name_norm = _re.sub(r"[^a-z0-9]", "", hit_name_raw.lower())
-
-                    # 1. slug 完全匹配（最高优先级）
-                    if hit_slug == norm_arg or hit_slug == mod_arg.lower():
-                        slug = hit.get("source_id", "") or hit.get("slug", "")
-                        if slug:
-                            try:
-                                mr_info = core.get_mod_info(slug, no_limit=True)
-                                break
-                            except Exception:
-                                pass
-
-                    # 2. 名称精确匹配
-                    if hit_name_norm == _re.sub(r"[^a-z0-9]", "", mod_arg.lower()):
-                        slug = hit.get("source_id", "") or hit.get("slug", "")
-                        if slug and not mr_info:
-                            try:
-                                mr_info = core.get_mod_info(slug, no_limit=True)
-                            except Exception:
-                                pass
-
-                # 无精确匹配，记录第一个结果作为候选
-                if not mr_info and direct_hits:
-                    tentative_name = direct_hits[0].get("name") or direct_hits[0].get("name_en") or ""
-            except Exception:
-                pass
-
-        # 如果 Modrinth 直搜没找到精确匹配，退回到传统逻辑
+        # ── 阶段三：补充 Modrinth 信息（如果阶段一未找到）──
         if not mr_info:
             mr_search_name = (
                 result["mcmod"].get("name_en")
                 if result["mcmod"] else None
-            ) or mcmod_name or (
-                result["search_results"][0].get("name_en")
-                if result["search_results"] else None
-            )
-            mr_info, tentative_name = _fetch_modrinth_info(mr_search_name, args.skip_mr)
+            ) or mcmod_name
+            mr_info, tentative_name = _fetch_modrinth_info(mr_search_name, args.skip_mr, direct_slug=None)
         result["modrinth"] = mr_info
         if tentative_name:
             result["_mr_tentative"] = tentative_name
 
-        # ── 阶段三：依赖查询 ───────────────────────────
+        # ── 阶段三：依赖查询 ──
         if not args.skip_dep and mr_info:
             try:
                 result["dependencies"] = core.get_mod_dependencies(
@@ -785,13 +787,14 @@ def main():
             except Exception:
                 pass
 
-        # ── 输出 ─────────────────────────────────────────────────
+        # ── 输出 ──
         if args.json:
             print(json.dumps(result, ensure_ascii=False))
         else:
             mc = result.get("mcmod")
             mr = result.get("modrinth")
             deps = result.get("dependencies")
+
             if mc:
                 _print_full_mcmod_info(mc)
             if mr:
@@ -799,9 +802,10 @@ def main():
                 _print_full_modrinth_info(mr)
             elif result.get("_mr_tentative"):
                 print(f"\n  ── Modrinth ──")
-                print(f"  ⚠️ 名称未确认匹配（MC百科 name_en 可能对应其他 mod），请自行确认")
-                print(f"  参考搜索词：{mr_search_name} → Modrinth 结果：{result['_mr_tentative']}")
-            # 整合依赖显示
+                print(f"  ⚠️ 名称未确认匹配，请自行确认")
+                print(f"  参考搜索词 → Modrinth 结果：{result['_mr_tentative']}")
+
+            # 依赖信息
             has_deps = deps and deps.get('deps')
             mc_requires = []
             mc_integrations = []
@@ -812,9 +816,7 @@ def main():
 
             if has_deps or mc_requires:
                 print(f"\n  ── 依赖关系 ──")
-                mod_name = mr.get('name', '') if mr else mc.get('name_zh', '') if mc else ''
 
-                # MC百科前置Mod（去重）
                 if mc_requires:
                     seen = set()
                     unique_requires = []
@@ -830,7 +832,6 @@ def main():
                         print(f"  - {req_name}")
                         print(f"    {req.get('url', '')}")
 
-                # Modrinth 依赖
                 if has_deps:
                     mr_deps = deps.get('deps', {})
                     if isinstance(mr_deps, dict):
@@ -845,7 +846,6 @@ def main():
                         if len(mr_deps) > 8:
                             print(f"  ... 还有 {len(mr_deps) - 8} 个依赖")
 
-                # 如果有 MC百科前置但没有 Modrinth 依赖，显示分隔线
                 if mc_requires and not has_deps:
                     print(f"\n  ℹ️  Modrinth 依赖信息暂缺")
 
@@ -861,6 +861,10 @@ def main():
                         print(f"    {int_url}")
                 if len(mc_integrations) > 5:
                     print(f"  ... 还有 {len(mc_integrations) - 5} 个")
+
+            # 未找到任何信息
+            if not mc and not mr:
+                print(f"未找到名为 [{project_arg}] 的项目信息")
 
         print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
 

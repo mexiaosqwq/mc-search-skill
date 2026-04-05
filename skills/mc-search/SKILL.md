@@ -45,9 +45,11 @@ Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**（MC百科
 mc-search --json search <关键词>
 
 # 指定类型搜索
-mc-search --json search <关键词> --type modpack   # 整合包（MC百科 + Modrinth）
-mc-search --json search <关键词> --type item      # 物品/方块
-mc-search --json search <关键词> --type entity    # 实体/生物
+mc-search --json search <关键词> --type modpack      # 整合包（MC百科 + Modrinth）
+mc-search --json search <关键词> --type shader       # 光影包（仅 Modrinth）
+mc-search --json search <关键词> --type resourcepack # 材质包（仅 Modrinth）
+mc-search --json search <关键词> --type item         # 物品/方块
+mc-search --json search <关键词> --type entity       # 实体/生物
 
 # 作者搜索
 mc-search --json search --author "<作者名>"        # MC百科作者
@@ -59,9 +61,10 @@ mc-search --json author "<用户名>" -n 20           # Modrinth作者
 - 智能排序：精确匹配 > 前缀匹配 > 包含匹配
 - 多平台融合：同名模组/整合包自动合并，跨平台加权
 
-> **注意**：整合包搜索（`--type modpack`）仅在 **Modrinth** 平台完全支持
-> - MC百科 整合包搜索受页面动态加载限制，建议直接通过 URL 访问
-> - minecraft.wiki 不支持整合包搜索
+> **注意**：
+> - 整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行
+> - 光影包（`--type shader`）和材质包（`--type resourcepack`）**仅 Modrinth** 支持
+> - minecraft.wiki 不支持整合包/光影包/材质包搜索
 > - 整合包返回字段包含 `is_official`（仅 MC百科 整合包包含此字段）
 
 ### 2️⃣ 详情类（完整信息）
@@ -70,21 +73,29 @@ mc-search --json author "<用户名>" -n 20           # Modrinth作者
 # 一键全量信息（推荐首选）
 mc-search --json full <模组名或URL>
 
+# 支持所有项目类型（模组/光影/材质/整合包）
+mc-search --json full https://modrinth.com/shader/complementary-reimagined
+mc-search --json full https://modrinth.com/resourcepack/faithful
+mc-search --json full https://modrinth.com/modpack/rl-craft
+
 # 单平台详情
 mc-search --json info <模组名>           # MC百科详情
 mc-search --json info <模组名> -m        # 同时查 Modrinth
 ```
 
 **`full` 返回内容**：
-- `mcmod`: MC百科详情（中文名、分类、状态、作者、截图、标签）
+- `mcmod`: MC百科详情（模组/整合包：中文名、分类、状态、作者、截图、标签）
 - `modrinth`: Modrinth 详情（下载量、版本历史、运行环境、更新日志）
 - `dependencies`: 依赖树（必需/可选依赖）
 - `search_results`: 搜索结果摘要（用于确认匹配准确性）
 - `_mr_tentative`: Modrinth 模糊匹配提示（当精确匹配失败时）
-- `author_team`: 作者团队列表（含分工信息）
-- `community_stats`: 社区统计数据（评级、浏览量等）
+- `author_team`: 作者团队列表（含分工信息，仅 MC百科）
+- `community_stats`: 社区统计数据（评级、浏览量等，仅 MC百科）
 
-> 注：`full` 命令返回的是 JSON 对象，以上字段均为顶级键。
+> 注：
+> - `full` 命令返回的是 JSON 对象，以上字段均为顶级键
+> - 支持模组（mod）、光影包（shader）、材质包（resourcepack）、整合包（modpack）
+> - MC百科 不支持光影包和材质包，此类项目仅返回 Modrinth 数据
 
 ### 3️⃣ Wiki 类（原版内容）
 
@@ -117,6 +128,8 @@ mc-search --json dep <mod_slug>
 │   └─ 知道模组/整合包名 → full <模组名或整合包名或URL>  ← 首选
 │       ├─ 模组名：full 钠
 │       ├─ 整合包名：full RLCraft
+│       ├─ 光影包：full https://modrinth.com/shader/bsl
+│       ├─ 材质包：full https://modrinth.com/resourcepack/faithful
 │       ├─ MC百科URL：full https://www.mcmod.cn/class/2785.html
 │       ├─ MC百科整合包URL：full https://www.mcmod.cn/modpack/123.html
 │       └─ Modrinth URL：full https://modrinth.com/mod/sodium
@@ -125,6 +138,8 @@ mc-search --json dep <mod_slug>
 │   └─ 模糊关键词 → search <关键词>
 │       ├─ 筛类型：search 钻石剑 --type item
 │       ├─ 搜整合包：search 科技 --type modpack  # 仅限 MC百科 + Modrinth
+│       ├─ 搜光影包：search Complementary --type shader  # 仅 Modrinth
+│       ├─ 搜材质包：search Faithful --type resourcepack  # 仅 Modrinth
 │       └─ 筛作者：search --author Notch
 │
 ├─ 3. 查原版游戏内容（wiki）
@@ -142,8 +157,8 @@ mc-search --json dep <mod_slug>
 └─ 6. 已有 URL，直接读取
     ├─ MC百科模组：info <URL>
     ├─ MC百科整合包：full <URL>
-    ├─ Modrinth模组/整合包：full <URL> 或 dep <slug>
-    └─ Wiki：read <URL>
+    ├─ Modrinth模组/整合包/光影/材质：full <URL> 或 dep <slug>
+    ├─ Wiki：read <URL>
 ```
 
 ## 全局选项
@@ -169,7 +184,7 @@ mc-search search --json 钠          # ✗ 错误
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
-| `--type <类型>` | 搜索类型过滤 | `--type mod` / `--type item` / `--type modpack` / `--type entity` |
+| `--type <类型>` | 搜索类型过滤 | `--type mod` / `--type item` / `--type modpack` / `--type shader` / `--type resourcepack` / `--type entity` |
 | `-n <数量>` | 限制结果数量 | `-n 10` |
 | `-m` | 同时查 Modrinth | `info 钠 -m` |
 | `-r` | 读取 wiki 正文 | `wiki 附魔台 -r` |
@@ -301,6 +316,39 @@ mc-search --json full https://modrinth.com/modpack/rl-craft  # Modrinth URL
 #   "is_official": true,
 #   "description": "硬核生存整合包...",
 #   "categories": ["冒险", "魔法"]
+# }
+```
+
+### 示例 6：搜索光影包/材质包
+
+```bash
+# 搜索光影包（仅 Modrinth）
+mc-search --json search Complementary --type shader
+mc-search --json search BSL --type shader
+
+# 搜索材质包（仅 Modrinth）
+mc-search --json search Faithful --type resourcepack
+mc-search --json search Mizuno --type resourcepack
+
+# 获取光影包完整信息
+mc-search --json full https://modrinth.com/shader/complementary-reimagined
+
+# 获取材质包完整信息
+mc-search --json full https://modrinth.com/resourcepack/faithful
+
+# 输出示例（光影包 JSON）：
+# {
+#   "mcmod": null,                        # MC百科 不支持光影包
+#   "modrinth": {
+#     "name": "Complementary Shaders - Reimagined",
+#     "type": "shader",
+#     "client_side": "required",          # 光影仅客户端需要
+#     "server_side": "unsupported",
+#     "downloads": 5000000,
+#     "latest_version": "r5.2.2",
+#     "categories": ["optimization"]
+#   },
+#   "dependencies": null                  # 光影通常无依赖
 # }
 ```
 

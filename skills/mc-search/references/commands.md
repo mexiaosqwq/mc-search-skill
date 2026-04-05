@@ -12,9 +12,12 @@ mc-search search <关键词> [options]
 
 | 选项 | 说明 |
 |------|------|
-| `--type item` | 搜索物品/方块（仅对 MC百科 有效），默认搜索模组 |
 | `--type mod` | 搜索模组（默认） |
-| `--type entity` | 融合时 wiki 权威结果优先（biome/dimension 同） |
+| `--type item` | 搜索物品/方块 |
+| `--type modpack` | 搜索整合包（MC百科 + Modrinth） |
+| `--type shader` | 搜索光影包（仅 Modrinth） |
+| `--type resourcepack` | 搜索材质包（仅 Modrinth） |
+| `--type entity` | 搜索实体/生物 |
 | `--author <作者名>` | MC百科作者搜索（作者名需精确匹配） |
 | `-n <数量>` | 每平台最多结果（默认3，`--fuse` 时最多15） |
 | `-t <秒数>` | 超时时间（默认12秒） |
@@ -22,7 +25,10 @@ mc-search search <关键词> [options]
 
 > **注**：search 命令的所有平台默认超时时间为 12 秒（继承自全局默认值 `_DEFAULT_TIMEOUT = 12`）。
 
-> **重要**：`--type` 选项只对 MC百科 搜索有效，用于区分模组和物品搜索。Modrinth 和 wiki 搜索不受此选项影响。
+> **重要**：`--type` 选项影响所有平台的搜索范围：
+> - `mod`/`item`/`modpack`：MC百科 + Modrinth
+> - `shader`/`resourcepack`：仅 Modrinth
+> - `entity`/`biome`/`dimension`：minecraft.wiki 优先
 
 **示例**：
 ```bash
