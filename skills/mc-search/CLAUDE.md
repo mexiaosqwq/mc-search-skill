@@ -127,9 +127,7 @@ skills/mc-search/
 └── references/
     ├── result-schema.md  # 结果字段说明
     ├── commands.md       # 命令参考
-    ├── troubleshooting.md # 故障排查指南
-    ├── mcmod-api.md      # MC百科 API
-    └── modrinth-api.md   # Modrinth API
+    └── troubleshooting.md # 故障排查指南
 ```
 
 ---
