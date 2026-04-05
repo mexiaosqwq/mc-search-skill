@@ -1342,7 +1342,8 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
         return cached
 
     q = urllib.parse.quote(keyword)
-    html = _curl(f"https://search.mcmod.cn/s?key={q}&filter=10")
+    # 使用 filter=2 而非 filter=10，返回更多整合包结果
+    html = _curl(f"https://search.mcmod.cn/s?key={q}&filter=2")
     if not html:
         return []  # 网络失败返回空列表
 
