@@ -85,7 +85,7 @@ _DEFAULT_PARAGRAPHS = 5  # wiki 页面默认段落数
 _DISPLAY_WIKI_PARAGRAPHS = 4    # wiki 搜索后自动 read 的段落数
 _DISPLAY_LINE_MAX = 200         # 单行最大显示字符数（search/wiki 命令）
 _DISPLAY_READ_LINE_MAX = 250    # read 命令正文单行最大长度
-_DISPLAY_BODY_MAX = 2000        # Modrinth body 描述最大显示字符数（约 5-10 段）
+# _DISPLAY_BODY_MAX 已移除 - 未使用，full 命令完整显示 body
 
 
 
