@@ -81,9 +81,20 @@ _SOURCE_MAX = _DEFAULT_RESULTS_PER_PLATFORM
 _MAX_TABLES_PER_SECTION = 3  # Wiki 每章节最多提取表格数
 
 # === MC百科搜索过滤器 ===
-_MCMOD_FILTER_MOD = "0"        # 模组搜索
-_MCMOD_FILTER_ITEM = "3"       # 物品搜索
-_MCMOD_FILTER_MODPACK = "10"   # 整合包搜索
+_MCMOD_FILTER_MOD = "0"             # 模组搜索
+_MCMOD_FILTER_ITEM = "3"            # 物品搜索
+_MCMOD_FILTER_MODPACK_ZH = "2"      # 整合包搜索（中文关键词效果最佳）
+_MCMOD_FILTER_MOD = "0"             # 模组搜索（有时也返回整合包）
+_MCMOD_FILTER_MODPACK_ALT = "20"    # 另一种整合包过滤
+_MCMOD_FILTER_MODPACK_OLD = "10"    # 旧版整合包过滤（较少结果）
+
+# MC百科整合包多 filter 策略（按优先级）
+_MCMOD_MODPACK_FILTERS = [
+    _MCMOD_FILTER_MODPACK_ZH,   # 中文关键词效果最佳
+    _MCMOD_FILTER_MOD,           # 模组搜索（补充）
+    _MCMOD_FILTER_MODPACK_ALT,   # 另一种整合包过滤
+    _MCMOD_FILTER_MODPACK_OLD,   # 旧版过滤（较少结果）
+]
 
 # === Modrinth 项目类型 URL 映射 ===
 _MODRINTH_TYPE_URL_MAP = {
@@ -1151,10 +1162,14 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     content_type: "mod" | "item" | "modpack"
       - "mod"     → filter=0  → /class/ 页面（综合排序，主模组更靠前）
       - "item"    → filter=3  → /item/  页面（物品/方块）
-      - "modpack" → filter=10 → /modpack/ 页面（整合包）
+      - "modpack" → 使用多 filter 策略搜索整合包
     """
+    # 整合包使用专用搜索函数（多 filter 策略）
+    if content_type == "modpack":
+        return search_mcmod_modpack(keyword, max_results)
+
     # filter 映射
-    filter_map = {"mod": _MCMOD_FILTER_MOD, "item": _MCMOD_FILTER_ITEM, "modpack": _MCMOD_FILTER_MODPACK}
+    filter_map = {"mod": _MCMOD_FILTER_MOD, "item": _MCMOD_FILTER_ITEM}
     if content_type not in filter_map:
         raise ValueError(f"search_mcmod 不支持的 content_type: {content_type}。仅支持 'mod' / 'item' / 'modpack'")
     filter_val = filter_map[content_type]
@@ -1346,11 +1361,10 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     q = urllib.parse.quote(keyword)
 
     # 多 filter 策略：按优先级尝试不同的 filter 值
-    # filter=2 对中文关键词效果最好，filter=0/20/10 补充
     all_pairs = []
     seen = set()
 
-    for filter_val in ["2", "0", "20", "10"]:
+    for filter_val in _MCMOD_MODPACK_FILTERS:
         html = _curl(f"https://search.mcmod.cn/s?key={q}&filter={filter_val}")
         if not html:
             continue
