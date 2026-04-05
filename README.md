@@ -5,6 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
+[English Documentation →](README.en.md)
+
+---
+
 ## 这是什么？
 
 **mc-search** 是一个 **Claude Code Skill**，让 AI Agent 能够从四大平台搜索和检索 Minecraft 相关信息：
