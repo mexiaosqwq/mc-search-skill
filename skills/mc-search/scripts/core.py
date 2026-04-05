@@ -1469,6 +1469,17 @@ def _build_modrinth_result(
     donation_urls: list[dict],
 ) -> dict:
     """构建 Modrinth 模组信息结果字典。"""
+    # 根据项目类型构建正确的 URL
+    project_type = data.get("project_type", "mod")
+    if project_type == "modpack":
+        project_url = f"https://modrinth.com/modpack/{data.get('slug', '')}"
+    elif project_type == "shader":
+        project_url = f"https://modrinth.com/shader/{data.get('slug', '')}"
+    elif project_type == "resourcepack":
+        project_url = f"https://modrinth.com/resourcepack/{data.get('slug', '')}"
+    else:
+        project_url = f"https://modrinth.com/mod/{data.get('slug', '')}"
+
     return {
         "name": data.get("title", ""),
         "slug": data.get("slug", ""),
@@ -1497,8 +1508,9 @@ def _build_modrinth_result(
         "game_versions": [],
         "loaders": [],
         "downloads": data.get("downloads", 0),
+        "type": project_type,
         "source": "modrinth",
-        "url": f"https://modrinth.com/mod/{data.get('slug', '')}",
+        "url": project_url,
     }
 
 
