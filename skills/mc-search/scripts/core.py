@@ -417,6 +417,135 @@ def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
     return cover_image, screenshots
 
 
+def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
+    """从 MC百科整合包页面解析。整合包页面结构与 class 页面类似但有差异。"""
+    m = re.search(r"<title>([^<]+)</title>", html)
+    raw_title = m.group(1).strip() if m else name
+
+    # 从 title 中分离中文名和 (英文名)
+    name_zh = raw_title
+    name_en = ""
+    title_match = re.match(r"^(.+?)\s*(?:\(([^)]+)\))?\s*-", raw_title)
+    if title_match:
+        name_zh = title_match.group(1).strip()
+        name_en = title_match.group(2).strip() if title_match.group(2) else ""
+
+    # 封面图（整合包也用 class-cover-image）
+    cover_m = re.search(r'class="class-cover-image"[^>]*>.*?<img[^>]+src="([^"]+)"', html, re.DOTALL)
+    cover_image = cover_m.group(1) if cover_m else ""
+
+    # 截图
+    screenshots = re.findall(r'class="figure"[^>]*>.*?data-src="([^"]+)"', html, re.DOTALL)
+
+    # 提取基本信息（作者、状态、分类等）
+    author = ""
+    status = ""
+    categories = []
+    description = ""
+
+    # 作者和状态（整合包页面格式与模组类似）
+    author_m = re.search(r'作者：</td><td[^>]*><a[^>]*>([^<]+)</a>', html)
+    if author_m:
+        author = author_m.group(1).strip()
+    else:
+        # 尝试无链接的作者名
+        author_m = re.search(r'作者：</td><td[^>]*>([^<]+)</td>', html)
+        if author_m:
+            author = author_m.group(1).strip()
+
+    status_m = re.search(r'状态：</td><td[^>]*>([^<]+)</td>', html)
+    if status_m:
+        status = status_m.group(1).strip()
+
+    # 分类
+    categories = re.findall(r'href="/modpack/category/[^"]*"[^>]*>([^<]+)</a>', html)
+
+    # 描述（整合包介绍区域）
+    intro_idx = html.find("整合包介绍")
+    if intro_idx >= 0:
+        segment = html[intro_idx:intro_idx + _MAX_DESCRIPTION_SEGMENT]
+        section_markers = ["整合包下载", "版本列表", "包含模组", "相关链接"]
+        end = len(segment)
+        for marker in section_markers:
+            idx = segment.find(marker)
+            if idx > _MIN_SECTION_MARKER_DISTANCE:
+                end = min(end, idx)
+        content = segment[:end]
+        content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
+        content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
+        content = re.sub(r"<img[^>]*>", "", content)
+        content = re.sub(r"<br\s*/?>", "\n", content)
+        content = re.sub(r"<p[^>]*>", "\n", content)
+        text = re.sub(r"<[^>]+>", "", content)
+        text = html_module.unescape(text)
+        text = re.sub(r"[ \t\r]+", " ", text).strip()
+
+        lines = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if len(line) < _MIN_DESCRIPTION_LINE_LEN:
+                continue
+            lines.append(line)
+        description = "\n".join(lines)
+
+    # 提取整合包版本信息（如果有）
+    supported_versions = []
+    version_section_idx = html.find("版本列表")
+    if version_section_idx >= 0:
+        version_section = html[version_section_idx:version_section_idx + _MAX_VERSION_SECTION_LEN]
+        versions = re.findall(r'(?:Minecraft\s+)?(\d+\.\d+(?:\.\d+)?)', version_section)
+        supported_versions = list(set(versions))
+
+    # 提取包含的模组数量（如果有统计）
+    mod_count = None
+    mod_count_m = re.search(r'包含模组[：:]\s*(\d+)', html)
+    if mod_count_m:
+        mod_count = int(mod_count_m.group(1))
+
+    # 提取下载量（如果有）
+    downloads = None
+    downloads_m = re.search(r'下载[：:]\s*([\d,]+)', html)
+    if downloads_m:
+        downloads_str = downloads_m.group(1).replace(",", "").replace(" ", "")
+        try:
+            downloads = int(downloads_str)
+        except ValueError:
+            pass
+
+    # 整合包类型判定
+    is_vanilla = bool(re.search(r'/modpack/\d+\.html', url))
+
+    # 截图截断信息
+    screenshots_total = len(screenshots)
+    screenshots_limited = screenshots[:_MAX_SCREENSHOTS]
+
+    result = {
+        "name": name_zh or raw_title or name,
+        "name_en": name_en,
+        "name_zh": name_zh or raw_title or name,
+        "url": url,
+        "source": "mcmod.cn",
+        "source_id": re.search(r"/modpack/(\d+)", url).group(1) if url else "",
+        "type": "modpack",
+        "is_vanilla": is_vanilla,
+        "cover_image": cover_image,
+        "screenshots": screenshots_limited,
+        "supported_versions": supported_versions,
+        "categories": categories,
+        "author": author,
+        "status": status,
+        "description": description,
+        "mod_count": mod_count,
+        "downloads": downloads,
+    }
+
+    # 截断元信息
+    if screenshots_total > _MAX_SCREENSHOTS:
+        result["_truncated"] = {"screenshots": {"returned": _MAX_SCREENSHOTS, "total": screenshots_total}}
+
+    return result
+
+
 def _extract_mcmod_versions(html: str) -> list[str]:
     """从版本检索区提取支持的游戏版本列表。"""
     ver_idx = html.find("版本检索")
@@ -990,15 +1119,20 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     """
     MC百科 搜索。
 
-    content_type: "mod" | "item"（仅支持这两种类型）
-      - "mod"  → filter=0  → /class/ 页面（综合排序，主模组更靠前）
-      - "item" → filter=3  → /item/  页面（物品/方块）
+    content_type: "mod" | "item" | "modpack"
+      - "mod"     → filter=0  → /class/ 页面（综合排序，主模组更靠前）
+      - "item"    → filter=3  → /item/  页面（物品/方块）
+      - "modpack" → filter=10 → /modpack/ 页面（整合包）
     """
     # filter 映射
-    filter_map = {"mod": "0", "item": "3"}
+    filter_map = {"mod": "0", "item": "3", "modpack": "10"}
     if content_type not in filter_map:
-        raise ValueError(f"search_mcmod 不支持的 content_type: {content_type}。仅支持 'mod' 或 'item'")
+        raise ValueError(f"search_mcmod 不支持的 content_type: {content_type}。仅支持 'mod' / 'item' / 'modpack'")
     filter_val = filter_map[content_type]
+
+    # 整合包使用专用搜索函数
+    if content_type == "modpack":
+        return search_mcmod_modpack(keyword, max_results)
 
     key = _cache_key("mcmod", keyword, max_results, content_type)
     cached = _cache_get("search", key)
@@ -1023,10 +1157,15 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     section = html[idx:end_idx]
     clean = re.sub(r"<em[^>]*>|</em>", "", section)
 
-    # 物品用 /item/ URL，模组用 /class/ URL
+    # 物品用 /item/ URL，模组用 /class/ URL，整合包用 /modpack/ URL
     if content_type == "item":
         pairs = re.findall(
             r'href="(https://www\.mcmod\.cn/item/\d+\.html)">([^<]+)</a>',
+            clean,
+        )
+    elif content_type == "modpack":
+        pairs = re.findall(
+            r'href="(https://www\.mcmod\.cn/modpack/\d+\.html)">([^<]+)</a>',
             clean,
         )
     else:
@@ -1081,6 +1220,8 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
         page_html = _curl(raw_url)
         if content_type == "item":
             return _parse_mcmod_item_result(page_html, raw_url, name)
+        elif content_type == "modpack":
+            return _parse_mcmod_modpack_result(page_html, raw_url, name)
         return _parse_mcmod_result(page_html, raw_url, name)
 
     results = _parallel_fetch_with_fallback(
@@ -1156,12 +1297,104 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
     return results
 
 
+def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
+    """
+    MC百科 整合包搜索。
+
+    搜索整合包使用 /modpack/ 页面，结构与 class 页面不同。
+    MC百科整合棒搜索 URL: https://search.mcmod.cn/s?key={keyword}&filter=10
+    filter=10 是整合包过滤器。
+    """
+    key = _cache_key("mcmod_modpack", keyword, max_results)
+    cached = _cache_get("search", key)
+    if cached is not None:
+        return cached
+
+    q = urllib.parse.quote(keyword)
+    html = _curl(f"https://search.mcmod.cn/s?key={q}&filter=10")
+    if not html:
+        raise _SearchError(f"MC百科 整合包网络请求失败（空响应）：{keyword}")
+    if len(html) < _MIN_HTML_LEN:
+        raise _SearchError(f"MC百科 整合包响应过短（可能被封）：{keyword}")
+
+    idx = html.find("search-result-list")
+    if idx == -1:
+        raise _SearchError(f"MC百科 整合包搜索结果页结构变化（无 search-result-list）：{keyword}")
+
+    # 找到结果区域的结束位置（分页区域）
+    end_idx = html.find('class="pagination"', idx)
+    if end_idx == -1:
+        end_idx = len(html)
+    section = html[idx:end_idx]
+    clean = re.sub(r"<em[^>]*>|</em>", "", section)
+
+    # 提取整合包 URL（/modpack/ 路径）
+    pairs = re.findall(
+        r'href="(https://www\.mcmod\.cn/modpack/\d+\.html)">([^<]+)</a>',
+        clean,
+    )
+
+    if not pairs:
+        raise _SearchError(f"MC百科 无整合包结果：{keyword}")
+
+    # 去重
+    seen = set()
+    all_pairs = []
+    for raw_url, name in pairs:
+        name = name.strip()
+        if name and raw_url not in seen and not name.startswith("www."):
+            seen.add(raw_url)
+            all_pairs.append((raw_url, name))
+
+    # 重新排序：名称匹配度优先（复用模组排序逻辑）
+    keyword_lower = keyword.lower().replace(" ", "")
+    def _match_tier(pair):
+        """返回匹配层级（0-3），数值越小越匹配"""
+        raw_url, name = pair
+        name_lower = name.lower().replace(" ", "")
+        if name_lower == keyword_lower:
+            return 0
+        if name_lower.startswith(keyword_lower):
+            return 1
+        if keyword_lower in name_lower:
+            return 2
+        return 3
+
+    # 按匹配度分层
+    tiers = {0: [], 1: [], 2: [], 3: []}
+    for pair in all_pairs:
+        tier = _match_tier(pair)
+        tiers[tier].append(pair)
+
+    # 合并：精确匹配优先
+    reordered = []
+    for tier in [0, 1, 2, 3]:
+        reordered.extend(tiers[tier])
+
+    # 截断到 max_results
+    limited_pairs = reordered[:max_results]
+
+    # 并行抓取详情页
+    def _fetch_one(args):
+        raw_url, name = args
+        page_html = _curl(raw_url)
+        return _parse_mcmod_modpack_result(page_html, raw_url, name)
+
+    results = _parallel_fetch_with_fallback(
+        limited_pairs, _fetch_one,
+        max_workers=min(len(limited_pairs), _MAX_FETCH_WORKERS)
+    )
+
+    _cache_set("search", key, results)
+    return results
+
+
 def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
     """
     Modrinth API 搜索。
 
     返回 {"results": [...], "total": int, "returned": int}
-    project_type: "mod" | "shader" | "resourcepack"
+    project_type: "mod" | "shader" | "resourcepack" | "modpack"
     """
     key = _cache_key("modrinth", keyword, max_results, project_type)
     cached = _cache_get("search", key)
@@ -1179,11 +1412,22 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
         pt = hit.get("project_type", "")
         if project_type and pt and pt != project_type:
             continue
+
+        # 根据项目类型构建正确的 URL
+        if pt == "modpack":
+            project_url = f"https://modrinth.com/modpack/{hit.get('slug','')}"
+        elif pt == "shader":
+            project_url = f"https://modrinth.com/shader/{hit.get('slug','')}"
+        elif pt == "resourcepack":
+            project_url = f"https://modrinth.com/resourcepack/{hit.get('slug','')}"
+        else:
+            project_url = f"https://modrinth.com/mod/{hit.get('slug','')}"
+
         results.append({
             "name": hit.get("title", ""),
             "name_en": hit.get("title", ""),
             "name_zh": "",
-            "url": f"https://modrinth.com/mod/{hit.get('slug','')}",
+            "url": project_url,
             "source": "modrinth",
             "source_id": hit.get("slug", ""),
             "type": pt or project_type or "mod",
@@ -1810,7 +2054,7 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     """
     四平台并行搜索，返回统一格式。
     timeout: 整体超时秒数
-    content_type: "mod" | "item" | "entity" | "biome" | "dimension"
+    content_type: "mod" | "item" | "entity" | "biome" | "dimension" | "modpack"
       - 同时决定每平台最大结果数（_SOURCE_MAX 字典）
     fuse: True 时返回 {"results": [...融合列表...], "platform_stats": {platform: {total, returned}}}
          False 时返回 {platform: [results]}（向后兼容）
@@ -1826,14 +2070,16 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
 
     def _wrap_mcmod():
         try:
-            ct = content_type if content_type in ("mod", "item") else "mod"
+            # 支持 modpack 类型
+            valid_types = ("mod", "item", "modpack")
+            ct = content_type if content_type in valid_types else "mod"
             return search_mcmod(keyword, per_source, content_type=ct)
         except Exception:
             return []
 
     def _wrap_mr():
         try:
-            return search_modrinth(keyword, per_source)
+            return search_modrinth(keyword, per_source, project_type=content_type)
         except Exception:
             return {"results": [], "total": 0, "returned": 0}
 

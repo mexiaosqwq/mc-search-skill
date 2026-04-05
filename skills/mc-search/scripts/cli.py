@@ -127,8 +127,8 @@ def main():
     s.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX, help=f"每平台最多结果（默认{_DEFAULT_MAX}）")
     s.add_argument("-t", "--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
     s.add_argument("--type", dest="content_type", default="mod",
-                   choices=["mod", "item", "entity", "biome", "dimension"],
-                   help="内容类型（默认 mod）；用于融合排序偏好，不影响搜索范围")
+                   choices=["mod", "item", "modpack", "entity", "biome", "dimension"],
+                   help="内容类型（默认 mod）；用于融合排序偏好，同时决定搜索范围（modpack 仅搜 MC百科+Modrinth）")
     s.add_argument("--author", dest="author_name", default=None,
                    help="MC百科作者搜索（仅搜 MC百科，忽略 --type）")
     s.add_argument("--fuse", action="store_true",

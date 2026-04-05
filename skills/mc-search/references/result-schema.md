@@ -14,7 +14,7 @@
 | `url` | str | 页面链接 |
 | `source` | str | 来源平台：`mcmod.cn` / `modrinth` / `minecraft.wiki` / `minecraft.wiki/zh`；融合模式下为 `\|` 分隔的多平台字符串 |
 | `source_id` | str | 平台内 ID（如 class ID、slug、pageid） |
-| `type` | str | 项目类型：`mod` / `item` / `shader` / `resourcepack` / `block` / `entity` / `mechanic` / `other` |
+| `type` | str | 项目类型：`mod` / `item` / `modpack` / `shader` / `resourcepack` / `block` / `entity` / `mechanic` / `other` |
 
 ---
 
@@ -125,6 +125,47 @@
 | `last_updated` | str | 最后更新时间描述 |
 
 > 注：该字段可能为 null，如果MC百科页面上没有社区统计数据。
+
+---
+
+## MC百科 — 整合包搜索结果（`search_mcmod(content_type="modpack")`）
+
+整合包搜索结果与模组类似，但包含整合包特有字段：
+
+| 字段 | 说明 |
+|------|------|
+| `name` / `name_en` / `name_zh` | 整合包名称 |
+| `url` | `https://www.mcmod.cn/modpack/{id}.html` |
+| `source` | `mcmod.cn` |
+| `source_id` | modpack ID（如 `123`） |
+| `type` | `modpack` |
+| `description` | 整合包描述 |
+| `author` | 作者名 |
+| `status` | 状态（如 `活跃`） |
+| `categories` | 分类列表（如 `科技`、`魔法`、`冒险`） |
+| `supported_versions` | 支持的游戏版本列表（从版本列表区域提取） |
+| `cover_image` | 封面图 URL |
+| `screenshots` | 截图 URL 列表（最多 6 张） |
+| `mod_count` | 包含的模组数量（如果有统计） |
+| `downloads` | 下载量（如果有统计） |
+
+> 注：部分字段如 `mod_count`、`downloads` 取决于MC百科整合包页面是否有相应显示。
+
+---
+
+## Modrinth — 整合包搜索结果（`search_modrinth(project_type="modpack")`）
+
+Modrinth 整合包搜索结果结构与模组类似：
+
+| 字段 | 说明 |
+|------|------|
+| `name` / `name_en` | 整合包名称 |
+| `name_zh` | 空字符串 |
+| `url` | `https://modrinth.com/modpack/{slug}` |
+| `source` | `modrinth` |
+| `source_id` | slug |
+| `type` | `modpack` |
+| `snippet` | 简短描述 |
 
 ---
 

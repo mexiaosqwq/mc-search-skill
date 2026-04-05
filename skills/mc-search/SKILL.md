@@ -25,8 +25,9 @@ Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**（MC百科
 
 | 用户意图 | 推荐命令 | 成功率 |
 |----------|----------|--------|
-| **知道模组名，要完整信息** | `full <模组名>` | ⭐⭐⭐⭐⭐ |
+| **知道模组/整合包名，要完整信息** | `full <模组名或整合包名>` | ⭐⭐⭐⭐⭐ |
 | **不确定模组名，模糊搜索** | `search <关键词>` | ⭐⭐⭐⭐ |
+| **搜索整合包** | `search <关键词> --type modpack` | ⭐⭐⭐⭐ |
 | 查原版游戏内容 | `wiki <关键词>` | ⭐⭐⭐⭐⭐ |
 | 查 Modrinth 依赖 | `dep <slug>` | ⭐⭐⭐⭐⭐ |
 | 查作者作品 | `search --author <作者>` | ⭐⭐⭐ |
@@ -42,6 +43,7 @@ Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**（MC百科
 mc-search --json search <关键词>
 
 # 指定类型搜索
+mc-search --json search <关键词> --type modpack   # 整合包
 mc-search --json search <关键词> --type item      # 物品/方块
 mc-search --json search <关键词> --type entity    # 实体/生物
 
@@ -53,7 +55,7 @@ mc-search --json author "<用户名>" -n 20           # Modrinth作者
 **特点**：
 - 四平台并行搜索（MC百科、Modrinth、Minecraft.wiki 中英）
 - 智能排序：精确匹配 > 前缀匹配 > 包含匹配
-- 多平台融合：同名模组自动合并，跨平台加权
+- 多平台融合：同名模组/整合包自动合并，跨平台加权
 
 ### 2️⃣ 详情类（完整信息）
 
@@ -102,17 +104,20 @@ mc-search --json dep <mod_slug>
 ## 决策树（详细版）
 
 ```
-用户询问模组/游戏内容
+用户询问模组/游戏内容/整合包
 │
 ├─ 1. 想快速获取完整信息（推荐）
-│   └─ 知道模组名 → full <模组名或URL>  ← 首选
+│   └─ 知道模组/整合包名 → full <模组名或整合包名或URL>  ← 首选
 │       ├─ 模组名：full 钠
+│       ├─ 整合包名：full RLCraft
 │       ├─ MC百科URL：full https://www.mcmod.cn/class/2785.html
+│       ├─ MC百科整合包URL：full https://www.mcmod.cn/modpack/123.html
 │       └─ Modrinth URL：full https://modrinth.com/mod/sodium
 │
 ├─ 2. 不确定模组名，需要搜索
 │   └─ 模糊关键词 → search <关键词>
 │       ├─ 筛类型：search 钻石剑 --type item
+│       ├─ 搜整合包：search 科技 --type modpack
 │       └─ 筛作者：search --author Notch
 │
 ├─ 3. 查原版游戏内容（wiki）
@@ -128,8 +133,9 @@ mc-search --json dep <mod_slug>
 │   └─ Modrinth：author <用户名> -n 20
 │
 └─ 6. 已有 URL，直接读取
-    ├─ MC百科：info <URL>
-    ├─ Modrinth：full <URL> 或 dep <slug>
+    ├─ MC百科模组：info <URL>
+    ├─ MC百科整合包：full <URL>
+    ├─ Modrinth模组/整合包：full <URL> 或 dep <slug>
     └─ Wiki：read <URL>
 ```
 
@@ -156,7 +162,7 @@ mc-search search --json 钠          # ✗ 错误
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
-| `--type <类型>` | 搜索类型过滤 | `--type item` / `--type mod` / `--type entity` |
+| `--type <类型>` | 搜索类型过滤 | `--type mod` / `--type item` / `--type modpack` / `--type entity` |
 | `-n <数量>` | 限制结果数量 | `-n 10` |
 | `-m` | 同时查 Modrinth | `info 钠 -m` |
 | `-r` | 读取 wiki 正文 | `wiki 附魔台 -r` |
@@ -264,6 +270,27 @@ mc-search --json full 钠
 #     "latest_version": "0.6.0",
 #     "version_groups": [...]
 #   }
+# }
+```
+
+### 示例 5：搜索整合包
+
+```bash
+# 搜索整合包（MC百科 + Modrinth）
+mc-search --json search RLCraft --type modpack
+
+# 获取整合包完整信息
+mc-search --json full RLCraft
+
+# 输出示例（JSON 解析后）：
+# {
+#   "name": "RLCraft",
+#   "name_en": "RLCraft",
+#   "type": "modpack",
+#   "source": "mcmod.cn|modrinth",
+#   "mod_count": 150,
+#   "description": "硬核生存整合包...",
+#   "categories": ["冒险", "魔法"]
 # }
 ```
 
