@@ -40,11 +40,6 @@ pip install -e .
 - "搜索钻石剑的 Wiki 信息"
 - "查找 RLCraft 整合包"
 
-或者手动触发：
-```
-/mc-search search 钠
-```
-
 ### 独立 CLI 使用
 
 ```bash
