@@ -598,7 +598,13 @@ def _extract_mcmod_author_team(html: str) -> list[dict]:
     li_blocks = re.findall(r'<li>(.*?)</li>', auth_section, re.DOTALL)
 
     # 需要过滤的组织/团队名称（不是真实作者）
+    # 包含：组织名、团队名、工作室名、以及含有特定关键词的名称
     skip_names = {"CaffeineMC"}
+    skip_keywords = [
+        "Mods", "Studio", "Studios", "Team", "Development",
+        "开发团队", "工作室", "团队", "官方",
+        "Minecraft Mods", "Pixel Studios"
+    ]
 
     for li in li_blocks:
         # 提取作者名（简化正则）
@@ -611,8 +617,15 @@ def _extract_mcmod_author_team(html: str) -> list[dict]:
             # 清理名称（去除可能的备注部分）
             name = re.split(r'\s*[-–]\s*', name)[0].strip()
 
-            # 过滤组织名称（不是真实作者）
-            if name in skip_names:
+            # 过滤组织名称（精确匹配或包含关键词）
+            is_org = name in skip_names
+            if not is_org:
+                for keyword in skip_keywords:
+                    if keyword in name:
+                        is_org = True
+                        break
+
+            if is_org:
                 continue
 
             # 解析分工
