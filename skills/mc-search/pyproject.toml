@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mc-search"
-version = "0.3.0"
+version = "4.0.0"
 description = "Minecraft 聚合搜索工具（模组/物品/原版内容，四平台并行）"
 readme = "README.md"
 license = {text = "MIT"}
