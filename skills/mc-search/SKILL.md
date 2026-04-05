@@ -11,9 +11,13 @@ triggers:
   - "搜索.*整合包"
   - "搜索.*光影"
   - "搜索.*材质包"
+  - "搜索.*生物群系"
+  - "搜索.*维度"
+  - "搜索.*实体"
   - "查询.*mod"
   - "mod.*依赖"
   - "wiki.*搜索"
+  - "Modrinth.*搜索"
 ---
 
 # mc-search
@@ -26,16 +30,16 @@ Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**：
 
 ## 支持的项目类型
 
-| 类型 | 说明 | 支持平台 |
-|------|------|----------|
-| `mod` | 模组 | MC百科 + Modrinth |
-| `item` | 物品/方块 | MC百科 |
-| `modpack` | 整合包 | MC百科 + Modrinth |
-| `shader` | 光影包 | Modrinth |
-| `resourcepack` | 材质包/资源包 | Modrinth |
-| `entity` | 实体/生物 | minecraft.wiki |
-| `biome` | 生物群系 | minecraft.wiki |
-| `dimension` | 维度 | minecraft.wiki |
+| 类型 | 说明 | 支持平台 | 典型用途 |
+|------|------|----------|----------|
+| `mod` | 模组 | MC百科 + Modrinth | 搜索 Fabric/Forge 模组 |
+| `item` | 物品/方块 | MC百科 | 查询物品属性、合成表 |
+| `modpack` | 整合包 | MC百科 + Modrinth | 搜索整合包（如 RLCraft） |
+| `shader` | 光影包 | Modrinth | 搜索着色器（如 BSL、Complementary） |
+| `resourcepack` | 材质包/资源包 | Modrinth | 搜索材质包（如 Faithful） |
+| `entity` | 实体/生物 | minecraft.wiki | 查询原版生物信息 |
+| `biome` | 生物群系 | minecraft.wiki | 查询群系信息 |
+| `dimension` | 维度 | minecraft.wiki | 查询维度信息（下界/末地） |
 
 ---
 
@@ -266,6 +270,69 @@ mc-search --json author <用户名> [选项]
 ```bash
 mc-search --json author jellysquid_ -n 20
 ```
+
+### 8. mr — Modrinth 单平台搜索
+
+**用途**：直接在 Modrinth 上搜索（支持光影/材质包），比 `search` 更快。
+
+```bash
+mc-search --json mr <关键词> [选项]
+```
+
+**选项**：
+| 选项 | 说明 | 默认 |
+|------|------|------|
+| `-t <类型>` | 项目类型：`mod`/`shader`/`resourcepack` | `mod` |
+| `-n <数量>` | 最多结果数 | `5` |
+
+**示例**：
+```bash
+# 搜索模组
+mc-search --json mr sodium
+
+# 搜索光影包
+mc-search --json mr shaders -t shader
+
+# 搜索材质包
+mc-search --json mr faithful -t resourcepack
+```
+
+---
+
+## 特殊搜索场景
+
+### 搜索生物群系 (biome)
+
+```bash
+# 搜索生物群系（minecraft.wiki）
+mc-search --json search " Plains" --type biome
+mc-search --json search "Nether" --type biome
+```
+
+### 搜索维度 (dimension)
+
+```bash
+# 搜索维度（minecraft.wiki）
+mc-search --json search "Overworld" --type dimension
+mc-search --json search "End" --type dimension
+```
+
+### 搜索实体 (entity)
+
+```bash
+# 搜索实体/生物（minecraft.wiki）
+mc-search --json search "Creeper" --type entity
+mc-search --json search "Villager" --type entity
+```
+
+### 融合搜索结果
+
+```bash
+# 融合四平台结果，去重后返回
+mc-search --json search sodium --fuse
+```
+
+> **`--fuse` 说明**：将四平台结果合并，按相关性排序并去重同名项目，返回最多 15 条结果。
 
 ---
 
