@@ -1,21 +1,21 @@
 ---
 name: mc-search
-version: "4.5.4"
+version: "4.5.5"
 description: "Minecraft模组、整合包、光影包、wiki搜索工具"
 license: MIT
 context: open
 user-invocable: true
 allowed-tools: [Bash]
 triggers:
-  - "搜索模组"
-  - "推荐模组"
-  - "查找模组"
-  - "有什么好玩的模组"
-  - "帮我找mod"
-  - "查询mod信息"
-  - "搜索整合包"
-  - "搜索光影包"
-  - "wiki查询"
+  - "搜索"
+  - "查询"
+  - "查找"
+  - "模组"
+  - "mod"
+  - "整合包"
+  - "光影包"
+  - "材质包"
+  - "wiki"
 ---
 
 # mc-search — Minecraft Content Search
