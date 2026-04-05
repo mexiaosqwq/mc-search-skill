@@ -59,10 +59,10 @@ mc-search --json author "<用户名>" -n 20           # Modrinth作者
 - 智能排序：精确匹配 > 前缀匹配 > 包含匹配
 - 多平台融合：同名模组/整合包自动合并，跨平台加权
 
-> **注意**：整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行。
-- 整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行
-- minecraft.wiki 不支持整合包搜索
-- 整合包返回字段包含 `is_official`（是否为 MC百科官方收录）
+> **注意**：整合包搜索（`--type modpack`）仅在 **Modrinth** 平台完全支持
+> - MC百科 整合包搜索受页面动态加载限制，建议直接通过 URL 访问
+> - minecraft.wiki 不支持整合包搜索
+> - 整合包返回字段包含 `is_official`（仅 MC百科 整合包包含此字段）
 
 ### 2️⃣ 详情类（完整信息）
 
