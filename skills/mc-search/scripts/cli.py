@@ -318,7 +318,7 @@ def main():
 
     @_timed
     def _cmd_dep():
-        info = core.get_mod_info(args.mod_id)
+        info = core.fetch_mod_info(args.mod_id)
         if not info:
             print(f"[{args.mod_id}] 未在 Modrinth 上找到该 mod")
             return
@@ -478,7 +478,7 @@ def main():
                     # 显示完整 Modrinth 信息
                     slug = best.get("source_id", "")
                     if slug:
-                        mr_info = core.get_mod_info(slug)
+                        mr_info = core.fetch_mod_info(slug)
                         if mr_info:
                             print(f"    下载：{mr_info.get('downloads', 0):,}")
                             print(f"    关注：{mr_info.get('followers', 0):,}")
@@ -504,7 +504,7 @@ def main():
         if args.recipe:
             recipe_url = info.get("url", "")
             if recipe_url:
-                recipe_data = core.get_item_recipe(recipe_url)
+                recipe_data = core.fetch_item_recipe(recipe_url)
                 if recipe_data.get("error"):
                     print(f"  合成表：获取失败（{recipe_data.get('error')}）")
                 else:
@@ -562,7 +562,7 @@ def main():
         # 如果有直接指定的 slug，优先使用
         if direct_slug:
             try:
-                info = core.get_mod_info(direct_slug, no_limit=True)
+                info = core.fetch_mod_info(direct_slug, no_limit=True)
                 if info:
                     return info, None
             except Exception:
@@ -618,7 +618,7 @@ def main():
             slug = best_match.get("source_id", "") or best_match.get("slug", "")
             if slug:
                 try:
-                    return core.get_mod_info(slug, no_limit=True), None
+                    return core.fetch_mod_info(slug, no_limit=True), None
                 except Exception:
                     pass
 
@@ -641,7 +641,7 @@ def main():
 
         # Modrinth URL：直接处理（支持 mod/shader/resourcepack/modpack）
         if ident["mr_slug"]:
-            result["modrinth"] = core.get_mod_info(ident["mr_slug"], no_limit=True)
+            result["modrinth"] = core.fetch_mod_info(ident["mr_slug"], no_limit=True)
             if result["modrinth"] and not args.skip_dep:
                 result["dependencies"] = core.get_mod_dependencies(
                     ident["mr_slug"], project_id=result["modrinth"].get("id"))
@@ -678,7 +678,7 @@ def main():
             if mr_hit and isinstance(mr_hit, dict) and mr_hit.get("slug"):
                 slug = mr_hit.get("source_id") or mr_hit.get("slug")
                 try:
-                    mr_info = core.get_mod_info(slug, no_limit=True)
+                    mr_info = core.fetch_mod_info(slug, no_limit=True)
                 except Exception:
                     mr_info = None
             if mr_hit and not mr_info:
@@ -835,7 +835,7 @@ def _search_modrinth_exact(keyword: str) -> dict | None:
                 slug = hit.get("source_id", "") or hit.get("slug", "")
                 if slug:
                     try:
-                        return core.get_mod_info(slug, no_limit=True)
+                        return core.fetch_mod_info(slug, no_limit=True)
                     except Exception:
                         pass
 
@@ -844,7 +844,7 @@ def _search_modrinth_exact(keyword: str) -> dict | None:
                 slug = hit.get("source_id", "") or hit.get("slug", "")
                 if slug:
                     try:
-                        return core.get_mod_info(slug, no_limit=True)
+                        return core.fetch_mod_info(slug, no_limit=True)
                     except Exception:
                         pass
 

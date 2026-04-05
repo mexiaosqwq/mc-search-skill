@@ -11,9 +11,9 @@ from .core import (
     # 详情
     read_wiki,
     read_wiki_zh,
-    get_mod_info,
+    fetch_mod_info,
     get_mod_dependencies,
-    get_item_recipe,
+    fetch_item_recipe,
     # 配置
     set_cache,
     set_platform_enabled,

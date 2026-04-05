@@ -453,7 +453,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
     return result
 
 
-def get_item_recipe(item_url: str) -> dict:
+def fetch_item_recipe(item_url: str) -> dict:
     """
     获取物品的合成表信息（降级方案：返回截图URL列表+材料文本）。
     MC百科 item 页面合成表区块以 <table class="recipe-table"> 为主。
@@ -1663,7 +1663,7 @@ def _build_modrinth_result(data: dict, project_id: str, body: str, gallery: list
     }
 
 
-def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
+def fetch_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
     """
     获取 mod 完整信息（Modrinth）。
     mod_id 可以是 slug 或 project_id。
