@@ -1,0 +1,182 @@
+[
+  {
+    "title": "result-schema.md 中缺失 author_team 和 community_stats 字段文档",
+    "severity": "P0",
+    "location": "references/result-schema.md",
+    "evidence": {
+      "documentation": "文档中的 MC百科 详情字段列表不包含 author_team 和 community_stats",
+      "code": "core.py:940-941 返回 author_team 和 community_stats 字段"
+    },
+    "impact": "用户不知道这些新字段的存在，无法充分利用作者团队分工信息",
+    "suggestion": "在 MC百科 详情字段部分添加这两个字段的完整说明，包括结构和用途",
+    "related_principle": "Contracts first - 代码是真相，文档必须同步"
+  },
+  {
+    "title": "SKILL.md 中提到的 update-check 命令在代码中不存在",
+    "severity": "P1",
+    "location": "SKILL.md:95",
+    "evidence": {
+      "documentation": "SKILL.md:95 提到 mc-search --json update-check <mod_slug> --installed <当前版本>",
+      "code": "在 cli.py 和 core.py 中均未找到 update-check 或 update_check 的实现"
+    },
+    "impact": "用户按照文档尝试使用此命令会失败，导致困惑",
+    "suggestion": "要么实现此命令，要么从文档中删除相关描述",
+    "related_principle": "Code is truth - 代码是权威来源"
+  },
+  {
+    "title": "SKILL.md 中 full 命令返回字段描述不完整",
+    "severity": "P1",
+    "location": "SKILL.md:69-77",
+    "evidence": {
+      "documentation": "文档提到返回 mcmod, modrinth, dependencies, content_list",
+      "code": "cli.py:_cmd_full 返回的 result 还包含 search_results 和可能的 _mr_tentative"
+    },
+    "impact": "用户可能不知道完整的返回数据结构",
+    "suggestion": "补充 search_results 和 _mr_tentative 字段的说明",
+    "related_principle": "Contracts first - API 契约必须完整"
+  },
+  {
+    "title": "commands.md 中多个命令默认值未说明",
+    "severity": "P2",
+    "location": "references/commands.md",
+    "evidence": {
+      "documentation": "mr/wiki/author/read 命令的 -n/-p 选项未说明默认值",
+      "code": "cli.py:65-67 定义 _DEFAULT_WIKI_MAX=5, _DEFAULT_AUTHOR_MAX=10, _DEFAULT_PARAGRAPHS=5"
+    },
+    "impact": "用户不知道各搜索命令的默认返回数量",
+    "suggestion": "在每个命令的选项说明中添加'（默认X）'",
+    "related_principle": "Security default tightening - 默认值应明确"
+  },
+  {
+    "title": "troubleshooting.md 中 curl 调试命令缺少 User-Agent 头部",
+    "severity": "P2",
+    "location": "references/troubleshooting.md:18-21",
+    "evidence": {
+      "documentation": "建议的 curl 命令: curl -s 'https://search.mcmod.cn/s?key=...'",
+      "code": "core.py:205-221 使用 curl 时设置了 User-Agent: Mozilla/5.0 等头部"
+    },
+    "impact": "用户按文档调试可能因缺少 User-Agent 而被 MC百科 拒绝",
+    "suggestion": "在调试命令中添加 -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)' 头部",
+    "related_principle": "Code is truth - 调试命令应反映实际实现"
+  },
+  {
+    "title": "commands.md 中 --type 选项影响范围说明不够清晰",
+    "severity": "P2",
+    "location": "references/commands.md:23",
+    "evidence": {
+      "documentation": "提到 --type 只对 MC百科 有效",
+      "code": "core.py:819-830 search_mcmod 使用 content_type 决定 filter 值"
+    },
+    "impact": "用户可能不清楚 --type 完全不影响 Modrinth 和 wiki 搜索",
+    "suggestion": "强调'仅影响 MC百科 搜索，用于区分模组和物品；Modrinth 和 wiki 搜索不受此选项影响'",
+    "related_principle": "Contracts first - 接口行为必须明确"
+  },
+  {
+    "title": "result-schema.md 中 _sources 字段命名可能引起混淆",
+    "severity": "P2",
+    "location": "references/result-schema.md:254",
+    "evidence": {
+      "documentation": "_sources 字段描述为'仅融合模式下存在'",
+      "code": "core.py:_fuse_results 返回 _sources 字段，包含 sources 列表"
+    },
+    "impact": "用户可能误认为这是内部字段而忽略它",
+    "suggestion": "考虑重命名为 sources（去掉下划线）或在文档中说明其公开用途",
+    "related_principle": "Code is truth - 命名应反映字段的实际用途"
+  },
+  {
+    "title": "result-schema.md 中 MC百科 content_list type_id 说明不完整",
+    "severity": "P2",
+    "location": "references/result-schema.md:60-71",
+    "evidence": {
+      "documentation": "列出 10 种 type_id（物品/方块、生物/实体等）",
+      "code": "core.py:_extract_mcmod_content_list 动态提取 type_id，可能有其他值"
+    },
+    "impact": "用户可能不知道还有其他 type_id 存在",
+    "suggestion": "添加说明'type_id 由 MC百科 动态定义，以上为已知类型；实际返回可能包含其他 type_id'",
+    "related_principle": "Contracts first - 接口契约应说明可能的变化"
+  },
+  {
+    "title": "SKILL.md 中智能排序逻辑描述与实际代码略有差异",
+    "severity": "P2",
+    "location": "SKILL.md:167-172",
+    "evidence": {
+      "documentation": "列出 5 级优先级：精确匹配、前缀匹配、包含匹配、多平台加权、平台权威度",
+      "code": "core.py:_score_relevance 和 _fuse_results 还有短名称加权和 tiebreaker 逻辑"
+    },
+    "impact": "文档描述的排序逻辑不够完整，用户可能不理解所有排序因素",
+    "suggestion": "补充短名称加权和 tiebreaker 逻辑的说明",
+    "related_principle": "Code is truth - 算法描述应反映实际实现"
+  },
+  {
+    "title": "result-schema.md 中 _truncated 字段示例与 full 命令行为不符",
+    "severity": "P2",
+    "location": "references/result-schema.md:109-128",
+    "evidence": {
+      "documentation": "示例中 full 命令无 _truncated 字段",
+      "code": "core.py:get_mod_info 中 no_limit=True 时不设置 _truncated"
+    },
+    "impact": "文档描述实际是正确的，但示例可能引起误解",
+    "suggestion": "明确说明 search 命令可能返回 _truncated，full 命令始终无 _truncated",
+    "related_principle": "Contracts first - 截断行为应明确"
+  },
+  {
+    "title": "SKILL.md 中全局选项部分重复",
+    "severity": "P3",
+    "location": "SKILL.md:132-149 和 304-306",
+    "evidence": {
+      "documentation": "两处都有'全局选项'标题，内容有重叠",
+      "code": "代码实现中全局选项只定义一次（cli.py:107-110）"
+    },
+    "impact": "文档结构混乱，用户可能困惑",
+    "suggestion": "合并为一个统一的全局选项章节",
+    "related_principle": "Structural clarity - 文档结构应清晰"
+  },
+  {
+    "title": "SKILL.md 版本信息可能需要更新",
+    "severity": "P3",
+    "location": "SKILL.md:3",
+    "evidence": {
+      "documentation": "version: 0.4.0",
+      "code": "代码可能已更新到更高版本"
+    },
+    "impact": "版本信息过时",
+    "suggestion": "确认并更新版本号",
+    "related_principle": "Structural clarity - 版本信息应准确"
+  },
+  {
+    "title": "result-schema.md 中字段排序不一致",
+    "severity": "P3",
+    "location": "references/result-schema.md",
+    "evidence": {
+      "documentation": "字段列表未按字母顺序或重要性排序",
+      "code": "代码中字段定义有一定顺序，但文档未遵循"
+    },
+    "impact": "文档可读性略受影响",
+    "suggestion": "统一排序规则（如按重要性或字母顺序）",
+    "related_principle": "Structural clarity - 文档应有一致性"
+  },
+  {
+    "title": "troubleshooting.md 中'调试模式'标题不够明确",
+    "severity": "P3",
+    "location": "references/troubleshooting.md:84-89",
+    "evidence": {
+      "documentation": "标题为'调试模式'",
+      "code": "内容是关于使用 --json 查看完整返回"
+    },
+    "impact": "用户可能不理解'调试模式'指的是什么",
+    "suggestion": "改为'查看完整返回数据'或'使用 JSON 输出调试'",
+    "related_principle": "Structural clarity - 标题应反映内容"
+  },
+  {
+    "title": "文档中多处'MC百科'和'mcmod.cn'大小写不一致",
+    "severity": "P3",
+    "location": "多处",
+    "evidence": {
+      "documentation": "有时写'MC百科'，有时写'mcmod.cn'",
+      "code": "代码中使用 mcmod.cn 作为域名"
+    },
+    "impact": "命名风格不统一，影响专业形象",
+    "suggestion": "统一为'MC百科'（中文文档）或'mcmod.cn'（技术文档）",
+    "related_principle": "Naming conventions - 命名应一致"
+  }
+]
