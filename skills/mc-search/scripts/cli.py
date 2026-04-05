@@ -252,7 +252,12 @@ def main():
 
     @_timed
     def _cmd_wiki():
-        hits = core.search_wiki(args.keyword, max_results=args.max)
+        # 使用 search_all 同时搜索双 wiki（英文 + 中文）
+        core.set_platform_enabled(mcmod=False, modrinth=False, wiki=True, wiki_zh=True)
+        result = core.search_all(args.keyword, max_per_source=args.max,
+                                  timeout=args.timeout, content_type="entity",
+                                  fuse=True)
+        hits = result.get("results", [])
         if not hits:
             print(f"minecraft.wiki 无 [{args.keyword}] 相关结果")
             return
@@ -263,7 +268,12 @@ def main():
                 print_hit(h)
             if args.read and hits:
                 print("\n[读取正文...]")
-                content = core.read_wiki(hits[0]["url"], max_paragraphs=_DISPLAY_WIKI_PARAGRAPHS)
+                # 根据来源选择正确的 wiki 读取函数
+                source = hits[0].get("source", "")
+                if source == "minecraft.wiki/zh":
+                    content = core.read_wiki_zh(hits[0]["url"], max_paragraphs=_DISPLAY_WIKI_PARAGRAPHS)
+                else:
+                    content = core.read_wiki(hits[0]["url"], max_paragraphs=_DISPLAY_WIKI_PARAGRAPHS)
                 if "error" not in content:
                     for i, p in enumerate(content["content"], 1):
                         print(f"  {i}. {p[:_DISPLAY_LINE_MAX]}")
