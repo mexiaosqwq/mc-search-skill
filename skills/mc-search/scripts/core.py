@@ -2777,3 +2777,10 @@ def _build_fused_output(sorted_entries: list[dict], scored: list[dict]) -> list[
 
         fused.append(merged)
     return fused
+
+
+# === 向后兼容别名 ===
+# 已废弃：get_mod_info, get_item_recipe
+# 新版本请使用：fetch_mod_info, fetch_item_recipe
+get_mod_info = fetch_mod_info
+get_item_recipe = fetch_item_recipe
