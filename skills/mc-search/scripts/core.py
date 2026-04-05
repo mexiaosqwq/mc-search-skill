@@ -70,7 +70,7 @@ _EXTERNAL_LINK_EXCLUDE_DOMAINS = [  # 排除的外部链接域名（非官方网
 ]
 _MAX_TAG_TEXT_LEN = 20  # 标签文本最大长度，过滤过长的非标签内容
 _MAX_SEARCH_SEGMENT = 2000  # 搜索片段提取长度
-_MAX_DESCRIPTION_SEGMENT = 70000  # 描述段落提取长度（支持长描述模组，如 Sodium 55K+ HTML）
+_MAX_DESCRIPTION_SEGMENT = 70000  # HTML 提取范围（用于 find section markers，最终输出由 _MAX_SEARCH_DESC_CHARS 限制）
 _MAX_SEARCH_DESC_CHARS = 200      # search 命令描述最大显示字符数（节省 token）
 _MAX_AUTHOR_SECTION = 15000  # 作者页面区域提取长度
 _MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
