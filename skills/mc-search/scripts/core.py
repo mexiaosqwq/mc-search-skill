@@ -84,7 +84,6 @@ _MAX_TABLES_PER_SECTION = 3  # Wiki 每章节最多提取表格数
 _MCMOD_FILTER_MOD = "0"             # 模组搜索
 _MCMOD_FILTER_ITEM = "3"            # 物品搜索
 _MCMOD_FILTER_MODPACK_ZH = "2"      # 整合包搜索（中文关键词效果最佳）
-_MCMOD_FILTER_MOD = "0"             # 模组搜索（有时也返回整合包）
 _MCMOD_FILTER_MODPACK_ALT = "20"    # 另一种整合包过滤
 _MCMOD_FILTER_MODPACK_OLD = "10"    # 旧版整合包过滤（较少结果）
 
