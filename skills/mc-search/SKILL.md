@@ -1,38 +1,92 @@
 ---
 name: mc-search
-version: "4.5.0"
-description: "Minecraft 聚合搜索工具。支持 MC百科、Modrinth、minecraft.wiki 中英双站。搜索模组/整合包/光影包/材质包/物品/实体，JSON 结构化输出。"
+version: "4.5.1"
+description: "Minecraft模组搜索工具。当用户询问模组推荐、模组信息、整合包、光影包、材质包、原版wiki时使用。Trigger: 模组, mod, 推荐, 搜索, 机械动力, create, 整合包, 光影, 材质, wiki, minecraft"
 license: MIT
 context: open
 user-invocable: true
 allowed-tools: [Bash]
 triggers:
-  - "搜索.*模组"
-  - "搜索.*整合包"
-  - "搜索.*光影"
-  - "搜索.*材质包"
-  - "搜索.*生物群系"
-  - "搜索.*维度"
-  - "搜索.*实体"
-  - "查询.*mod"
-  - "mod.*依赖"
-  - "wiki.*搜索"
-  - "Modrinth.*搜索"
+  - "模组"
+  - "mod"
+  - "Minecraft"
+  - "minecraft"
   - "机械动力"
-  - "Create.*模组"
-  - "推荐.*模组"
-  - "热门.*模组"
-  - ".*mod.*信息"
-  - ".*minecraft.*"
+  - "整合包"
+  - "光影包"
+  - "材质包"
+  - "原版wiki"
+  - "推荐"
 ---
 
-# mc-search
+# mc-search — Minecraft Content Search
 
-Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**：
-- **MC百科** (mcmod.cn) — 中文模组/物品/整合包
-- **Modrinth** — 英文 mod/光影包/材质包/整合包
-- **minecraft.wiki** — 原版游戏内容 wiki（英文）
-- **minecraft.wiki/zh** — 原版游戏内容 wiki（中文）
+**When to use**: User asks about Minecraft mods, modpacks, shaders, resource packs, or vanilla game content.
+
+**What it does**: Searches 4 platforms (MC百科, Modrinth, minecraft.wiki EN/ZH) and returns structured JSON results.
+
+## Quick Start
+
+```bash
+mc-search --json search <keyword>
+mc-search --json full <mod-name>
+mc-search --json wiki <keyword>
+```
+
+## Common Triggers
+
+| User says | Action |
+|-----------|--------|
+| "推荐几个xxx模组" | `search` by category |
+| "查一下xxx模组" | `full` for details |
+| "xxx mod 信息" | `full` or `info` |
+| "帮我找xxx" | `search` |
+| "wiki xxx" | `wiki` search |
+| "机械动力附属" | `search` for Create addons |
+
+## I/O Contract
+
+**Input**: Keyword or mod name (Chinese or English)
+**Output**: JSON array with search results
+
+**Key fields per result**:
+- `name` / `name_en` / `name_zh` - Display names
+- `description` - Full description (500 chars from body)
+- `source` - Platform (mcmod.cn / modrinth / minecraft.wiki)
+- `url` - Link to mod page
+- `downloads` / `author` / `supported_versions`
+
+## Usage Examples
+
+```bash
+# Search mods
+mc-search --json search 机械动力
+mc-search --json search Create
+
+# Get full details
+mc-search --json full create
+mc-search --json full "Create: Steam 'n' Rails"
+
+# Search wiki
+mc-search --json wiki diamond sword
+
+# By type
+mc-search --json search BSL --type shader
+mc-search --json search RLCraft --type modpack
+```
+
+## Integration
+
+For Claude Code to auto-trigger this skill, ensure:
+1. User's message contains trigger words (see Common Triggers)
+2. skill is installed in `~/.claude/skills/mc-search/`
+3. `pip install -e .` was run in the skill directory
+
+## References
+
+- [commands.md](references/commands.md) - Full command reference
+- [result-schema.md](references/result-schema.md) - JSON schema details
+- [troubleshooting.md](references/troubleshooting.md) - Common issues
 
 ## 支持的项目类型
 
