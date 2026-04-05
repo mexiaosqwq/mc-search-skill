@@ -201,10 +201,7 @@ def _clean_html_text(html_fragment: str) -> str:
 
 
 def _is_valid_paragraph(text: str, lang: str = "en") -> bool:
-    """判断是否为有意义的正文段落。
-
-    lang: "en"（默认）仅英文连接词；"zh" 额外检测中文连接词。
-    """
+    """判断是否为有意义的正文段落。lang="zh"时检测中文连接词。"""
     if not text or len(text) < _MIN_PARAGRAPH_LEN:
         return False
     if re.match(r"^[\#\.\[\/\{]", text):
@@ -292,13 +289,7 @@ def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool =
 
 
 def _curl(url: str, timeout: int = 10) -> str:
-    """使用 curl 获取 HTML 内容。
-
-    注：选用 curl 而非 urllib 的原因：
-    - curl 自动处理 HTTPS 证书、重定向、压缩
-    - 在某些 Android/Termux 环境下，urllib 的 SSL 支持不如 curl 稳定
-    - 统一 User-Agent 头，避免被网站封禁
-    """
+    """发起HTTP请求，返回HTML内容（失败返回空字符串）。"""
     r = subprocess.run(
         ["curl", "-s", "-L",
          "-H", f"User-Agent: {HTTP_HEADERS['User-Agent']}",
@@ -454,10 +445,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
 
 
 def fetch_item_recipe(item_url: str) -> dict:
-    """
-    获取物品的合成表信息（降级方案：返回截图URL列表+材料文本）。
-    MC百科 item 页面合成表区块以 <table class="recipe-table"> 为主。
-    """
+    """获取物品合成表信息。返回 {"recipe_images": [], "recipe_materials": []}。"""
     key = _cache_key("recipe", item_url)
     cached = _cache_get("item", key)
     if cached is not None:
@@ -517,11 +505,7 @@ def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
 
 
 def _extract_mcmod_modpack_metadata(html: str) -> tuple[str, str, str, str, list[str]]:
-    """提取整合包元数据。
-
-    Returns:
-        (name_zh, name_en, author, status, categories)
-    """
+    """提取整合包元数据。返回 (name_zh, name_en, author, status, categories)。"""
     # 标题解析
     m = re.search(r"<title>([^<]+)</title>", html)
     raw_title = m.group(1).strip() if m else ""
@@ -578,11 +562,7 @@ def _extract_mcmod_modpack_description(html: str) -> str:
 
 
 def _extract_mcmod_modpack_stats(html: str) -> list[str]:
-    """提取整合包支持的游戏版本列表。
-
-    Returns:
-        supported_versions: 支持的游戏版本列表
-    """
+    """提取整合包支持的游戏版本列表。"""
     supported_versions = []
     version_section_idx = html.find("版本列表")
     if version_section_idx >= 0:
@@ -752,10 +732,7 @@ def _extract_mcmod_relationships(html: str) -> dict:
 
 
 def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str | None, bool]:
-    """提取作者、状态、开源属性。返回 (author, status, source_type)。
-
-    兼容性：保留单一 author 字段（第一个作者）
-    """
+    """提取作者、状态、开源属性。返回 (author, status, source_type)。"""
     # 使用通用函数提取作者和状态
     author = _extract_mcmod_field(html, "Mod作者/开发团队") or _extract_mcmod_field(html, "作者")
     status = _extract_mcmod_field(html, "状态")
@@ -784,25 +761,7 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
 
 
 def _extract_mcmod_author_team(html: str) -> list[dict]:
-    """提取完整的作者/开发团队信息，包含分工。
-
-    HTML 结构：
-    Mod作者/开发团队(2): <div class="frame"><ul><li>
-        <span title="...">...</span>
-        <span class="member">
-            <span class="name"><a>药水棒冰</a></span>
-            <span class="position" title="美术/策划">美术/策划</span>
-        </span>
-    </li>...</ul></div>
-
-    返回: [
-        {"name": "药水棒冰", "roles": ["美术", "策划"]},
-        {"name": "酒石酸菌", "roles": ["程序"]},
-        ...
-    ]
-
-    注意：最多返回 10 人，避免输出过长
-    """
+    """从MC百科HTML提取作者团队信息。返回 [{"name": "...", "roles": ["..."]}]，最多10人。"""
     authors = []
     author_idx = html.find("Mod作者/开发团队")
     if author_idx < 0:
@@ -870,20 +829,7 @@ def _extract_mcmod_author_team(html: str) -> list[dict]:
 
 
 def _extract_mcmod_community_stats(html: str) -> dict:
-    """提取社区统计数据。
-
-    返回: {
-        "rating": 5.0,
-        "rating_text": "名扬天下",
-        "positive_rate": 100,
-        "page_views": 22200,
-        "favorites": 0,
-        "downloads": 0,
-        "integrations_count": 2,
-        "last_updated": "4天前",
-        "revision_count": 7
-    }
-    """
+    """提取社区统计数据。返回 {"rating": 5.0, "page_views": 22200, ...}。"""
     stats = {
         "rating": 0,
         "rating_text": "",
@@ -945,14 +891,7 @@ def _extract_mcmod_community_stats(html: str) -> dict:
 
 
 def _extract_mcmod_external_links(html: str) -> dict:
-    """提取模组的外部平台链接。
-
-    支持的平台：官方网站、CurseForge、Modrinth、GitHub、Wiki、Discord、Jenkins、MCBBS。
-
-    MC百科使用两种格式：
-    1. 明文链接（较少见）
-    2. 混淆链接：//link.mcmod.cn/target/<base64编码的URL>
-    """
+    """提取模组的外部平台链接。返回 {"official": "...", "curseforge": "...", ...}。"""
     links = {}
 
     # 辅助函数：解码 MC百科的 Base64 混淆链接
@@ -1069,15 +1008,7 @@ def _extract_mcmod_external_links(html: str) -> dict:
 
 
 def _extract_mcmod_field(html: str, field_label: str = "作者") -> str:
-    """通用提取 MC百科字段（作者、状态等）。
-
-    Args:
-        html: HTML 内容
-        field_label: 字段标签（如"作者"、"状态"）
-
-    Returns:
-        字段值（带链接优先，否则纯文本）
-    """
+    """通用提取MC百科字段。返回字段值（带链接优先，否则纯文本）。"""
     # 先尝试提取带链接的值
     pattern = rf'{field_label}：</td><td[^>]*><a[^>]*>([^<]+)</a>'
     m = re.search(pattern, html)
@@ -1091,11 +1022,7 @@ def _extract_mcmod_field(html: str, field_label: str = "作者") -> str:
 
 
 def _extract_mcmod_content_list(html: str, class_id: str) -> dict:
-    """提取模组的资料列表信息（物品/方块、生物/实体、附魔等）。
-
-    MC百科 使用 /item/list/{class_id}-{type_id}.html 格式。
-    标题从页面动态提取，fallback 使用预定义映射。
-    """
+    """提取模组资料列表。返回 {"1": {"label": "物品/方块", "count": 1016, "url": "..."}}。"""
     # 预定义映射（仅作 fallback，优先使用页面标题）
     content_types = {
         "1": "物品/方块",
@@ -1217,18 +1144,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
 
 def _parallel_fetch_with_fallback(items: list, fetch_func: callable, max_workers: int,
                                    filter_none: bool = True) -> list:
-    """
-    并行抓取带自动降级（ThreadPoolExecutor → 逐个抓取）。
-
-    参数:
-        items: 待处理项列表
-        fetch_func: 单个处理函数 callable(item) -> result | None
-        max_workers: 最大线程数
-        filter_none: 是否过滤 None 结果
-
-    返回:
-        结果列表（已过滤 None，如果 filter_none=True）
-    """
+    """并行抓取带降级。返回结果列表（可选过滤None）。"""
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
         results = []
         try:
@@ -1369,11 +1285,7 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
 
 
 def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
-    """
-    MC百科 按作者名搜索，返回该作者的所有模组。
-
-    使用 filter=0 搜索，当结果包含 /author/ 页面时解析其所有模组链接。
-    """
+    """MC百科按作者搜索。返回模组列表。"""
     key = _cache_key("mcmod_author", author_name, max_mods)
     cached = _cache_get("search", key)
     if cached is not None:
@@ -1433,17 +1345,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
 
 
 def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
-    """
-    MC百科 整合包搜索（优化版）。
-
-    搜索策略：
-    1. filter=2：整合包过滤（中文关键词效果最好）
-    2. filter=0：模组搜索（有时也返回整合包）
-    3. filter=20：另一种整合包过滤
-    4. filter=10：较少结果，作为补充
-
-    注意：如果搜索关键词没有匹配结果，返回空列表而非抛出异常。
-    """
+    """MC百科整合包搜索。尝试多个filter策略，返回结果列表。"""
     key = _cache_key("mcmod_modpack", keyword, max_results)
     cached = _cache_get("search", key)
     if cached is not None:
@@ -1535,26 +1437,13 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
 
 
 def _build_modrinth_url(slug: str, project_type: str) -> str:
-    """根据项目类型构建 Modrinth URL。
-
-    Args:
-        slug: 项目 slug
-        project_type: 项目类型（mod, modpack, shader, resourcepack）
-
-    Returns:
-        完整的 Modrinth URL
-    """
+    """构建Modrinth URL。返回 "https://modrinth.com/{type}/{slug}"。"""
     url_type = _MODRINTH_TYPE_URL_MAP.get(project_type, "mod")
     return f"https://modrinth.com/{url_type}/{slug}"
 
 
 def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
-    """
-    Modrinth API 搜索。
-
-    返回 {"results": [...], "total": int, "returned": int}
-    project_type: "mod" | "shader" | "resourcepack" | "modpack"
-    """
+    """Modrinth搜索。返回 {"results": [...], "total": N, "returned": M}。"""
     key = _cache_key("modrinth", keyword, max_results, project_type)
     cached = _cache_get("search", key)
     if cached is not None:
@@ -1613,18 +1502,7 @@ def _parse_modrinth_donations(data: dict) -> list[dict]:
 
 
 def _build_modrinth_result(data: dict, project_id: str, body: str, gallery: list[str], ctx: dict) -> dict:
-    """构建 Modrinth 模组/整合包信息结果字典。
-
-    Args:
-        data: 原始 API 返回数据
-        project_id: 项目 ID
-        body: 项目描述正文
-        gallery: 截图列表
-        ctx: 解析上下文字典，包含 {license_id, license_name, license_url, donation_urls}
-
-    Returns:
-        结果字典
-    """
+    """构建Modrinth结果字典。返回包含name/url/downloads等字段的dict。"""
     project_type = data.get("project_type", "mod")
     url_type = _MODRINTH_TYPE_URL_MAP.get(project_type, "mod")
     project_url = f"https://modrinth.com/{url_type}/{data.get('slug', '')}"
@@ -1779,12 +1657,7 @@ def fetch_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
 
 
 def search_author(username: str, max_results: int = 10) -> list[dict]:
-    """
-    Modrinth 按作者名搜索所有作品。
-
-    使用 filter=authors:{username} 过滤，配合 query={username} 提高相关性。
-    注意：filter 中的冒号保持未编码状态，Modrinth API 要求原始冒号。
-    """
+    """Modrinth作者搜索。返回作者作品列表。"""
     key = _cache_key("author", username, max_results)
     cached = _cache_get("search", key)
     if cached is not None:
@@ -2431,13 +2304,7 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
 
 
 def read_wiki(url: str, max_paragraphs: int = 20, include_infobox: bool = True) -> dict:
-    """
-    读取 minecraft.wiki 英文 wiki 页面正文。
-
-    Args:
-        max_paragraphs: 最大段落数（默认 20）
-        include_infobox: 是否包含 infobox（默认 True）
-    """
+    """读取minecraft.wiki英文页面正文。返回 {"name": "...", "content": [...], "_sections": [...]}。"""
     result = _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("History of", "v ", "[edit"),
@@ -2452,13 +2319,7 @@ def read_wiki(url: str, max_paragraphs: int = 20, include_infobox: bool = True) 
 
 
 def read_wiki_zh(url: str, max_paragraphs: int = 20, include_infobox: bool = True) -> dict:
-    """
-    读取 minecraft.wiki/zh 中文 wiki 页面正文。
-
-    Args:
-        max_paragraphs: 最大段落数（默认 20，从 5 提升）
-        include_infobox: 是否包含 infobox（默认 True）
-    """
+    """读取minecraft.wiki/zh中文wiki页面正文。"""
     result = _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("历史", "编辑", "History of", "v ", "[edit"),
