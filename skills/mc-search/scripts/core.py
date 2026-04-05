@@ -1840,7 +1840,7 @@ def _search_wiki_impl(
                 start = parser_output.end()
                 # 提取接下来 5000 字符
                 segment = html[start:start+5000]
-                # 先移除 script/style 标签
+                # 先移除 script/style/media 标签
                 segment = re.sub(r'<script[^>]*>.*?</script>', ' ', segment, flags=re.DOTALL)
                 segment = re.sub(r'<style[^>]*>.*?</style>', ' ', segment, flags=re.DOTALL)
                 segment = re.sub(r'<img[^>]*/?>', ' ', segment)
@@ -1853,18 +1853,27 @@ def _search_wiki_impl(
                     '{{', '{|', '|-', '|', '[', 'Title', '{.', '.mw-', ':root', '@media', 'var(--', 'url(',
                 )
                 for line in lines:
-                    if (len(line) > 25 and
-                        not line.startswith(skip_prefixes) and
-                        ('{' not in line or ':' not in line) and
-                        re.search(r'\w', line)):
-                        snippet = line[:200] if len(line) > 200 else line
+                    # 清理图片标签（先执行，然后检查剩余内容）
+                    cleaned_line = re.sub(r'<img[^>]*/?>', '', line).strip()
+                    cleaned_line = re.sub(r'/images/[^ )\]]+', '', cleaned_line).strip()
+
+                    # 过滤掉 CSS/JSON 和无意义内容
+                    if (len(cleaned_line) > 15 and
+                        not cleaned_line.startswith(skip_prefixes) and
+                        ('{' not in cleaned_line or ':' not in cleaned_line) and
+                        re.search(r'[\u4e00-\u9fff\w]', cleaned_line)):
+                        snippet = cleaned_line[:200] if len(cleaned_line) > 200 else cleaned_line
                         break
+
+            # 繁简转换（中文 wiki 强制返回简体标题）
+            if source == "minecraft.wiki/zh":
+                page_title = _traditional_to_simplified_title(page_title)
 
             if add_variant and article_url:
                 # 移除 HTML 实体编码的 variant 参数（&amp;variant=）和正常 variant
                 article_url = re.sub(r"[&?](?:amp;)?variant=zh-[a-z]+", "", article_url)
                 separator = "&" if "?" in article_url else "?"
-                article_url = article_url + separator + "variant=zh-cn"
+                article_url = article_url + separator + "variant=zh-hans"
             results.append({
                 "name": page_title,
                 "name_en": page_title if use_title_for_name_en else "",
@@ -1893,12 +1902,12 @@ def _search_wiki_impl(
                 # 清洗 snippet：移除 HTML 标签
                 clean_snippet = re.sub(r'<[^>]+>', '', snippet) if snippet else ""
                 article_url = f"{base_url}/w/{urllib.parse.quote(title.replace(' ', '_'))}"
-                # API fallback: 添加 variant 参数（中文 wiki）
+                # API fallback: 添加 variant 参数（中文 wiki - zh-hans 简体）
                 if add_variant:
                     # 移除 HTML 实体编码的 variant 参数（&amp;variant=）
                     article_url = re.sub(r"[&?](?:amp;)?variant=zh-[a-z]+", "", article_url)
                     separator = "&" if "?" in article_url else "?"
-                    article_url = article_url + separator + "variant=zh-cn"
+                    article_url = article_url + separator + "variant=zh-hans"
                 results.append({
                     "name": title,
                     "name_en": title if use_title_for_name_en else "",
@@ -1931,8 +1940,33 @@ def search_wiki(keyword: str, max_results: int = 5) -> list[dict]:
     )
 
 
+def _traditional_to_simplified_title(text: str) -> str:
+    """将常见繁体中文字符转换为简体（用于 wiki 标题）。"""
+    # 常见繁简映射表（游戏/维基相关）
+    _TRAD_TO_SIMP = {
+        '劍': '剑', '鎬': '镐', '鏟': '铲', '鋤': '锄',
+        '頭盔': '头盔', '護腿': '护腿', '鑽石': '钻石',
+        '鐵': '铁', '銅': '铜', '綠寶石': '绿宝石', '獄髓': '狱髓',
+        '殭屍': '僵尸', '骷髏': '骷髅', '豬': '猪', '雞': '鸡',
+        '史萊姆': '史莱姆', '凋零': '凋灵', '終界龍': '末影龙',
+        '惡魂': '恶魂', '豬布林': '猪灵', '潛影貝': '潜影贝',
+        '衛道士': '卫道士', '喚魔者': '唤魔者', '終界使者': '末影人',
+        '終界': '末地', '主世界': '主世界', '地獄': '地狱',
+        '奈落': '下界', '終末': '终末', '主维度': '主世界',
+        '堡壘': '堡垒', '地牢': '地牢', '菌絲': '菌丝',
+        '方塊': '方块', '石頭': '石头', '圓石': '圆石',
+        '鵝卵石': '鹅卵石', '礦石': '矿石', '樹葉': '树叶',
+        '葉子': '叶子', '菇': '菇', '釀造': '酿造',
+        '熔爐': '熔炉', '鐵砧': '铁砧', '鍛造台': '锻造台',
+        '砂輪': '砂轮', '砧': '砧', '煙熏': '烟熏',
+    }
+    for trad, simp in _TRAD_TO_SIMP.items():
+        text = text.replace(trad, simp)
+    return text
+
+
 def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
-    """minecraft.wiki/zh 中文 wiki 搜索。"""
+    """minecraft.wiki/zh 中文 wiki 搜索（自动繁简转换）。"""
     return _search_wiki_impl(
         keyword=keyword,
         base_url="https://zh.minecraft.wiki",
