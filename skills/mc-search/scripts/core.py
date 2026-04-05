@@ -80,6 +80,19 @@ _DEFAULT_RESULTS_PER_PLATFORM = 15  # 每平台默认结果数（所有类型统
 _SOURCE_MAX = _DEFAULT_RESULTS_PER_PLATFORM
 _MAX_TABLES_PER_SECTION = 3  # Wiki 每章节最多提取表格数
 
+# === MC百科搜索过滤器 ===
+_MCMOD_FILTER_MOD = "0"        # 模组搜索
+_MCMOD_FILTER_ITEM = "3"       # 物品搜索
+_MCMOD_FILTER_MODPACK = "10"   # 整合包搜索
+
+# === Modrinth 项目类型 URL 映射 ===
+_MODRINTH_TYPE_URL_MAP = {
+    "modpack": "modpack",
+    "shader": "shader",
+    "resourcepack": "resourcepack",
+    "mod": "mod",
+}
+
 # === 平台优先级（数字越小越权威）===
 # 默认优先级：MC百科 > Modrinth > Wiki（适用于 mod 和 item）
 # 其他类型：Wiki > MC百科 > Modrinth（适用于 entity/biome/block/mechanic/dimension）
@@ -417,12 +430,16 @@ def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
     return cover_image, screenshots
 
 
-def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
-    """从 MC百科整合包页面解析。整合包页面结构与 class 页面类似但有差异。"""
-    m = re.search(r"<title>([^<]+)</title>", html)
-    raw_title = m.group(1).strip() if m else name
+def _extract_mcmod_modpack_metadata(html: str) -> tuple[str, str, str, str, list[str]]:
+    """提取整合包元数据。
 
-    # 从 title 中分离中文名和 (英文名)
+    Returns:
+        (name_zh, name_en, author, status, categories)
+    """
+    # 标题解析
+    m = re.search(r"<title>([^<]+)</title>", html)
+    raw_title = m.group(1).strip() if m else ""
+
     name_zh = raw_title
     name_en = ""
     title_match = re.match(r"^(.+?)\s*(?:\(([^)]+)\))?\s*-", raw_title)
@@ -430,65 +447,56 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
         name_zh = title_match.group(1).strip()
         name_en = title_match.group(2).strip() if title_match.group(2) else ""
 
-    # 封面图（整合包也用 class-cover-image）
-    cover_m = re.search(r'class="class-cover-image"[^>]*>.*?<img[^>]+src="([^"]+)"', html, re.DOTALL)
-    cover_image = cover_m.group(1) if cover_m else ""
-
-    # 截图
-    screenshots = re.findall(r'class="figure"[^>]*>.*?data-src="([^"]+)"', html, re.DOTALL)
-
-    # 提取基本信息（作者、状态、分类等）
-    author = ""
-    status = ""
-    categories = []
-    description = ""
-
-    # 作者和状态（整合包页面格式与模组类似）
-    author_m = re.search(r'作者：</td><td[^>]*><a[^>]*>([^<]+)</a>', html)
-    if author_m:
-        author = author_m.group(1).strip()
-    else:
-        # 尝试无链接的作者名
-        author_m = re.search(r'作者：</td><td[^>]*>([^<]+)</td>', html)
-        if author_m:
-            author = author_m.group(1).strip()
-
-    status_m = re.search(r'状态：</td><td[^>]*>([^<]+)</td>', html)
-    if status_m:
-        status = status_m.group(1).strip()
+    # 使用通用函数提取作者和状态
+    author = _extract_mcmod_field(html, "作者")
+    status = _extract_mcmod_field(html, "状态")
 
     # 分类
     categories = re.findall(r'href="/modpack/category/[^"]*"[^>]*>([^<]+)</a>', html)
 
-    # 描述（整合包介绍区域）
+    return name_zh, name_en, author, status, categories
+
+
+def _extract_mcmod_modpack_description(html: str) -> str:
+    """提取整合包描述文本。"""
     intro_idx = html.find("整合包介绍")
-    if intro_idx >= 0:
-        segment = html[intro_idx:intro_idx + _MAX_DESCRIPTION_SEGMENT]
-        section_markers = ["整合包下载", "版本列表", "包含模组", "相关链接"]
-        end = len(segment)
-        for marker in section_markers:
-            idx = segment.find(marker)
-            if idx > _MIN_SECTION_MARKER_DISTANCE:
-                end = min(end, idx)
-        content = segment[:end]
-        content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
-        content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
-        content = re.sub(r"<img[^>]*>", "", content)
-        content = re.sub(r"<br\s*/?>", "\n", content)
-        content = re.sub(r"<p[^>]*>", "\n", content)
-        text = re.sub(r"<[^>]+>", "", content)
-        text = html_module.unescape(text)
-        text = re.sub(r"[ \t\r]+", " ", text).strip()
+    if intro_idx < 0:
+        return ""
 
-        lines = []
-        for line in text.split("\n"):
-            line = line.strip()
-            if len(line) < _MIN_DESCRIPTION_LINE_LEN:
-                continue
-            lines.append(line)
-        description = "\n".join(lines)
+    segment = html[intro_idx:intro_idx + _MAX_DESCRIPTION_SEGMENT]
+    section_markers = ["整合包下载", "版本列表", "包含模组", "相关链接"]
+    end = len(segment)
+    for marker in section_markers:
+        idx = segment.find(marker)
+        if idx > _MIN_SECTION_MARKER_DISTANCE:
+            end = min(end, idx)
 
-    # 提取整合包版本信息（如果有）
+    content = segment[:end]
+    content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<img[^>]*>", "", content)
+    content = re.sub(r"<br\s*/?>", "\n", content)
+    content = re.sub(r"<p[^>]*>", "\n", content)
+    text = re.sub(r"<[^>]+>", "", content)
+    text = html_module.unescape(text)
+    text = re.sub(r"[ \t\r]+", " ", text).strip()
+
+    lines = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if len(line) < _MIN_DESCRIPTION_LINE_LEN:
+            continue
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
+def _extract_mcmod_modpack_stats(html: str) -> list[str]:
+    """提取整合包支持的游戏版本列表。
+
+    Returns:
+        supported_versions: 支持的游戏版本列表
+    """
     supported_versions = []
     version_section_idx = html.find("版本列表")
     if version_section_idx >= 0:
@@ -496,38 +504,39 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
         versions = re.findall(r'(?:Minecraft\s+)?(\d+\.\d+(?:\.\d+)?)', version_section)
         supported_versions = list(set(versions))
 
-    # 提取包含的模组数量（如果有统计）
-    mod_count = None
-    mod_count_m = re.search(r'包含模组[：:]\s*(\d+)', html)
-    if mod_count_m:
-        mod_count = int(mod_count_m.group(1))
+    return supported_versions
 
-    # 提取下载量（如果有）
-    downloads = None
-    downloads_m = re.search(r'下载[：:]\s*([\d,]+)', html)
-    if downloads_m:
-        downloads_str = downloads_m.group(1).replace(",", "").replace(" ", "")
-        try:
-            downloads = int(downloads_str)
-        except ValueError:
-            pass
 
-    # 整合包类型判定
-    is_vanilla = bool(re.search(r'/modpack/\d+\.html', url))
+def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
+    """从 MC百科整合包页面解析。整合包页面结构与 class 页面类似但有差异。"""
+    # 提取元数据
+    name_zh, name_en, author, status, categories = _extract_mcmod_modpack_metadata(html)
+
+    # 封面图和截图
+    cover_image, screenshots = _extract_mcmod_cover(html)
+
+    # 描述
+    description = _extract_mcmod_modpack_description(html)
+
+    # 统计信息（仅版本列表）
+    supported_versions = _extract_mcmod_modpack_stats(html)
+
+    # 整合包类型判定（是否为 MC百科官方收录的整合包）
+    is_official_modpack = bool(re.search(r'/modpack/\d+\.html', url))
 
     # 截图截断信息
     screenshots_total = len(screenshots)
     screenshots_limited = screenshots[:_MAX_SCREENSHOTS]
 
     result = {
-        "name": name_zh or raw_title or name,
+        "name": name_zh or name,
         "name_en": name_en,
-        "name_zh": name_zh or raw_title or name,
+        "name_zh": name_zh or name,
         "url": url,
         "source": "mcmod.cn",
         "source_id": re.search(r"/modpack/(\d+)", url).group(1) if url else "",
         "type": "modpack",
-        "is_vanilla": is_vanilla,
+        "is_official": is_official_modpack,
         "cover_image": cover_image,
         "screenshots": screenshots_limited,
         "supported_versions": supported_versions,
@@ -535,8 +544,6 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
         "author": author,
         "status": status,
         "description": description,
-        "mod_count": mod_count,
-        "downloads": downloads,
     }
 
     # 截断元信息
@@ -663,23 +670,23 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
 
     兼容性：保留单一 author 字段（第一个作者）
     """
-    author = None
-    author_idx = html.find("Mod作者/开发团队")
-    if author_idx >= 0:
-        auth_section = html[author_idx:author_idx + _MAX_TAG_SECTION_LEN]
-        author_m = re.search(r'title="([^"-]+)', auth_section)
-        if author_m:
-            author = author_m.group(1).strip()
+    # 使用通用函数提取作者和状态
+    author = _extract_mcmod_field(html, "Mod作者/开发团队") or _extract_mcmod_field(html, "作者")
+    status = _extract_mcmod_field(html, "状态")
+
+    # 如果作者字段为空，尝试从 title 属性提取
+    if not author:
+        author_idx = html.find("Mod作者/开发团队")
+        if author_idx >= 0:
+            auth_section = html[author_idx:author_idx + _MAX_TAG_SECTION_LEN]
+            author_m = re.search(r'title="([^"-]+)', auth_section)
+            if author_m:
+                author = author_m.group(1).strip()
 
     log_idx = html.find("更新日志")
     has_changelog = False
     if log_idx >= 0:
         has_changelog = "暂无日志" not in html[log_idx:log_idx + _MAX_TAG_SECTION_LEN]
-
-    status = None
-    status_m = re.search(r'class="class-status[^"]*"[^>]*>([^<]+)<', html)
-    if status_m:
-        status = status_m.group(1).strip()
 
     source_type = None
     src_m = re.search(r'class="class-source[^"]*"[^>]*>([^<]+)<', html)
@@ -687,7 +694,7 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
         st = src_m.group(1).strip()
         source_type = "open_source" if ("开源" in st or "open" in st.lower()) else "closed_source"
 
-    return author, status, source_type, has_changelog
+    return author if author else None, status if status else None, source_type, has_changelog
 
 
 def _extract_mcmod_author_team(html: str) -> list[dict]:
@@ -959,6 +966,28 @@ def _extract_mcmod_external_links(html: str) -> dict:
     return links
 
 
+def _extract_mcmod_field(html: str, field_label: str = "作者") -> str:
+    """通用提取 MC百科字段（作者、状态等）。
+
+    Args:
+        html: HTML 内容
+        field_label: 字段标签（如"作者"、"状态"）
+
+    Returns:
+        字段值（带链接优先，否则纯文本）
+    """
+    # 先尝试提取带链接的值
+    pattern = rf'{field_label}：</td><td[^>]*><a[^>]*>([^<]+)</a>'
+    m = re.search(pattern, html)
+    if m:
+        return m.group(1).strip()
+
+    # 降级为纯文本
+    pattern = rf'{field_label}：</td><td[^>]*>([^<]+)</td>'
+    m = re.search(pattern, html)
+    return m.group(1).strip() if m else ""
+
+
 def _extract_mcmod_content_list(html: str, class_id: str) -> dict:
     """提取模组的资料列表信息（物品/方块、生物/实体、附魔等）。
 
@@ -1125,7 +1154,7 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
       - "modpack" → filter=10 → /modpack/ 页面（整合包）
     """
     # filter 映射
-    filter_map = {"mod": "0", "item": "3", "modpack": "10"}
+    filter_map = {"mod": _MCMOD_FILTER_MOD, "item": _MCMOD_FILTER_ITEM, "modpack": _MCMOD_FILTER_MODPACK}
     if content_type not in filter_map:
         raise ValueError(f"search_mcmod 不支持的 content_type: {content_type}。仅支持 'mod' / 'item' / 'modpack'")
     filter_val = filter_map[content_type]
@@ -1302,8 +1331,10 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     MC百科 整合包搜索。
 
     搜索整合包使用 /modpack/ 页面，结构与 class 页面不同。
-    MC百科整合棒搜索 URL: https://search.mcmod.cn/s?key={keyword}&filter=10
+    MC百科整合包搜索 URL: https://search.mcmod.cn/s?key={keyword}&filter=10
     filter=10 是整合包过滤器。
+
+    注意：如果搜索关键词没有匹配结果，返回空列表而非抛出异常。
     """
     key = _cache_key("mcmod_modpack", keyword, max_results)
     cached = _cache_get("search", key)
@@ -1313,13 +1344,11 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     q = urllib.parse.quote(keyword)
     html = _curl(f"https://search.mcmod.cn/s?key={q}&filter=10")
     if not html:
-        raise _SearchError(f"MC百科 整合包网络请求失败（空响应）：{keyword}")
-    if len(html) < _MIN_HTML_LEN:
-        raise _SearchError(f"MC百科 整合包响应过短（可能被封）：{keyword}")
+        return []  # 网络失败返回空列表
 
     idx = html.find("search-result-list")
     if idx == -1:
-        raise _SearchError(f"MC百科 整合包搜索结果页结构变化（无 search-result-list）：{keyword}")
+        return []  # 页面结构变化返回空列表
 
     # 找到结果区域的结束位置（分页区域）
     end_idx = html.find('class="pagination"', idx)
@@ -1335,7 +1364,7 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     )
 
     if not pairs:
-        raise _SearchError(f"MC百科 无整合包结果：{keyword}")
+        return []  # 无结果返回空列表
 
     # 去重
     seen = set()
@@ -1389,6 +1418,20 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     return results
 
 
+def _build_modrinth_url(slug: str, project_type: str) -> str:
+    """根据项目类型构建 Modrinth URL。
+
+    Args:
+        slug: 项目 slug
+        project_type: 项目类型（mod, modpack, shader, resourcepack）
+
+    Returns:
+        完整的 Modrinth URL
+    """
+    url_type = _MODRINTH_TYPE_URL_MAP.get(project_type, "mod")
+    return f"https://modrinth.com/{url_type}/{slug}"
+
+
 def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
     """
     Modrinth API 搜索。
@@ -1413,21 +1456,11 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
         if project_type and pt and pt != project_type:
             continue
 
-        # 根据项目类型构建正确的 URL
-        if pt == "modpack":
-            project_url = f"https://modrinth.com/modpack/{hit.get('slug','')}"
-        elif pt == "shader":
-            project_url = f"https://modrinth.com/shader/{hit.get('slug','')}"
-        elif pt == "resourcepack":
-            project_url = f"https://modrinth.com/resourcepack/{hit.get('slug','')}"
-        else:
-            project_url = f"https://modrinth.com/mod/{hit.get('slug','')}"
-
         results.append({
             "name": hit.get("title", ""),
             "name_en": hit.get("title", ""),
             "name_zh": "",
-            "url": project_url,
+            "url": _build_modrinth_url(hit.get("slug", ""), pt or project_type or "mod"),
             "source": "modrinth",
             "source_id": hit.get("slug", ""),
             "type": pt or project_type or "mod",
@@ -1458,27 +1491,22 @@ def _parse_modrinth_donations(data: dict) -> list[dict]:
     ]
 
 
-def _build_modrinth_result(
-    data: dict,
-    project_id: str,
-    body: str,
-    gallery: list[str],
-    license_id: str,
-    license_name: str,
-    license_url: str,
-    donation_urls: list[dict],
-) -> dict:
-    """构建 Modrinth 模组信息结果字典。"""
-    # 根据项目类型构建正确的 URL
+def _build_modrinth_result(data: dict, project_id: str, body: str, gallery: list[str], ctx: dict) -> dict:
+    """构建 Modrinth 模组/整合包信息结果字典。
+
+    Args:
+        data: 原始 API 返回数据
+        project_id: 项目 ID
+        body: 项目描述正文
+        gallery: 截图列表
+        ctx: 解析上下文字典，包含 {license_id, license_name, license_url, donation_urls}
+
+    Returns:
+        结果字典
+    """
     project_type = data.get("project_type", "mod")
-    if project_type == "modpack":
-        project_url = f"https://modrinth.com/modpack/{data.get('slug', '')}"
-    elif project_type == "shader":
-        project_url = f"https://modrinth.com/shader/{data.get('slug', '')}"
-    elif project_type == "resourcepack":
-        project_url = f"https://modrinth.com/resourcepack/{data.get('slug', '')}"
-    else:
-        project_url = f"https://modrinth.com/mod/{data.get('slug', '')}"
+    url_type = _MODRINTH_TYPE_URL_MAP.get(project_type, "mod")
+    project_url = f"https://modrinth.com/{url_type}/{data.get('slug', '')}"
 
     return {
         "name": data.get("title", ""),
@@ -1487,9 +1515,9 @@ def _build_modrinth_result(
         "description": data.get("description", ""),
         "body": body,
         "author": None,
-        "license": license_id,
-        "license_name": license_name,
-        "license_url": license_url,
+        "license": ctx.get("license_id", ""),
+        "license_name": ctx.get("license_name", ""),
+        "license_url": ctx.get("license_url", ""),
         "categories": data.get("categories", []),
         "display_categories": data.get("display_categories", []),
         "client_side": data.get("client_side", ""),
@@ -1498,7 +1526,7 @@ def _build_modrinth_result(
         "wiki_url": data.get("wiki_url") or None,
         "issues_url": data.get("issues_url") or None,
         "discord_url": data.get("discord_url") or None,
-        "donation_urls": donation_urls,
+        "donation_urls": ctx.get("donation_urls", []),
         "updated": data.get("updated", ""),
         "published": data.get("published", ""),
         "followers": data.get("followers", 0),
@@ -1547,12 +1575,16 @@ def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
     gallery_total = len(raw_gallery)
     gallery = raw_gallery if no_limit else raw_gallery[:_MAX_GALLERY]
 
+    # 构建解析上下文（减少参数传递）
+    ctx = {
+        "license_id": license_id,
+        "license_name": license_name,
+        "license_url": license_url,
+        "donation_urls": donation_urls,
+    }
+
     # 构建结果字典
-    result = _build_modrinth_result(
-        data, project_id, body, gallery,
-        license_id, license_name, license_url,
-        donation_urls,
-    )
+    result = _build_modrinth_result(data, project_id, body, gallery, ctx)
 
     # 截断元信息（仅非 no_limit 模式）
     truncated = {}

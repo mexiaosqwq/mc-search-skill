@@ -8,9 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Minecraft 聚合搜索工具，供 AI Agent 调用。
 
-**四大平台：**
-- MC百科 (mcmod.cn) — 中文模组/物品
-- Modrinth — 英文 mod/光影/材质包
+**支持平台：**
+- MC百科 (mcmod.cn) — 中文模组/物品/整合包
+- Modrinth — 英文 mod/光影/材质包/整合包
 - minecraft.wiki — 原版游戏内容 wiki（英文）
 - minecraft.wiki/zh — 原版游戏内容 wiki（中文）
 
@@ -55,9 +55,14 @@ mc-search --json full <模组名>
 ```bash
 mc-search --json search 钠              # 四平台并行
 mc-search --json search 钻石剑 --type item  # 物品搜索
-mc-search --json search 科技 --type modpack  # 整合包搜索
+mc-search --json search 科技 --type modpack  # 整合包搜索（MC百科 + Modrinth）
 mc-search --json search --author Notch  # MC百科作者
 ```
+
+**整合包搜索说明**：
+- 整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行
+- minecraft.wiki 不支持整合包搜索
+- 整合包返回字段包含 `is_official`（是否为 MC百科官方收录）
 
 ### 详情
 

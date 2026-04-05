@@ -139,6 +139,7 @@
 | `source` | `mcmod.cn` |
 | `source_id` | modpack ID（如 `123`） |
 | `type` | `modpack` |
+| `is_official` | 是否为 MC百科官方收录的整合包（URL 符合 `/modpack/\d+.html` 格式；仅 MC百科 整合包包含此字段） |
 | `description` | 整合包描述 |
 | `author` | 作者名 |
 | `status` | 状态（如 `活跃`） |
@@ -146,10 +147,8 @@
 | `supported_versions` | 支持的游戏版本列表（从版本列表区域提取） |
 | `cover_image` | 封面图 URL |
 | `screenshots` | 截图 URL 列表（最多 6 张） |
-| `mod_count` | 包含的模组数量（如果有统计） |
-| `downloads` | 下载量（如果有统计） |
 
-> 注：部分字段如 `mod_count`、`downloads` 取决于MC百科整合包页面是否有相应显示。
+> 注：`supported_versions` 字段可能为空列表，如果 MC百科页面没有版本列表区域。
 
 ---
 

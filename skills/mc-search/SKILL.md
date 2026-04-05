@@ -12,6 +12,8 @@ allowed-tools: [Bash]
 
 Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**（MC百科、Modrinth、minecraft.wiki 中英双站）。
 
+> **注意**：整合包搜索（`--type modpack`）仅在 MC百科 和 Modrinth 两个平台进行。
+
 > **执行格式**：`mc-search --json <子命令> <参数>`
 > - **`--json` 必须放在最前面**（全局选项优先）
 > - 所有命令优先使用 `--json` 获取结构化输出
@@ -43,7 +45,7 @@ Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**（MC百科
 mc-search --json search <关键词>
 
 # 指定类型搜索
-mc-search --json search <关键词> --type modpack   # 整合包
+mc-search --json search <关键词> --type modpack   # 整合包（MC百科 + Modrinth）
 mc-search --json search <关键词> --type item      # 物品/方块
 mc-search --json search <关键词> --type entity    # 实体/生物
 
@@ -56,6 +58,11 @@ mc-search --json author "<用户名>" -n 20           # Modrinth作者
 - 四平台并行搜索（MC百科、Modrinth、Minecraft.wiki 中英）
 - 智能排序：精确匹配 > 前缀匹配 > 包含匹配
 - 多平台融合：同名模组/整合包自动合并，跨平台加权
+
+> **注意**：整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行。
+- 整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行
+- minecraft.wiki 不支持整合包搜索
+- 整合包返回字段包含 `is_official`（是否为 MC百科官方收录）
 
 ### 2️⃣ 详情类（完整信息）
 
@@ -117,7 +124,7 @@ mc-search --json dep <mod_slug>
 ├─ 2. 不确定模组名，需要搜索
 │   └─ 模糊关键词 → search <关键词>
 │       ├─ 筛类型：search 钻石剑 --type item
-│       ├─ 搜整合包：search 科技 --type modpack
+│       ├─ 搜整合包：search 科技 --type modpack  # 仅限 MC百科 + Modrinth
 │       └─ 筛作者：search --author Notch
 │
 ├─ 3. 查原版游戏内容（wiki）
@@ -278,9 +285,12 @@ mc-search --json full 钠
 ```bash
 # 搜索整合包（MC百科 + Modrinth）
 mc-search --json search RLCraft --type modpack
+mc-search --json search 科技 --type modpack      # 中文关键词
 
 # 获取整合包完整信息
 mc-search --json full RLCraft
+mc-search --json full https://www.mcmod.cn/modpack/339.html  # MC百科URL
+mc-search --json full https://modrinth.com/modpack/rl-craft  # Modrinth URL
 
 # 输出示例（JSON 解析后）：
 # {
@@ -288,7 +298,7 @@ mc-search --json full RLCraft
 #   "name_en": "RLCraft",
 #   "type": "modpack",
 #   "source": "mcmod.cn|modrinth",
-#   "mod_count": 150,
+#   "is_official": true,
 #   "description": "硬核生存整合包...",
 #   "categories": ["冒险", "魔法"]
 # }
