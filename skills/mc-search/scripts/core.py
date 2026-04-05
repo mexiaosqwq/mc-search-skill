@@ -5,6 +5,7 @@ mc-search 核心搜索模块
 """
 
 import base64
+import concurrent.futures
 import hashlib
 import html as html_module
 import json
@@ -13,19 +14,17 @@ import re
 import subprocess
 import time
 import urllib.parse
-import concurrent.futures
 from pathlib import Path
 
-# ─────────────────────────────────────────
+
 # 错误类型（用于区分网络/解析/无结果）
-# ─────────────────────────────────────────
 
 class _SearchError(Exception):
     """搜索过程中的可区分错误。"""
     pass
 
 
-# ─────────────────────────────────────────
+
 # 统一结果 Schema
 # {
 #   "name": str,        # 名称（最优先显示）
@@ -39,7 +38,6 @@ class _SearchError(Exception):
 #   "sections": list,  # 章节/分类（wiki用）
 #   "content": list,    # 正文段落（read用）
 # }
-# ─────────────────────────────────────────
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -47,9 +45,9 @@ HTTP_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# ─────────────────────────────────────────
+
 # 解析常量
-# ─────────────────────────────────────────
+
 _MIN_HTML_LEN = 1000        # HTML 内容最小长度阈值（class/mod 页面）
 _MIN_HTML_LEN_ITEM = 500    # HTML 内容最小长度阈值（item/recipe 页面）
 _MIN_PARAGRAPH_LEN = 20     # 正文段落最小长度
@@ -77,17 +75,21 @@ _MAX_AUTHOR_SECTION = 15000  # 作者页面区域提取长度
 _MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
 _MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
 _MAX_VERSIONS_FETCH = 50    # 获取版本详情时最多拉取的版本数
-_SOURCE_MAX = {              # search_all 每平台最多结果（按 content_type 分级）
-    "mod": 15,
-    "item": 15,
-    "entity": 15,
-    "biome": 15,
-    "dimension": 15,
+_DEFAULT_RESULTS_PER_PLATFORM = 15  # 每平台默认结果数（所有类型统一）
+# 向后兼容别名
+_SOURCE_MAX = _DEFAULT_RESULTS_PER_PLATFORM
+_MAX_TABLES_PER_SECTION = 3  # Wiki 每章节最多提取表格数
+
+# === 平台优先级（数字越小越权威）===
+# 默认优先级：MC百科 > Modrinth > Wiki（适用于 mod 和 item）
+# 其他类型：Wiki > MC百科 > Modrinth（适用于 entity/biome/block/mechanic/dimension）
+_CONTENT_PLATFORM_PRIORITY = {
+    "default": {"mcmod.cn": 0, "modrinth": 1, "minecraft.wiki": 2, "minecraft.wiki/zh": 3},
+    "other": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
 }
 
-# ─────────────────────────────────────────
 # Wiki 解析辅助（read_wiki / read_wiki_zh 共用）
-# ─────────────────────────────────────────
+
 _EN_CONNECTORS_RE = re.compile(
     r"\b(and|which|that|for|with|to|is|are|was|were|has|have|been|"
     r"add|added|chang|fixed|updated|removed|introduced|included|"
@@ -97,6 +99,8 @@ _EN_CONNECTORS_RE = re.compile(
 _ZH_CONNECTORS_RE = re.compile(
     r"\b(和|与|或|但|是|为|有|在|被|由|可|会|能|将|已|使)\b",
 )
+# 匹配论坛元数据，如 (7)Mod讨论 (2) 或 Mod讨论 (19)
+_MOD_META_PAT = re.compile(r"^(?:\(\d+\)\s*)?Mod(?:讨论|教程)\s*\(\d+\)")
 
 
 def _clean_html_text(html_fragment: str) -> str:
@@ -116,24 +120,18 @@ def _is_valid_paragraph(text: str, lang: str = "en") -> bool:
         return False
     if re.match(r"^[\#\.\[\/\{]", text):
         return False
-    # JSON 碎片
     if text.startswith("{") and text.count('"') >= 4 and ":" in text:
         return False
-    # 短名词短语过滤（通常是版本页 item 名，不是 intro）
-    if len(text) <= _MIN_SHORT_TEXT_LEN:
-        en_found = _EN_CONNECTORS_RE.search(text)
-        if not en_found:
-            if lang == "zh":
-                if not _ZH_CONNECTORS_RE.search(text):
-                    return False
-            else:
-                return False
-    return True
+    if len(text) > _MIN_SHORT_TEXT_LEN:
+        return True
+    # 短文本：需含连接词
+    if lang == "zh":
+        return bool(_EN_CONNECTORS_RE.search(text) or _ZH_CONNECTORS_RE.search(text))
+    return bool(_EN_CONNECTORS_RE.search(text))
 
 
-# ─────────────────────────────────────────
+
 # 缓存系统
-# ─────────────────────────────────────────
 
 _cache_enabled = False
 _cache_ttl = 3600  # 默认 1 小时
@@ -187,9 +185,8 @@ def set_cache(enabled: bool, ttl: int = 3600):
     _cache_ttl = ttl
 
 
-# ─────────────────────────────────────────
+
 # 平台开关
-# ─────────────────────────────────────────
 
 _platform_enabled = {"mcmod.cn": True, "modrinth": True, "minecraft.wiki": True, "minecraft.wiki/zh": True}
 
@@ -206,6 +203,13 @@ def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool =
 
 
 def _curl(url: str, timeout: int = 10) -> str:
+    """使用 curl 获取 HTML 内容。
+
+    注：选用 curl 而非 urllib 的原因：
+    - curl 自动处理 HTTPS 证书、重定向、压缩
+    - 在某些 Android/Termux 环境下，urllib 的 SSL 支持不如 curl 稳定
+    - 统一 User-Agent 头，避免被网站封禁
+    """
     r = subprocess.run(
         ["curl", "-s", "-L",
          "-H", f"User-Agent: {HTTP_HEADERS['User-Agent']}",
@@ -230,9 +234,8 @@ def _fetch_json(url: str, default=None) -> dict | list | None:
         return default if default is not None else {}
 
 
-# ─────────────────────────────────────────
+
 # 物品/方块解析（MC百科 /item/ 页面）
-# ─────────────────────────────────────────
 
 def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
     """从 MC百科 item 页面解析。物品页面结构与 class 页面完全不同。"""
@@ -403,9 +406,8 @@ def get_item_recipe(item_url: str) -> dict:
     return result
 
 
-# ─────────────────────────────────────────
+
 # 模组解析（MC百科 /class/ 页面）
-# ─────────────────────────────────────────
 
 def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
     """提取封面图和截图。返回 (cover_image, screenshots)。"""
@@ -480,8 +482,6 @@ def _extract_mcmod_description(html: str) -> str:
         "mcmod.cn | ", "鄂ICP备", "鄂公网安备",
     ]
     para_title_pat = r"^(?:概述|简介|正文)\s*"
-    # 匹配论坛元数据，如 (7)Mod讨论 (2) 或 Mod讨论 (19)
-    _mod_meta_pat = re.compile(r"^(?:\(\d+\)\s*)?Mod(?:讨论|教程)\s*\(\d+\)")
     lines = []
     for line in text.split("\n"):
         line = line.strip()
@@ -491,7 +491,7 @@ def _extract_mcmod_description(html: str) -> str:
             continue
         if any(line.startswith(p) for p in skip_fragments):
             continue
-        if _mod_meta_pat.match(line):
+        if _MOD_META_PAT.match(line):
             continue
         if re.search(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是", line):
             line = re.sub(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是.*", "", line).strip()
@@ -530,7 +530,10 @@ def _extract_mcmod_relationships(html: str) -> dict:
 
 
 def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str | None, bool]:
-    """提取作者、状态、开源属性。返回 (author, status, source_type)。"""
+    """提取作者、状态、开源属性。返回 (author, status, source_type)。
+
+    兼容性：保留单一 author 字段（第一个作者）
+    """
     author = None
     author_idx = html.find("Mod作者/开发团队")
     if author_idx >= 0:
@@ -556,6 +559,154 @@ def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str
         source_type = "open_source" if ("开源" in st or "open" in st.lower()) else "closed_source"
 
     return author, status, source_type, has_changelog
+
+
+def _extract_mcmod_author_team(html: str) -> list[dict]:
+    """提取完整的作者/开发团队信息，包含分工。
+
+    HTML 结构：
+    Mod作者/开发团队(2): <div class="frame"><ul><li>
+        <span title="...">...</span>
+        <span class="member">
+            <span class="name"><a>药水棒冰</a></span>
+            <span class="position" title="美术/策划">美术/策划</span>
+        </span>
+    </li>...</ul></div>
+
+    返回: [
+        {"name": "药水棒冰", "roles": ["美术", "策划"]},
+        {"name": "酒石酸菌", "roles": ["程序"]},
+        ...
+    ]
+
+    注意：最多返回 10 人，避免输出过长
+    """
+    authors = []
+    author_idx = html.find("Mod作者/开发团队")
+    if author_idx < 0:
+        return authors
+
+    # 提取作者区域（在 li 标签内）
+    auth_section_start = author_idx
+    # 找到 ul/列表区域的结束
+    auth_section_end = html.find("</ul>", auth_section_start)
+    if auth_section_end < 0:
+        auth_section_end = auth_section_start + _MAX_AUTHOR_SECTION
+    auth_section = html[auth_section_start:auth_section_end]
+
+    # 查找所有 <li> 条目
+    li_blocks = re.findall(r'<li>(.*?)</li>', auth_section, re.DOTALL)
+
+    # 需要过滤的组织/团队名称（不是真实作者）
+    skip_names = {"CaffeineMC"}
+
+    for li in li_blocks:
+        # 提取作者名（简化正则）
+        name_m = re.search(r'class="name"><a[^>]*>([^<]+)</a>', li)
+        # 提取分工（从 title 属性）
+        position_m = re.search(r'title="([^"]+)" class="position"', li)
+
+        if name_m:
+            name = name_m.group(1).strip()
+            # 清理名称（去除可能的备注部分）
+            name = re.split(r'\s*[-–]\s*', name)[0].strip()
+
+            # 过滤组织名称（不是真实作者）
+            if name in skip_names:
+                continue
+
+            # 解析分工
+            roles = []
+            if position_m:
+                roles_str = position_m.group(1).strip()
+                if roles_str:
+                    roles = re.split(r'[、/，,]', roles_str)
+                    roles = [r.strip() for r in roles if r.strip() and len(r.strip()) <= 10]
+
+            # 添加作者（没有分工则默认为"开发者"）
+            if name:
+                authors.append({
+                    "name": name,
+                    "roles": roles if roles else ["开发者"]
+                })
+
+    # 限制最多返回 10 人（避免输出过长）
+    return authors[:10]
+
+
+def _extract_mcmod_community_stats(html: str) -> dict:
+    """提取社区统计数据。
+
+    返回: {
+        "rating": 5.0,
+        "rating_text": "名扬天下",
+        "positive_rate": 100,
+        "page_views": 22200,
+        "favorites": 0,
+        "downloads": 0,
+        "integrations_count": 2,
+        "last_updated": "4天前",
+        "revision_count": 7
+    }
+    """
+    stats = {
+        "rating": 0,
+        "rating_text": "",
+        "positive_rate": 0,
+        "page_views": 0,
+        "favorites": 0,
+        "downloads": 0,
+        "integrations_count": 0,
+        "last_updated": "",
+        "revision_count": 0
+    }
+
+    # 评级和好评率
+    rating_section = html.find("综合评级")
+    if rating_section >= 0:
+        section = html[rating_section:rating_section + _MAX_TAG_SECTION_LEN]
+
+        # 评分数字
+        rating_m = re.search(r'(\d+\.\d+)', section)
+        if rating_m:
+            stats["rating"] = float(rating_m.group(1))
+
+        # 评级文字（如"名扬天下"）
+        rating_text_m = re.search(r'"([^"]*?评价[^"]*?)"', section)
+        if rating_text_m:
+            stats["rating_text"] = rating_text_m.group(1)
+
+        # 好评率
+        rate_m = re.search(r'(\d+)%', section)
+        if rate_m:
+            stats["positive_rate"] = int(rate_m.group(1))
+
+    # 页面浏览量
+    views_m = re.search(r'页面浏览量[:：]?\s*([\d,\.]+)', html)
+    if views_m:
+        stats["page_views"] = int(views_m.group(1).replace(',', ''))
+
+    # 收藏数
+    fav_m = re.search(r'收藏[:：]?\s*([\d,\.]+)', html)
+    if fav_m:
+        stats["favorites"] = int(fav_m.group(1).replace(',', ''))
+
+    # 整合包引用数
+    integration_m = re.search(r'整合包引用[:：]?\s*(\d+)', html)
+    if integration_m:
+        stats["integrations_count"] = int(integration_m.group(1))
+
+    # 修订次数
+    revision_m = re.search(r'修订[:：]?\s*(\d+)', html)
+    if revision_m:
+        stats["revision_count"] = int(revision_m.group(1))
+
+    # 最后更新时间
+    update_m = re.search(r'(?:更新|更新在)\s*[:：]?\s*([\d]+[天小时日之前周月年前])', html)
+    if update_m:
+        stats["last_updated"] = update_m.group(1)
+
+    return stats
 
 
 def _extract_mcmod_external_links(html: str) -> dict:
@@ -686,15 +837,25 @@ def _extract_mcmod_content_list(html: str, class_id: str) -> dict:
 
     result = {}
 
-    # 查找所有 item/list 链接
+    # 查找所有 item/list 链接（严格匹配当前结构）
     pattern = rf'href="/item/list/{class_id}-(\d+)\.html"[^>]*>.*?<span class="title">([^<]+)</span>.*?<span class="count">\((\d+)条\)</span>'
     matches = re.findall(pattern, html, re.DOTALL)
+
+    # Fallback: 宽松正则（兼容结构变化）
+    if not matches:
+        fallback_pattern = rf'href="/item/list/{class_id}-(\d+)\.html"[^>]*>(.*?)</a>'
+        fallback_matches = re.findall(fallback_pattern, html, re.DOTALL)
+        for type_id, inner_html in fallback_matches:
+            type_id = type_id.strip()
+            title_m = re.search(r'<span[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)</span>', inner_html)
+            count_m = re.search(r'(\d+)\s*条', inner_html)
+            if title_m and count_m:
+                matches.append((type_id, title_m.group(1), count_m.group(1)))
 
     for type_id, title, count in matches:
         type_id = type_id.strip()
         count = int(count.strip())
         if count > 0:
-            # 使用提取的标题，回退到预定义映射
             label = title.strip() or content_types.get(type_id, f"类型{type_id}")
             result[type_id] = {
                 "label": label,
@@ -733,6 +894,10 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     author, status, source_type, has_changelog = _extract_mcmod_author_status(html)
     external_links = _extract_mcmod_external_links(html)
 
+    # 新增：提取完整作者团队和社区数据
+    author_team = _extract_mcmod_author_team(html)
+    community_stats = _extract_mcmod_community_stats(html)
+
     # 提取 class_id 并获取资料列表
     class_id = re.search(r"/class/(\d+)", url).group(1) if url else ""
     content_list = _extract_mcmod_content_list(html, class_id) if class_id else {}
@@ -758,7 +923,9 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "supported_versions": supported_versions,
         "categories": categories,
         "tags": tags,
-        "author": author,
+        "author": author,  # 兼容性：保留单一作者
+        "author_team": author_team if author_team else None,  # 新增：完整作者团队
+        "community_stats": community_stats if any(community_stats.values()) else None,  # 新增：社区数据
         "status": status,
         "source_type": source_type,
         "description": description,
@@ -775,17 +942,50 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     return result
 
 
+def _parallel_fetch_with_fallback(items: list, fetch_func: callable, max_workers: int,
+                                   filter_none: bool = True) -> list:
+    """
+    并行抓取带自动降级（ThreadPoolExecutor → 逐个抓取）。
+
+    参数:
+        items: 待处理项列表
+        fetch_func: 单个处理函数 callable(item) -> result | None
+        max_workers: 最大线程数
+        filter_none: 是否过滤 None 结果
+
+    返回:
+        结果列表（已过滤 None，如果 filter_none=True）
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        results = []
+        try:
+            results = list(ex.map(fetch_func, items))
+        except Exception:
+            # 回退到逐个抓取，跳过失败项
+            for item in items:
+                try:
+                    results.append(fetch_func(item))
+                except Exception:
+                    continue
+
+    if filter_none:
+        results = [r for r in results if r is not None]
+    return results
+
+
 def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") -> list[dict]:
     """
     MC百科 搜索。
 
-    content_type: "mod" | "item"
+    content_type: "mod" | "item"（仅支持这两种类型）
       - "mod"  → filter=0  → /class/ 页面（综合排序，主模组更靠前）
       - "item" → filter=3  → /item/  页面（物品/方块）
     """
     # filter 映射
     filter_map = {"mod": "0", "item": "3"}
-    filter_val = filter_map.get(content_type, "0")
+    if content_type not in filter_map:
+        raise ValueError(f"search_mcmod 不支持的 content_type: {content_type}。仅支持 'mod' 或 'item'")
+    filter_val = filter_map[content_type]
 
     key = _cache_key("mcmod", keyword, max_results, content_type)
     cached = _cache_get("search", key)
@@ -825,18 +1025,44 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     if not pairs:
         raise _SearchError(f"MC百科 无结果（{content_type}）：{keyword}")
 
-    # 去重并限制数量
+    # 去重（但不限制数量，先排序再截断）
     seen = set()
-    limited_pairs = []
+    all_pairs = []
     for raw_url, name in pairs:
         name = name.strip()
         if name and raw_url not in seen and not name.startswith("www."):
             seen.add(raw_url)
-            limited_pairs.append((raw_url, name))
-            if len(limited_pairs) >= max_results:
-                break
+            all_pairs.append((raw_url, name))
 
-    # 并行抓取详情页（每个结果单独请求太慢）
+    # 重新排序：名称匹配度优先
+    keyword_lower = keyword.lower().replace(" ", "")
+    def _match_tier(pair):
+        """返回匹配层级（0-3），数值越小越匹配"""
+        raw_url, name = pair
+        name_lower = name.lower().replace(" ", "")
+        if name_lower == keyword_lower:
+            return 0
+        if name_lower.startswith(keyword_lower):
+            return 1
+        if keyword_lower in name_lower:
+            return 2
+        return 3
+
+    # 按匹配度分层，每层内部保持原始顺序
+    tiers = {0: [], 1: [], 2: [], 3: []}
+    for pair in all_pairs:
+        tier = _match_tier(pair)
+        tiers[tier].append(pair)
+
+    # 合并：精确匹配优先，其余保持原始顺序
+    reordered = []
+    for tier in [0, 1, 2, 3]:
+        reordered.extend(tiers[tier])
+
+    # 最后截断到 max_results
+    limited_pairs = reordered[:max_results]
+
+    # 并行抓取详情页（使用通用辅助函数）
     def _fetch_one(args):
         raw_url, name = args
         page_html = _curl(raw_url)
@@ -844,18 +1070,10 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
             return _parse_mcmod_item_result(page_html, raw_url, name)
         return _parse_mcmod_result(page_html, raw_url, name)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(limited_pairs), _MAX_FETCH_WORKERS)) as ex:
-        # 单个页面抓取失败不应中断整个搜索
-        results = []
-        try:
-            results = list(ex.map(_fetch_one, limited_pairs))
-        except Exception:
-            # 回退到逐个抓取，跳过失败的页面
-            for pair in limited_pairs:
-                try:
-                    results.append(_fetch_one(pair))
-                except Exception:
-                    continue
+    results = _parallel_fetch_with_fallback(
+        limited_pairs, _fetch_one,
+        max_workers=min(len(limited_pairs), _MAX_FETCH_WORKERS)
+    )
 
     _cache_set("search", key, results)
     return results
@@ -906,7 +1124,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
             seen.add(url)
             unique_mods.append((url, name.strip()))
 
-    # 并行解析每个模组页面（取前 max_mods 个）
+    # 并行解析每个模组页面（使用通用辅助函数）
     def _fetch_mod(args):
         url, name = args
         full_url = f"https://www.mcmod.cn{url}"
@@ -916,21 +1134,10 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
         return None
 
     limited_mods = unique_mods[:max_mods]
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(limited_mods), _MAX_FETCH_WORKERS)) as ex:
-        try:
-            for r in ex.map(_fetch_mod, limited_mods):
-                if r:
-                    results.append(r)
-        except Exception:
-            # 回退到逐个抓取
-            for mod in limited_mods:
-                try:
-                    r = _fetch_mod(mod)
-                    if r:
-                        results.append(r)
-                except Exception:
-                    continue
+    results = _parallel_fetch_with_fallback(
+        limited_mods, _fetch_mod,
+        max_workers=min(len(limited_mods), _MAX_FETCH_WORKERS)
+    )
 
     _cache_set("search", key, results)
     return results
@@ -991,9 +1198,25 @@ def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
         return None
 
     project_id = data.get("id", "")
+
     # 解析 license 字段（可能是 dict 或 string）
     raw_license = data.get("license")
-    license_id = raw_license.get("id", "") if isinstance(raw_license, dict) else (raw_license or "")
+    if isinstance(raw_license, dict):
+        license_id = raw_license.get("id", "")
+        license_name = raw_license.get("name", "")
+        license_url = raw_license.get("url", "")
+    else:
+        license_id = raw_license or ""
+        license_name = ""
+        license_url = ""
+
+    # 解析 donation_urls 列表
+    donation_urls = []
+    for d in data.get("donation_urls", []):
+        donation_urls.append({
+            "platform": d.get("platform", ""),
+            "url": d.get("url", ""),
+        })
 
     # body 处理
     raw_body = data.get("body") or ""
@@ -1013,12 +1236,17 @@ def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
         "body": body,
         "author": None,
         "license": license_id,
+        "license_name": license_name,
+        "license_url": license_url,
         "categories": data.get("categories", []),
+        "display_categories": data.get("display_categories", []),
         "client_side": data.get("client_side", ""),
         "server_side": data.get("server_side", ""),
         "source_url": data.get("source_url") or None,
+        "wiki_url": data.get("wiki_url") or None,
         "issues_url": data.get("issues_url") or None,
         "discord_url": data.get("discord_url") or None,
+        "donation_urls": donation_urls,
         "updated": data.get("updated", ""),
         "published": data.get("published", ""),
         "followers": data.get("followers", 0),
@@ -1062,12 +1290,12 @@ def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
             if not vn:
                 continue
             # Strip -<loader> suffix, then mc<game_ver>- prefix
-            tmp = vn
+            stripped_ver = vn
             for ld in known_loaders:
-                if tmp.endswith(f"-{ld}"):
-                    tmp = tmp[:-len(ld) - 1]
+                if stripped_ver.endswith(f"-{ld}"):
+                    stripped_ver = stripped_ver[:-len(ld) - 1]
                     break
-            mod_ver = re.sub(r'^mc[\d\.]+-', '', tmp) or tmp
+            mod_ver = re.sub(r'^mc[\d\.]+-', '', stripped_ver) or stripped_ver
             if mod_ver not in seen_mod_vers:
                 seen_mod_vers[mod_ver] = {"game_versions": set(), "loaders": set()}
             seen_mod_vers[mod_ver]["game_versions"].update(v.get("game_versions", []))
@@ -1482,12 +1710,12 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
                     section_paragraphs.append(clean)
                     break
 
-        # 英文 wiki：提取 table 中的 item 名称（版本页的主要内容）
+        # 提取 table 中的 item 名称（版本页的主要内容）
         table_items = []
         if source == "minecraft.wiki" and len(section_paragraphs) < _MAX_SECTION_PARAGRAPHS:
             tables = re.findall(r"<table[^>]*class=\"[^\"]*wikitable[^\"]*\"[^>]*>.*?</table>",
                                 section_html, re.DOTALL)
-            for tbl in tables[:3]:
+            for tbl in tables[:_MAX_TABLES_PER_SECTION]:
                 items = _extract_table_items(tbl, max_items=_MAX_TABLE_ITEMS)
                 table_items.extend(items)
 
@@ -1550,8 +1778,7 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
          False 时返回 {platform: [results]}（向后兼容）
     """
     # 按 content_type 分级设置每平台结果数（用户指定优先）
-    default_max = _SOURCE_MAX.get(content_type, 3)
-    per_source = max_per_source if max_per_source != 3 else default_max
+    per_source = max_per_source if max_per_source != 3 else _SOURCE_MAX
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
     stats = {"mcmod.cn": {"total": 0, "returned": 0},
              "modrinth": {"total": 0, "returned": 0},
@@ -1633,74 +1860,55 @@ def _is_cjk(text: str) -> bool:
     return bool(re.search(r'[\u4e00-\u9fff]', text))
 
 
+def _calc_name_score(name_lc: str, query_lc: str, max_name_len: int = 20) -> int:
+    """计算单个名称字段的相关性分数。"""
+    if name_lc == query_lc:
+        return 100 + min(max(0, max_name_len - len(name_lc)), 20)
+    if name_lc.startswith(query_lc):
+        return 50 + min(max(0, max_name_len - len(name_lc)), 15)
+    if query_lc in name_lc:
+        return 30
+    if name_lc in query_lc:
+        return 20
+    return 0
+
+
 def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
     """计算单条搜索结果与查询词的相关性分数（0-130）。
 
-    评分规则（主字段，条件互斥，从强到弱）：
-      - 精确等于 → 100 + 短名称加权（最长20字符，每少1字符+1分）
-      - 名称以查询词开头 → 50 + 短名称加权
-      - 名称包含查询词 → 30
-      - 名称包含于查询词 → 20
-      - 次字段精确匹配 → 90
-      - 次字段包含查询词 → 40
-      - 无匹配 → 0
-    对于 item 类型，wiki 来源的分数额外 +5（vanilla 物品权威来源）。
+    评分规则:
+      - 主字段精确匹配: 100 + 短名称加权(最多+20)
+      - 主字段前缀匹配: 50 + 短名称加权(最多+15)
+      - 主字段包含查询词: 30
+      - 主字段包含于查询词: 20
+      - 次字段精确匹配: 90 + 短名称加权(最多+15) - 10 = 80
+      - 次字段包含查询词: 40 - 10 = 30
+      - item 类型 wiki 来源: +5
+
+    短名称加权: 名称越短越精确，精确匹配时最多+20分，前缀匹配时最多+15分。
+    次字段分数调整: 次字段匹配的分数略低于主字段同级别匹配（-10分）。
     """
     if not query or not hit:
         return 0.0
 
-    # 决定用哪个名字字段评分
-    name_zh = hit.get("name_zh") or ""
-    name_en = hit.get("name_en") or ""
-    name = hit.get("name") or ""
-
+    name_zh = (hit.get("name_zh") or "").lower()
+    name_en = (hit.get("name_en") or "").lower()
     q = query.strip().lower()
     if not q:
         return 0.0
 
-    # 优先用搜索词对应语言的名称
-    if _is_cjk(q):
-        primary = name_zh
-        secondary = name_en
-    else:
-        primary = name_en
-        secondary = name_zh
-
-    # 如果主字段为空，用次字段
+    # 选择主要/次要评分字段
+    primary = name_zh if _is_cjk(q) else name_en
+    secondary = name_en if primary == name_zh else name_zh
     if not primary:
-        primary = secondary
-        secondary = ""
+        primary, secondary = secondary, ""
 
-    primary_lc = primary.lower()
-    secondary_lc = secondary.lower()
-
-    score = 0
-    max_name_len = 20  # 名称长度上限，用于计算短名称加权
-
-    # 精确等于（最强）+ 短名称加权
-    if primary_lc == q:
-        base_score = 100
-        # 短名称加权：名称越短越精确，最多+20分
-        len_bonus = max(0, max_name_len - len(primary_lc))
-        score = base_score + min(len_bonus, 20)
-    # 名称以查询词开头 + 短名称加权
-    elif primary_lc.startswith(q):
-        base_score = 50
-        len_bonus = max(0, max_name_len - len(primary_lc))
-        score = base_score + min(len_bonus, 15)
-    # 名称包含查询词（弱包含，查询词在名称中间）
-    elif q in primary_lc:
-        score = 30
-    # 名称包含于查询词（查询词更长，名称是其子串）
-    elif primary_lc in q:
-        score = 20
-    # 次字段检查
-    elif secondary_lc and q == secondary_lc:
-        base_score = 90
-        len_bonus = max(0, max_name_len - len(secondary_lc))
-        score = base_score + min(len_bonus, 15)
-    elif secondary_lc and q in secondary_lc:
-        score = 40
+    score = _calc_name_score(primary, q)
+    if score == 0 and secondary:
+        score = _calc_name_score(secondary, q)
+        # 次字段分数调整（略低于主字段）
+        if score > 0:
+            score = max(score - 10, 10)
 
     # item 类型：wiki 是 vanilla 物品的权威来源，+5 加权
     platform = hit.get("_platform", hit.get("source", ""))
@@ -1710,33 +1918,17 @@ def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
     return score
 
 
-# 平台优先级（数字越小越权威，用于 tiebreaker）
-_PLATFORM_PRIORITY = {
-    "mcmod.cn": 0,
-    "modrinth": 1,
-    "minecraft.wiki": 2,
-    "minecraft.wiki/zh": 3,
-}
-
-# 按 content_type 调整的平台优先级
-_CONTENT_PLATFORM_PRIORITY = {
-    "item": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
-    "entity": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
-    "biome": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
-    "block": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
-    "mechanic": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
-    "dimension": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
-}
-
-
 def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str = "") -> list[dict]:
     """跨平台去重合并，按相关性分数排序。
 
     排序规则：相关性分数 DESC → 多平台命中加权 → 平台优先级 ASC（tiebreaker）
     content_type 用于调整不同类型内容的平台优先级。
     """
-    platform_prio = (_CONTENT_PLATFORM_PRIORITY.get(content_type)
-                     or {"mcmod.cn": 0, "modrinth": 1, "minecraft.wiki": 2, "minecraft.wiki/zh": 3})
+    # 选择平台优先级（mod/item 使用默认优先级，其他类型使用 Wiki 优先）
+    if content_type is None:
+        content_type = "mod"
+    prio_key = "default" if content_type in ("mod", "item") else "other"
+    platform_prio = _CONTENT_PLATFORM_PRIORITY[prio_key]
 
     # 第一步：给所有结果打分，同时过滤无关结果
     scored = []
@@ -1781,7 +1973,8 @@ def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str =
 
     # 第四步：排序（分数 DESC，同分时 priority DESC）
     sorted_entries = sorted(by_name.values(),
-                            key=lambda e: (e["_score"] * -1, e["_priority"] * -1))
+                            key=lambda e: (e["_score"], e["_priority"]),
+                            reverse=True)
 
     # 第五步：构建融合结果
     fused = []

@@ -57,16 +57,20 @@
 }
 ```
 
-| type_id | 类型 |
-|---------|------|
-| `1` | 物品/方块 |
-| `4` | 生物/实体 |
-| `5` | 附魔/魔咒 |
-| `6` | BUFF/DEBUFF |
-| `7` | 多方块结构 |
-| `8` | 自然生成 |
-| `9` | 绑定热键 |
-| `10` | 游戏设定 |
+| type_id | 类型 | 说明 |
+|---------|------|------|
+| `1` | 物品/方块 | 游戏中的物品和方块 |
+| `2` | 游戏内设置 | 游戏机制相关配置 |
+| `3` | 世界生成 | 世界生成相关（备用） |
+| `4` | 生物/实体 | 游戏中的生物和实体 |
+| `5` | 附魔/魔咒 | 附魔系统相关 |
+| `6` | BUFF/DEBUFF | 状态效果相关 |
+| `7` | 多方块结构 | 多方块建筑结构 |
+| `8` | 自然生成 | 自然生成的结构/特征 |
+| `9` | 绑定热键 | 键盘快捷键绑定 |
+| `10` | 游戏设定 | 游戏配置选项 |
+
+> 注：type_id 由 MC百科 动态定义，以上列出所有已知的类型ID。代码会优先从页面提取标题，回退到预定义映射。
 
 > 注：type_id 可能还有其他值，具体以页面实际返回为准。代码会动态提取标题。
 
@@ -215,12 +219,17 @@ if result._truncated exists:
 | `type` | `mod` / `shader` / `resourcepack` |
 | `author` | 作者用户名 |
 | `license` | 许可证 ID |
-| `categories` | 分类列表 |
+| `license_name` | 许可证名称（如 "PolyForm Shield License 1.0.0"） |
+| `license_url` | 许可证完整 URL |
+| `categories` | 分类列表（如 ["optimization"]） |
+| `display_categories` | 显示分类列表（UI 友好名称，如 ["优化"]） |
 | `client_side` | 客户端支持：`required` / `optional` / `unsupported` |
 | `server_side` | 服务端支持：`required` / `optional` / `unsupported` |
 | `source_url` | GitHub 仓库链接（可无） |
+| `wiki_url` | 官方 Wiki 链接（可无） |
 | `issues_url` | Issues 链接（可无） |
 | `discord_url` | Discord 链接（可无） |
+| `donation_urls` | 捐赠链接列表：`{"platform": "Ko-fi", "url": "..."}` |
 | `updated` | ISO 更新时间 |
 | `published` | 发布时间 |
 | `followers` | 关注数 |

@@ -12,12 +12,15 @@ mc-search search <关键词> [options]
 
 | 选项 | 说明 |
 |------|------|
-| `--type item` | 搜索物品/方块（MC百科），默认搜索模组 |
+| `--type item` | 搜索物品/方块（仅对 MC百科 有效），默认搜索模组 |
 | `--type mod` | 搜索模组（默认） |
 | `--type entity` | 融合时 wiki 权威结果优先（biome/dimension 同） |
 | `--author <作者名>` | MC百科作者搜索（作者名需精确匹配） |
-| `-n <数量>` | 每平台最多结果（默认3） |
+| `-n <数量>` | 每平台最多结果（默认3，`--fuse` 时最多15） |
+| `-t <秒数>` | 超时时间（默认12秒） |
 | `--json` | JSON 输出（Agent 解析首选） |
+
+> **重要**：`--type` 选项只对 MC百科 搜索有效，用于区分模组和物品搜索。Modrinth 和 wiki 搜索不受此选项影响。
 
 **示例**：
 ```bash
@@ -41,6 +44,8 @@ mc-search mr <关键词> [options]
 | `-n <数量>` | 最多结果（默认5） |
 | `-t mod` | 项目类型：mod / shader / resourcepack（默认 mod） |
 | `--json` | JSON 输出 |
+
+> **注**：mr 命令的默认超时时间为 12 秒（继承自全局默认值）。
 
 **示例**：
 ```bash
@@ -75,6 +80,8 @@ mc-search --json info <模组名或URL或ID> [options]
 - 模组名称：`mc-search info 钠`
 - MC百科 URL：`mc-search info https://www.mcmod.cn/class/23352.html`
 - 纯数字 ID：`mc-search info 23352`
+
+> **注意**：info 命令不支持 Modrinth URL。如需查询 Modrinth 模组详情，请使用 `full` 命令。
 
 **示例**：
 ```bash
@@ -143,6 +150,8 @@ mc-search author <用户名> [options]
 | `-n <数量>` | 最多结果（默认10） |
 | `--json` | JSON 输出 |
 
+> **注**：author 命令的默认超时时间为 12 秒（继承自全局默认值）。
+
 **示例**：
 ```bash
 mc-search --json author jellysquid_
@@ -164,6 +173,8 @@ mc-search wiki <关键词> [options]
 | `-r` | 搜索后直接读取第一个页面正文 |
 | `--json` | JSON 输出 |
 
+> **注**：wiki 命令的默认超时时间为 12 秒（继承自全局默认值）。
+
 **示例**：
 ```bash
 mc-search --json wiki 附魔台
@@ -184,6 +195,8 @@ mc-search read <url> [options]
 |------|------|
 | `-p <段落数>` | 最多段落数（默认5） |
 | `--json` | JSON 输出 |
+
+> **注**：read 命令的默认超时时间为 12 秒（继承自全局默认值）。
 
 **示例**：
 ```bash
