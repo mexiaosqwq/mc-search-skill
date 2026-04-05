@@ -625,112 +625,6 @@ def main():
         # 无精确匹配，返回第一个结果作为候选
         return None, hits[0].get("name") or hits[0].get("name_en") or ""
 
-def _search_modrinth_exact(keyword: str) -> dict | None:
-    """在 Modrinth 上精确搜索项目（slug/名称完全匹配）。"""
-    try:
-        direct_data = core.search_modrinth(keyword, max_results=5)
-        direct_hits = direct_data.get("results", [])
-
-        if not direct_hits:
-            return None
-
-        norm_arg = re.sub(r"[^a-z0-9_-]", "", keyword.lower().replace(" ", "-"))
-        for hit in direct_hits:
-            hit_slug = (hit.get("slug", "") or "").lower()
-            hit_name_raw = hit.get("name") or hit.get("name_en") or ""
-            hit_name_norm = re.sub(r"[^a-z0-9]", "", hit_name_raw.lower())
-
-            # slug 完全匹配（最高优先级）
-            if hit_slug == norm_arg:
-                slug = hit.get("source_id", "") or hit.get("slug", "")
-                if slug:
-                    try:
-                        return core.get_mod_info(slug, no_limit=True)
-                    except Exception:
-                        pass
-
-            # 名称精确匹配
-            if hit_name_norm == norm_arg:
-                slug = hit.get("source_id", "") or hit.get("slug", "")
-                if slug:
-                    try:
-                        return core.get_mod_info(slug, no_limit=True)
-                    except Exception:
-                        pass
-
-        # 无精确匹配，返回第一个作为候选
-        return direct_hits[0] if direct_hits else None
-    except Exception:
-        return None
-
-
-def _print_full_modrinth_info(mr: dict):
-    """打印 Modrinth 详细信息。"""
-    print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
-    _print_side_info(mr)
-    # 显示简介
-    desc = mr.get('description', '')
-    if desc:
-        print(f"  简介：{desc}")
-    # 显示完整描述正文（去除 HTML 标签）
-    body = mr.get('body', '')
-    if body:
-        import re
-        # 清洗 HTML 标签
-        clean_body = re.sub(r'<[^>]+>', '', body)
-        clean_body = re.sub(r'\s+', ' ', clean_body).strip()
-        print(f"  描述：{clean_body}")
-    vg = mr.get("version_groups", [])
-    if vg:
-        _print_version_groups(vg)
-    else:
-        print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
-    print(f"  链接：{mr.get('url', '')}")
-
-def _print_full_mcmod_info(mc: dict):
-    """打印 MC百科详细信息。"""
-    print(f"  名称：{mc.get('name_zh')} ({mc.get('name_en', '')})")
-    print(f"  平台：MC百科 | {mc.get('url', '')}")
-    if mc.get('author'):
-        print(f"  作者：{mc['author']}")
-    if mc.get('status'):
-        print(f"  状态：{mc['status']}")
-        vers = mc.get('supported_versions', [])
-        if vers:
-            print(f"  支持版本：{', '.join(vers)}")
-        rel = mc.get('relationships')
-        if rel:
-            reqs = rel.get('requires', [])
-            if reqs:
-                # 去重：按 name_zh 去重，保留首次出现
-                seen = set()
-                unique_reqs = []
-                for r in reqs:
-                    name = r.get('name_zh') or r.get('name_en') or ''
-                    if name and name not in seen:
-                        seen.add(name)
-                        unique_reqs.append(r)
-                print(f"  前置Mod：{', '.join(r['name_zh'] for r in unique_reqs)}")
-            # 联动模组
-            integrations = rel.get('integrates', [])
-            if integrations:
-                print(f"  联动模组：{', '.join(r['name_zh'] for r in integrations[:5])}")
-                if len(integrations) > 5:
-                    print(f"    （还有 {len(integrations) - 5} 个）")
-
-        # 显示完整的作者团队信息
-        author_team = mc.get('author_team')
-        if author_team:
-            total_count = len(author_team)
-            # 检查是否有限制（超过10人会被截断）
-            # 这里可以通过实际页面数据来判断
-            print(f"  开发团队（{total_count} 人）：")
-            for member in author_team:
-                roles_str = ', '.join(member['roles'])
-                print(f"    - {member['name']}（{roles_str}）")
-            if total_count == 10:
-                print(f"    （还有更多成员，仅显示前 10 人）")
-
     def _cmd_full():
         """一键获取完整信息：支持模组/光影/材质包/整合包。"""
         t0 = time.time()
@@ -921,7 +815,111 @@ def _print_full_mcmod_info(mc: dict):
     else:
         parser.print_help()
 
+def _search_modrinth_exact(keyword: str) -> dict | None:
+    """在 Modrinth 上精确搜索项目（slug/名称完全匹配）。"""
+    try:
+        direct_data = core.search_modrinth(keyword, max_results=5)
+        direct_hits = direct_data.get("results", [])
 
+        if not direct_hits:
+            return None
+
+        norm_arg = re.sub(r"[^a-z0-9_-]", "", keyword.lower().replace(" ", "-"))
+        for hit in direct_hits:
+            hit_slug = (hit.get("slug", "") or "").lower()
+            hit_name_raw = hit.get("name") or hit.get("name_en") or ""
+            hit_name_norm = re.sub(r"[^a-z0-9]", "", hit_name_raw.lower())
+
+            # slug 完全匹配（最高优先级）
+            if hit_slug == norm_arg:
+                slug = hit.get("source_id", "") or hit.get("slug", "")
+                if slug:
+                    try:
+                        return core.get_mod_info(slug, no_limit=True)
+                    except Exception:
+                        pass
+
+            # 名称精确匹配
+            if hit_name_norm == norm_arg:
+                slug = hit.get("source_id", "") or hit.get("slug", "")
+                if slug:
+                    try:
+                        return core.get_mod_info(slug, no_limit=True)
+                    except Exception:
+                        pass
+
+        # 无精确匹配，返回第一个作为候选
+        return direct_hits[0] if direct_hits else None
+    except Exception:
+        return None
+
+
+def _print_full_modrinth_info(mr: dict):
+    """打印 Modrinth 详细信息。"""
+    print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
+    _print_side_info(mr)
+    # 显示简介
+    desc = mr.get('description', '')
+    if desc:
+        print(f"  简介：{desc}")
+    # 显示完整描述正文（去除 HTML 标签）
+    body = mr.get('body', '')
+    if body:
+        import re
+        # 清洗 HTML 标签
+        clean_body = re.sub(r'<[^>]+>', '', body)
+        clean_body = re.sub(r'\s+', ' ', clean_body).strip()
+        print(f"  描述：{clean_body}")
+    vg = mr.get("version_groups", [])
+    if vg:
+        _print_version_groups(vg)
+    else:
+        print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
+    print(f"  链接：{mr.get('url', '')}")
+
+def _print_full_mcmod_info(mc: dict):
+    """打印 MC百科详细信息。"""
+    print(f"  名称：{mc.get('name_zh')} ({mc.get('name_en', '')})")
+    print(f"  平台：MC百科 | {mc.get('url', '')}")
+    if mc.get('author'):
+        print(f"  作者：{mc['author']}")
+    if mc.get('status'):
+        print(f"  状态：{mc['status']}")
+        vers = mc.get('supported_versions', [])
+        if vers:
+            print(f"  支持版本：{', '.join(vers)}")
+        rel = mc.get('relationships')
+        if rel:
+            reqs = rel.get('requires', [])
+            if reqs:
+                # 去重：按 name_zh 去重，保留首次出现
+                seen = set()
+                unique_reqs = []
+                for r in reqs:
+                    name = r.get('name_zh') or r.get('name_en') or ''
+                    if name and name not in seen:
+                        seen.add(name)
+                        unique_reqs.append(r)
+                print(f"  前置Mod：{', '.join(r['name_zh'] for r in unique_reqs)}")
+            # 联动模组
+            integrations = rel.get('integrates', [])
+            if integrations:
+                print(f"  联动模组：{', '.join(r['name_zh'] for r in integrations[:5])}")
+                if len(integrations) > 5:
+                    print(f"    （还有 {len(integrations) - 5} 个）")
+
+        # 显示完整的作者团队信息
+        author_team = mc.get('author_team')
+        if author_team:
+            total_count = len(author_team)
+            # 检查是否有限制（超过10人会被截断）
+            # 这里可以通过实际页面数据来判断
+            print(f"  开发团队（{total_count} 人）：")
+            for member in author_team:
+                roles_str = ', '.join(member['roles'])
+                print(f"    - {member['name']}（{roles_str}）")
+            if total_count == 10:
+                print(f"    （还有更多成员，仅显示前 10 人）")
 
 # 打印函数
 

@@ -55,14 +55,14 @@ _MIN_SHORT_TEXT_LEN = 35    # 短文本判定阈值（用于判断是否为 item
 _MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性 <li> 最小长度
 _MIN_DESCRIPTION_LINE_LEN = 10   # 描述行最小长度
 _MIN_SECTION_MARKER_DISTANCE = 200  # section marker 最小距离
-_MAX_SECTION_PARAGRAPHS = 2  # 每 wiki 章节最多段落数
+_MAX_SECTION_PARAGRAPHS = 10  # 每 wiki 章节最多段落数（2->10，提升信息密度）
 _MIN_TABLE_CELL_LEN = 2     # table cell 最小长度
-_MAX_TABLE_ITEMS = 8        # table 最大 item 数
-_MAX_BODY_CHARS = 5000      # ModRinth 详情 body 字段最大截断长度
+_MAX_TABLE_ITEMS = 50        # table 最大 item 数（8->50，完整提取表格数据）
+_MAX_BODY_CHARS = 20000      # Modrinth 详情 body 字段最大截断长度（5000->20000，支持长描述模组）
 _MAX_VERSION_GROUPS = 5     # 版本组最多显示数
 _MAX_CHANGELOGS = 5         # 更新日志最多显示数
 _MAX_FETCH_WORKERS = 4      # 并行抓取最大线程数
-_MAX_SCREENSHOTS = 6        # 模组截图最多显示数
+_MAX_SCREENSHOTS = 20        # 模组截图最多显示数（6->20，支持热门模组）
 _MAX_GALLERY = 10           # Modrinth 图库最多显示数
 _MAX_TAG_SECTION_LEN = 500  # 标签区域提取长度
 _EXTERNAL_LINK_EXCLUDE_DOMAINS = [  # 排除的外部链接域名（非官方网站）
@@ -71,15 +71,67 @@ _EXTERNAL_LINK_EXCLUDE_DOMAINS = [  # 排除的外部链接域名（非官方网
 _MAX_TAG_TEXT_LEN = 20  # 标签文本最大长度，过滤过长的非标签内容
 _MAX_SEARCH_SEGMENT = 2000  # 搜索片段提取长度
 _MAX_DESCRIPTION_SEGMENT = 70000  # HTML 提取范围（用于 find section markers，最终输出由 _MAX_SEARCH_DESC_CHARS 限制）
-_MAX_SEARCH_DESC_CHARS = 200      # search 命令描述最大显示字符数（节省 token）
-_MAX_AUTHOR_SECTION = 15000  # 作者页面区域提取长度
+_MAX_SEARCH_DESC_CHARS = 500      # search 命令描述最大显示字符数（200->500，平衡信息量和 token）
+_MAX_AUTHOR_SECTION = 50000  # 作者页面区域提取长度（15000->50000，支持高产作者）
 _MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
 _MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
-_MAX_VERSIONS_FETCH = 50    # 获取版本详情时最多拉取的版本数
+_MAX_VERSIONS_FETCH = 200    # 获取版本详情时最多拉取的版本数（50->200，支持长期维护模组）
 _DEFAULT_RESULTS_PER_PLATFORM = 15  # 每平台默认结果数（所有类型统一）
 # 向后兼容别名
 _SOURCE_MAX = _DEFAULT_RESULTS_PER_PLATFORM
-_MAX_TABLES_PER_SECTION = 3  # Wiki 每章节最多提取表格数
+_MAX_TABLES_PER_SECTION = 10  # Wiki 每章节最多提取表格数（3->10，支持多表格章节）
+
+# === 搜索相关性评分常量 ===
+# 名称匹配基础分数
+_SCORE_EXACT_MATCH_BASE = 100           # 精确匹配基础分
+_SCORE_EXACT_MATCH_MAX_BONUS = 20       # 短名称最大奖励分（名称越短奖励越高）
+_SCORE_EXACT_MATCH_BONUS_FACTOR = 2     # 长度惩罚因子：bonus = 20 - len*2
+
+_SCORE_PREFIX_BASE = 60                 # 前缀匹配基础分（如 "sod" 匹配 "Sodium"）
+_SCORE_PREFIX_MAX_BONUS = 15            # 前缀短词最大奖励分
+_SCORE_PREFIX_BONUS_FACTOR = 2          # 前缀长度惩罚因子
+
+_SCORE_CONTAINS_BASE = 30               # 包含匹配基础分（查询词在名称中）
+_SCORE_CONTAINS_MAX_POS_BONUS = 10      # 位置奖励最大值（越靠前分数越高）
+
+_SCORE_CONTAINED_IN_QUERY = 20          # 名称被包含在查询中（如 "mc" 搜 "minecraft"）
+_SCORE_MIN_LENGTH_FOR_CONTAINED = 2     # 最小长度，避免单个字符匹配
+
+# 额外加分项
+_SCORE_SNIPPET_BONUS = 5                # Snippet 包含查询词加分
+_SCORE_WIKI_ITEM_BONUS = 5              # Wiki item 类型来源加分（vanilla 物品权威）
+_SCORE_SECONDARY_PENALTY = 10           # 次字段匹配扣分（英文名匹配扣分）
+_SCORE_SECONDARY_MIN = 10               # 次字段匹配最低分
+_SCORE_MULTI_PLATFORM_BONUS = 10        # 多平台命中每额外平台加分
+
+# === Wiki Snippet 过滤关键词常量 ===
+# 需要跳过的 Wiki 消歧义/信息框垃圾关键词（英文）
+# - disambiguation: 消歧义页面标记
+# - see / may refer to: 消歧义常用语
+# - attack damage/durability/rarity tier 等: 信息框属性标签（非描述性文本）
+_WIKI_SNIPPET_SKIP_KEYWORDS = [
+    'disambiguation', 'see ', 'may refer to',
+    'attack damage', 'durability', 'rarity tier',
+    'attack speed', 'renewable', 'stackable',
+]
+
+# === Wiki Heading 跳过 ID 常量 ===
+# 英文 Wiki 需要跳过的非内容 heading ID
+# - mw-toc-heading: 目录 heading
+# - References/Navigation/Videos/Trivia: 页面底部导航区域
+# - p-*-label: MediaWiki 侧边栏/工具箱 heading
+_WIKI_HEADING_SKIP_IDS = {
+    "mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
+    "p-personal-label", "p-navigation-label", "p-tb-label"
+}
+
+# 中文 Wiki 额外需要跳过的 heading ID（繁简中文页面特有）
+# - 参考资料/导航/视频/琐事: 中文页面底部区域
+# - p-interaction-label/p-print-label/p-toolbox-label: 中文侧边栏
+_WIKI_ZH_HEADING_SKIP_IDS = _WIKI_HEADING_SKIP_IDS | {
+    "参考资料", "导航", "视频", "琐事",
+    "p-interaction-label", "p-print-label", "p-toolbox-label"
+}
 
 # === MC百科搜索过滤器 ===
 _MCMOD_FILTER_MOD = "0"             # 模组搜索
@@ -95,6 +147,19 @@ _MCMOD_MODPACK_FILTERS = [
     _MCMOD_FILTER_MODPACK_ALT,   # 另一种整合包过滤
     _MCMOD_FILTER_MODPACK_OLD,   # 旧版过滤（较少结果）
 ]
+
+# === 项目类型常量 ===
+# 所有支持的项目类型
+_CONTENT_TYPES = {"mod", "item", "modpack", "shader", "resourcepack", "entity", "biome", "dimension"}
+
+# 文本类内容类型（MC百科 + Modrinth 都支持）
+_TEXT_CONTENT_TYPES = {"mod", "item", "modpack"}
+
+# 视觉类内容类型（仅 Modrinth 支持）
+_VISUAL_CONTENT_TYPES = {"shader", "resourcepack"}
+
+# Wiki 专属类型
+_WIKI_ONLY_TYPES = {"entity", "biome", "dimension"}
 
 # === Modrinth 项目类型 URL 映射 ===
 _MODRINTH_TYPE_URL_MAP = {
@@ -121,7 +186,7 @@ _EN_CONNECTORS_RE = re.compile(
     re.IGNORECASE,
 )
 _ZH_CONNECTORS_RE = re.compile(
-    r"\b(和|与|或|但|是|为|有|在|被|由|可|会|能|将|已|使)\b",
+    r"(和|与|或|但|是|为|有|在|被|由|可|会|能|将|已|使)",
 )
 # 匹配论坛元数据，如 (7)Mod讨论 (2) 或 Mod讨论 (19)
 _MOD_META_PAT = re.compile(r"^(?:\(\d+\)\s*)?Mod(?:讨论|教程)\s*\(\d+\)")
@@ -280,7 +345,12 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
     cover_image = cover_m.group(1) if cover_m else ""
 
     # 截图
-    screenshots = re.findall(r'class="figure"[^>]*>.*?data-src="([^"]+)"', html, re.DOTALL)
+    # 支持多种懒加载图片属性
+    screenshots = []
+    for attr in ['data-src', 'data-lazy-src', 'data-original']:
+        screenshots.extend(re.findall(f'{attr}="([^"]+)"', html))
+    # 去重并保持顺序
+    screenshots = list(dict.fromkeys(screenshots))
 
     # 资料分类 / 最大耐久 / 最大堆叠（从 item-info-table 提取）
     category = ""
@@ -437,7 +507,12 @@ def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
     """提取封面图和截图。返回 (cover_image, screenshots)。"""
     cover_m = re.search(r'class="class-cover-image"[^>]*>.*?<img[^>]+src="([^"]+)"', html, re.DOTALL)
     cover_image = cover_m.group(1) if cover_m else ""
-    screenshots = re.findall(r'class="figure"[^>]*>.*?data-src="([^"]+)"', html, re.DOTALL)
+    # 支持多种懒加载图片属性
+    screenshots = []
+    for attr in ['data-src', 'data-lazy-src', 'data-original']:
+        screenshots.extend(re.findall(f'{attr}="([^"]+)"', html))
+    # 去重并保持顺序
+    screenshots = list(dict.fromkeys(screenshots))
     return cover_image, screenshots
 
 
@@ -974,6 +1049,22 @@ def _extract_mcmod_external_links(html: str) -> dict:
         if dc:
             links['discord'] = dc.group(0).rstrip(').,')
 
+    # 提取跨平台 IDs（用于精确关联 Modrinth/CF）
+    cross_platform_ids = {}
+
+    if "curseforge" in links:
+        cf_slug = re.search(r'/minecraft/mc-mods/([^/\s"<>\)]+)', links["curseforge"])
+        if cf_slug:
+            cross_platform_ids["curseforge_slug"] = cf_slug.group(1)
+
+    if "modrinth" in links:
+        mr_slug = re.search(r'/(?:mod|shader|resourcepack|modpack)/([^/\s"<>\)]+)', links["modrinth"])
+        if mr_slug:
+            cross_platform_ids["modrinth_slug"] = mr_slug.group(1)
+
+    if cross_platform_ids:
+        links["cross_platform_ids"] = cross_platform_ids
+
     return links
 
 
@@ -1490,6 +1581,11 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "source_id": hit.get("slug", ""),
             "type": pt or project_type or "mod",
             "snippet": hit.get("description", ""),
+            "downloads": hit.get("downloads", 0),
+            "follows": hit.get("follows", 0),
+            "icon_url": hit.get("icon_url", ""),
+            "author": hit.get("author", ""),
+            "versions": hit.get("versions", []),
         })
     total = data.get("total_hits", 0)
     ret = {"results": results, "total": total, "returned": len(results)}
@@ -1853,16 +1949,21 @@ def _search_wiki_impl(
                     '{{', '{|', '|-', '|', '[', 'Title', '{.', '.mw-', ':root', '@media', 'var(--', 'url(',
                 )
                 for line in lines:
-                    # 清理图片标签（先执行，然后检查剩余内容）
+                    # 清理图片标签
                     cleaned_line = re.sub(r'<img[^>]*/?>', '', line).strip()
                     cleaned_line = re.sub(r'/images/[^ )\]]+', '', cleaned_line).strip()
+
+                    # 跳过消歧义和信息框垃圾
+                    if any(kw in cleaned_line.lower() for kw in _WIKI_SNIPPET_SKIP_KEYWORDS):
+                        continue
 
                     # 过滤掉 CSS/JSON 和无意义内容
                     if (len(cleaned_line) > 15 and
                         not cleaned_line.startswith(skip_prefixes) and
                         ('{' not in cleaned_line or ':' not in cleaned_line) and
                         re.search(r'[\u4e00-\u9fff\w]', cleaned_line)):
-                        snippet = cleaned_line[:200] if len(cleaned_line) > 200 else cleaned_line
+                        # 提高 snippet 长度限制到 500
+                        snippet = cleaned_line[:500] if len(cleaned_line) > 500 else cleaned_line
                         break
 
             # 繁简转换（中文 wiki 强制返回简体标题）
@@ -1980,67 +2081,280 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
 
 
 def _infer_wiki_type(name: str, url: str = "") -> str:
-    """从 URL 路径推断 wiki 条目类型，fallback 到名称关键词。"""
-    path = url.lower()
-    if "/block/" in path or path.endswith("_block") or path.endswith("_ore"):
-        return "block"
-    if "/item/" in path or path.endswith("_item") or "/entity/" in path or "/mob/" in path:
-        return "entity"
-    if "/crafting" in path or "/brewing" in path or "/enchanting" in path:
-        return "mechanic"
-    if "/biome/" in path or "_biome" in path:
-        return "biome"
-    if "/dimension/" in path or "_dimension" in path or "/nether" in path or "/the_end" in path or "/overworld" in path:
-        return "dimension"
+    """
+    推断 wiki 条目类型（已简化）。
 
-    n = name.lower()
-    if any(k in n for k in ["block", "ore", "wood", "stone", "dirt", "sand"]):
-        return "block"
-    if any(k in n for k in ["sword", "pickaxe", "axe", "helmet", "chestplate",
-                              "hoe", "shovel", "bow", "arrow", "shield"]):
-        return "item"
-    if any(k in n for k in ["zombie", "skeleton", "creeper", "enderman", "pig", "cow",
-                              "sheep", "chicken", "spider", "slime", "blaze",
-                              "wither", "ender_dragon", "ghast", "zombie_pigman",
-                              "silverfish", "vex", "evoker", "vindicator"]):
-        return "entity"
-    if any(k in n for k in ["crafting", "enchant", "brewing", "smelting",
-                              "furnace", "anvil", "beacon"]):
-        return "mechanic"
-    # biome 关键词
-    if any(k in n for k in ["forest", "desert", "taiga", "savanna", "plains",
-                             "mountain", "swamp", "jungle", "ice", "ocean",
-                             "river", "mushroom", "badlands", "savanna", "cherry"]):
-        return "biome"
-    # dimension 关键词
-    if any(k in n for k in ["nether", "the_end", "overworld", "end_dim", "nether_dim"]):
-        return "dimension"
-    # 中文关键词（包含繁简映射）- 定义为常量
-    _WIKI_TYPE_KEYWORDS = {
-        "item": ["剑", "刀", "斧", "镐", "铲", "锄", "弓", "箭", "盾", "头盔", "胸甲", "护腿",
-                 "靴子", "钻石", "铁", "金", "铜", "绿宝石", "下界合金", "鞘翅",
-                 "劍", "鎬", "鏟", "鋤", "頭盔", "護腿", "鑽石", "鐵", "銅", "綠寶石", "獄髓"],
-        "block": ["方块", "石头", "泥土", "沙子", "圆石", "木板", "矿石", "原木", "树叶", "玻璃",
-                  "冰", "雪", "草", "花", "蘑菇",
-                  "方塊", "石頭", "圓石", "鵝卵石", "礦石", "樹葉", "葉子", "菇"],
-        "entity": ["僵尸", "骷髅", "苦力怕", "末影人", "猪", "牛", "羊", "鸡", "蜘蛛", "史莱姆",
-                   "烈焰人", "凋灵", "末影龙", "恶魂", "猪灵", "潜影贝", "卫道士", "唤魔者",
-                   "殭屍", "骷髏", "豬", "雞", "史萊姆", "凋零", "終界龍", "惡魂", "豬布林",
-                   "潛影貝", "衛道士", "喚魔者", "喚魔師", "终界使者"],
-        "dimension": ["下界", "末地", "主世界", "要塞", "末地城",
-                      "地獄", "奈落", "終界", "終末", "主维度", "堡壘", "地牢", "終界城"],
-        "biome": ["森林", "沙漠", "针叶林", "热带雨林", "沼泽", "海洋", "河流", "高山", "平原", "蘑菇岛",
-                  "針葉林", "熱帶雨林", "叢林", "沼澤", "泥塘", "山脈", "蘑菇島", "菇島"],
-        "mechanic": ["合成", "附魔", "酿造", "熔炉", "铁砧", "锻造台", "砂轮", "工作台", "高炉", "烟熏",
-                     "附魔台", "釀造", "熔爐", "鐵砧", "鍛造台", "砂輪", "砧", "煙熏", "制图台"],
-    }
+    Minecraft Wiki 的 URL 不包含类型信息，
+    类型推断不可靠，直接返回 "other"。
 
-    # 检查关键词匹配
-    for content_type, keywords in _WIKI_TYPE_KEYWORDS.items():
-        if any(k in n for k in keywords):
-            return content_type
-
+    让上层搜索逻辑根据用户需求决定处理方式。
+    """
     return "other"
+
+
+def _extract_wiki_infobox(html: str) -> dict:
+    """
+    提取 wiki infobox 结构化数据（优先 table.infobox，支持多种格式）。
+
+    尝试顺序:
+    1. table.infobox（标准格式）
+    2. div.infobox 内嵌套表格
+    3. mw-parser-output 后第一个带 th 的表格
+    4. 中文 wiki 分散表格（合并提取）
+    """
+    # 格式1: table.infobox（最可靠）
+    infobox_html = _try_extract_standard_infobox(html)
+    if infobox_html:
+        return _parse_infobox_table(infobox_html)
+
+    # 格式2: div.infobox 内有嵌套表格
+    infobox_html = _try_extract_div_infobox(html)
+    if infobox_html:
+        return _parse_infobox_table(infobox_html)
+
+    # 格式3: mw-parser-output 后的第一个表格
+    infobox_html = _try_extract_first_table(html)
+    if infobox_html:
+        return _parse_infobox_table(infobox_html)
+
+    # 格式4: 中文 wiki 的分散表格
+    zh_data = _try_extract_chinese_wiki_tables(html)
+    if zh_data:
+        return zh_data
+
+    return {}
+
+
+def _try_extract_standard_infobox(html: str) -> str | None:
+    """尝试提取标准 table.infobox 格式。"""
+    match = re.search(r'<table[^>]+class="[^"]*infobox[^"]*"[^>]*>(.*?)</table>', html, re.DOTALL)
+    return match.group(1) if match else None
+
+
+def _try_extract_div_infobox(html: str) -> str | None:
+    """尝试提取 div.infobox 内嵌套的表格。"""
+    div_match = re.search(r'<div[^>]+class="[^"]*infobox[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
+    if not div_match:
+        return None
+
+    div_content = div_match.group(1)
+    table_in_div = re.search(r'<table[^>]*>(.*?)</table>', div_content, re.DOTALL)
+    return table_in_div.group(1) if table_in_div else None
+
+
+def _try_extract_first_table(html: str) -> str | None:
+    """尝试提取 mw-parser-output 后的第一个带 th 的表格。"""
+    parser = re.search(r'<div[^>]+class="mw-content-ltr mw-parser-output"', html)
+    if not parser:
+        parser = re.search(r'<div[^>]+class="[^"]*mw-parser-output[^"]*"[^>]*>', html)
+    if not parser:
+        return None
+
+    segment = html[parser.end():parser.end()+10000]
+    first_table = re.search(r'<table[^>]*>(.*?)</table>', segment, re.DOTALL)
+    if first_table and '<th' in first_table.group(0):
+        return first_table.group(1)
+    return None
+
+
+def _try_extract_chinese_wiki_tables(html: str) -> dict | None:
+    """尝试提取中文 wiki 的分散表格（合并多个相关表格）。"""
+    if not any(marker in html for marker in ['zh-Hant', 'zh-Hans', '中文']):
+        return None
+
+    key_fields = ['名稱', '稀有度', '耐久度', '攻擊', '防御', '生命值']
+    all_tables = re.findall(r'<table[^>]*>(.*?)</table>', html, re.DOTALL)
+
+    data = {}
+    for table in all_tables:
+        if not any(kw in table for kw in key_fields) or '<th' not in table:
+            continue
+
+        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table, re.DOTALL)
+        for row in rows:
+            cells = re.findall(r'<(th|td)[^>]*>(.*?)</\1>', row, re.DOTALL)
+            if len(cells) == 2:
+                key = _clean_html_text(cells[0][1])
+                value = _clean_html_text(cells[1][1])
+                if key and not key.startswith(('{{', '{|', 'Module:')) and len(key) < 30:
+                    data[key] = value
+
+    return data if data else None
+
+
+def _parse_infobox_table(infobox_html: str) -> dict:
+    """解析 infobox 表格的 key-value 对。"""
+    data = {}
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', infobox_html, re.DOTALL)
+    for row in rows:
+        cells = re.findall(r'<(th|td)[^>]*>(.*?)</\1>', row, re.DOTALL)
+        if len(cells) == 2:
+            key = _clean_html_text(cells[0][1])
+            value = _clean_html_text(cells[1][1])
+            if key and not key.startswith(('{{', '{|', 'Module:')):
+                data[key] = value
+    return data
+
+
+def _extract_main_image(html: str) -> str:
+    """提取页面主要图片（infobox 图片）。"""
+    img = re.search(
+        r'<div[^>]+class="[^"]*infobox[^"]*"[^>]*>.*?'
+        r'<img[^>]+src="([^"]+)"',
+        html, re.DOTALL
+    )
+    if img:
+        return img.group(1)
+
+    img = re.search(
+        r'<div[^>]+id="mw-content-text"[^>]*>.*?'
+        r'<img[^>]+src="([^"]+)"',
+        html, re.DOTALL
+    )
+    return img.group(1) if img else ""
+
+
+def _extract_intro_paragraphs(content_html: str, para_skip_prefixes: tuple, source: str) -> list[str]:
+    """提取 wiki 页面首段介绍（第一个 heading 之前的内容）。"""
+    # 解析 heading 位置
+    heading_map = []
+    for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
+        heading_map.append(m.start())
+
+    if not heading_map:
+        return []
+
+    # 提取第一个 heading 之前的段落
+    first_heading_pos = heading_map[0]
+    pre_heading_html = content_html[:first_heading_pos]
+    intro_paragraphs = []
+
+    for p in re.findall(r"<p[^>]*>(.*?)</p>", pre_heading_html, re.DOTALL):
+        if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
+            continue
+        clean = _clean_html_text(p)
+        if any(clean.startswith(prefix) for prefix in para_skip_prefixes):
+            continue
+        if _is_valid_paragraph(clean, lang="en" if source == "minecraft.wiki" else "zh"):
+            intro_paragraphs.append(clean)
+            if len(intro_paragraphs) >= 3:
+                break
+
+    return intro_paragraphs
+
+
+def _extract_sections(
+    content_html: str,
+    heading_skip_ids: set[str],
+    para_skip_prefixes: tuple[str, ...],
+    source: str,
+    intro_paragraphs: list[str],
+    max_paragraphs: int
+) -> tuple[list[dict], list[str]]:
+    """解析 heading 并提取所有章节内容。"""
+    # 解析 heading 映射
+    heading_map = []
+    for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
+        lvl = int(m.group(1))
+        h_id = m.group(2)
+        h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
+        heading_map.append((lvl, h_id, h_text, m.start()))
+
+    sections_output = []
+    paragraphs = list(intro_paragraphs)  # 先添加首段
+    current_h2 = None
+
+    for i, (lvl, h_id, h_text, h_start) in enumerate(heading_map):
+        if h_id in heading_skip_ids:
+            continue
+        if lvl == 2:
+            current_h2 = h_text
+            continue
+
+        next_start = heading_map[i + 1][3] if i + 1 < len(heading_map) else len(content_html)
+        section_html = content_html[h_start:next_start]
+
+        # 提取章节段落
+        section_paragraphs = _extract_section_paragraphs(
+            section_html, para_skip_prefixes, source
+        )
+
+        # 提取表格 item
+        table_items = _extract_table_items_from_section(section_html, source, len(section_paragraphs))
+
+        # 构建章节输出
+        section_lines = section_paragraphs[:_MAX_SECTION_PARAGRAPHS]
+        if table_items and not section_paragraphs:
+            section_lines = [f"[{len(table_items)} items: {', '.join(table_items[:6])}{'...' if len(table_items) > 6 else ''}]"]
+        elif table_items:
+            section_lines.append(f"[+ {len(table_items)} table items]")
+
+        if section_lines:
+            sections_output.append({
+                "heading": h_text,
+                "parent": current_h2,
+                "content": section_lines,
+            })
+            paragraphs.extend(section_lines)
+
+        if len(paragraphs) >= max_paragraphs:
+            paragraphs = paragraphs[:max_paragraphs]
+            break
+
+    return sections_output, paragraphs
+
+
+def _extract_section_paragraphs(section_html: str, para_skip_prefixes: tuple, source: str) -> list[str]:
+    """提取单个章节的段落内容。"""
+    section_paragraphs = []
+    for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
+        if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
+            continue
+        clean = _clean_html_text(p)
+        if any(clean.startswith(prefix) for prefix in para_skip_prefixes):
+            continue
+        if _is_valid_paragraph(clean, lang="en" if source == "minecraft.wiki" else "zh"):
+            section_paragraphs.append(clean)
+            if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
+                break
+
+    # 英文 wiki：从 <li> 中提取描述性条目
+    if source == "minecraft.wiki" and not section_paragraphs:
+        for li in re.findall(r"<li[^>]*>(.*?)</li>", section_html, re.DOTALL):
+            clean = _clean_html_text(li)
+            if len(clean) >= _MIN_DESCRIPTIVE_LI_LEN and re.match(
+                    r"^(Added|Changed|Fixed|Updated|Removed|Introduced|Can now|Made|New|Affects?|Allows?|Prevents?|Makes?|Provides?)", clean):
+                section_paragraphs.append(clean)
+                break
+
+    return section_paragraphs
+
+
+def _extract_table_items_from_section(section_html: str, source: str, current_para_count: int) -> list[str]:
+    """从章节中提取表格 item 名称。"""
+    table_items = []
+    if source == "minecraft.wiki" and current_para_count < _MAX_SECTION_PARAGRAPHS:
+        tables = re.findall(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>.*?</table>', section_html, re.DOTALL)
+        for tbl in tables[:_MAX_TABLES_PER_SECTION]:
+            items = _extract_table_items(tbl, max_items=_MAX_TABLE_ITEMS)
+            table_items.extend(items)
+    return table_items
+
+
+def _extract_table_items(table_html: str, max_items: int = 8) -> list[str]:
+    """从 wiki table 中提取第一列的 item 名称列表。"""
+    items = []
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL)
+    for row in rows[1:]:
+        cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.DOTALL)
+        if not cells:
+            continue
+        cell_text = _clean_html_text(cells[0])
+        if cell_text and len(cell_text) >= _MIN_TABLE_CELL_LEN and not re.match(r"^[\s\-\d]+$", cell_text):
+            items.append(cell_text)
+        if len(items) >= max_items:
+            break
+    return items
 
 
 def _read_wiki_impl(url: str, max_paragraphs: int,
@@ -2062,6 +2376,12 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
     m_title = re.search(r'<h1[^>]*id="firstHeading"[^>]*>(.*?)</h1>', html, re.DOTALL)
     title = html_module.unescape(re.sub(r"<[^>]+>", "", m_title.group(1)).strip()) if m_title else "UNKNOWN"
 
+    # 提取 infobox 结构化数据（在移除之前）
+    infobox_data = _extract_wiki_infobox(html)
+
+    # 提取主要图片
+    main_image = _extract_main_image(html)
+
     m_content = re.search(
         r'<div[^>]+id="mw-content-text"[^>]*>(.*?)'
         r'(?:<div[^>]+class="[^"]*navbox|<div[^>]+id="catlinks|<div[^>]+class="[^"]*printfooter)',
@@ -2076,103 +2396,22 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
         r'<script[^>]+type="application/ld\+json"[^>]*>.*?</script>',
         "", content_html, flags=re.DOTALL
     )
-    content_html = re.sub(
-        r'<table[^>]+class="[^"]*infobox[^"]*"[^>]*>.*?</table>',
-        "", content_html, flags=re.DOTALL
-    )
+    # 移除 navbox（infobox 已提取，不再需要特殊处理）
     content_html = re.sub(
         r'<table[^>]+class="[^"]*navbox[^"]*"[^>]*>.*?</table>',
         "", content_html, flags=re.DOTALL
     )
 
-    # ── 解析所有 heading，构建层级 ──────────────────────────────────
-    heading_map = []
-    for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
-        lvl = int(m.group(1))
-        h_id = m.group(2)
-        h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
-        heading_map.append((lvl, h_id, h_text, m.start()))
+    # 提取首段介绍
+    intro_paragraphs = _extract_intro_paragraphs(content_html, para_skip_prefixes, source)
 
-    # ── 辅助 ──────────────────────────────────────────────────────
-    def _extract_table_items(table_html: str, max_items: int = 8) -> list[str]:
-        """从 wiki table 中提取第一列的 item 名称列表。"""
-        items = []
-        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL)
-        for row in rows[1:]:
-            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.DOTALL)
-            if not cells:
-                continue
-            cell_text = _clean_html_text(cells[0])
-            if cell_text and len(cell_text) >= _MIN_TABLE_CELL_LEN and not re.match(r"^[\s\-\d]+$", cell_text):
-                items.append(cell_text)
-            if len(items) >= max_items:
-                break
-        return items
+    # 解析 heading 并提取章节内容
+    sections_output, paragraphs = _extract_sections(
+        content_html, heading_skip_ids, para_skip_prefixes,
+        source, intro_paragraphs, max_paragraphs
+    )
 
-    # ── 提取每个叶章节的正文内容 ──────────────────────────────────
-    sections_output = []
-    paragraphs = []
-    current_h2 = None
-
-    for i, (lvl, h_id, h_text, h_start) in enumerate(heading_map):
-        if h_id in heading_skip_ids:
-            continue
-        if lvl == 2:
-            current_h2 = h_text
-            continue
-
-        next_start = heading_map[i + 1][3] if i + 1 < len(heading_map) else len(content_html)
-        section_html = content_html[h_start:next_start]
-
-        section_paragraphs = []
-        for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
-            if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
-                continue
-            clean = _clean_html_text(p)
-            if any(clean.startswith(prefix) for prefix in para_skip_prefixes):
-                continue
-            if _is_valid_paragraph(clean, lang="en" if source == "minecraft.wiki" else "zh"):
-                section_paragraphs.append(clean)
-                if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                    break
-
-        # 英文 wiki：从 <li> 中提取描述性条目（版本页的 intro 常在 <li> 里）
-        if source == "minecraft.wiki" and not section_paragraphs:
-            for li in re.findall(r"<li[^>]*>(.*?)</li>", section_html, re.DOTALL):
-                clean = _clean_html_text(li)
-                if len(clean) >= _MIN_DESCRIPTIVE_LI_LEN and re.match(
-                        r"^(Added|Changed|Fixed|Updated|Removed|Introduced|Can now|Made|New|Affects?|Allows?|Prevents?|Makes?|Provides?)", clean):
-                    section_paragraphs.append(clean)
-                    break
-
-        # 提取 table 中的 item 名称（版本页的主要内容）
-        table_items = []
-        if source == "minecraft.wiki" and len(section_paragraphs) < _MAX_SECTION_PARAGRAPHS:
-            tables = re.findall(r"<table[^>]*class=\"[^\"]*wikitable[^\"]*\"[^>]*>.*?</table>",
-                                section_html, re.DOTALL)
-            for tbl in tables[:_MAX_TABLES_PER_SECTION]:
-                items = _extract_table_items(tbl, max_items=_MAX_TABLE_ITEMS)
-                table_items.extend(items)
-
-        section_lines = section_paragraphs[:_MAX_SECTION_PARAGRAPHS]
-        if table_items and not section_paragraphs:
-            section_lines = [f"[{len(table_items)} items: {', '.join(table_items[:6])}{'...' if len(table_items) > 6 else ''}]"]
-        elif table_items:
-            section_lines.append(f"[+ {len(table_items)} table items]")
-
-        if section_lines:
-            sections_output.append({
-                "heading": h_text,
-                "parent": current_h2,
-                "content": section_lines,
-            })
-            paragraphs.extend(section_lines)
-
-        if len(paragraphs) >= max_paragraphs:
-            paragraphs = paragraphs[:max_paragraphs]
-            break
-
-    return {
+    result = {
         "name": title,
         "url": url,
         "source": source,
@@ -2180,26 +2419,62 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
         "_sections": sections_output,
     }
 
+    # 添加 infobox 结构化数据（如果有）
+    if infobox_data:
+        result["infobox"] = infobox_data
 
-def read_wiki(url: str, max_paragraphs: int = 5) -> dict:
-    """读取 minecraft.wiki 英文 wiki 页面正文。"""
-    return _read_wiki_impl(
+    # 添加主要图片（如果有）
+    if main_image:
+        result["main_image"] = main_image
+
+    return result
+
+
+def read_wiki(url: str, max_paragraphs: int = 20, include_infobox: bool = True) -> dict:
+    """
+    读取 minecraft.wiki 英文 wiki 页面正文。
+
+    Args:
+        max_paragraphs: 最大段落数（默认 20）
+        include_infobox: 是否包含 infobox（默认 True）
+    """
+    result = _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("History of", "v ", "[edit"),
-        heading_skip_ids={"mw-toc-heading", "References", "Navigation", "Videos", "Trivia"},
+        heading_skip_ids=_WIKI_HEADING_SKIP_IDS,
         source="minecraft.wiki",
     )
 
+    if not include_infobox and "infobox" in result:
+        del result["infobox"]
 
-def read_wiki_zh(url: str, max_paragraphs: int = 5) -> dict:
-    """读取 minecraft.wiki/zh 中文 wiki 页面正文。"""
-    return _read_wiki_impl(
+    return result
+
+
+def read_wiki_zh(url: str, max_paragraphs: int = 20, include_infobox: bool = True) -> dict:
+    """
+    读取 minecraft.wiki/zh 中文 wiki 页面正文。
+
+    Args:
+        max_paragraphs: 最大段落数（默认 20，从 5 提升）
+        include_infobox: 是否包含 infobox（默认 True）
+    """
+    result = _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("历史", "编辑", "History of", "v ", "[edit"),
-        heading_skip_ids={"mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
-                          "参考资料", "导航", "视频", "琐事"},
+        heading_skip_ids={
+            "mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
+            "参考资料", "导航", "视频", "琐事",
+            "p-personal-label", "p-navigation-label", "p-tb-label",
+            "p-interaction-label", "p-print-label", "p-toolbox-label"
+        },
         source="minecraft.wiki/zh",
     )
+
+    if not include_infobox and "infobox" in result:
+        del result["infobox"]
+
+    return result
 
 
 def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
@@ -2224,7 +2499,7 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
 
     # 根据 content_type 决定启用的平台
     pe = _platform_enabled.copy()
-    if content_type in ("shader", "resourcepack"):
+    if content_type in _VISUAL_CONTENT_TYPES:
         # shader/resourcepack 仅 Modrinth 支持
         pe["mcmod.cn"] = False
         pe["minecraft.wiki"] = False
@@ -2246,7 +2521,7 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     def _wrap_mr():
         try:
             # Modrinth 支持所有类型
-            mr_type = content_type if content_type in ("mod", "shader", "resourcepack", "modpack") else "mod"
+            mr_type = content_type if content_type in (_TEXT_CONTENT_TYPES | _VISUAL_CONTENT_TYPES) else "mod"
             return search_modrinth(keyword, per_source, project_type=mr_type)
         except Exception:
             return {"results": [], "total": 0, "returned": 0}
@@ -2312,33 +2587,55 @@ def _is_cjk(text: str) -> bool:
     return bool(re.search(r'[\u4e00-\u9fff]', text))
 
 
-def _calc_name_score(name_lc: str, query_lc: str, max_name_len: int = 20) -> int:
-    """计算单个名称字段的相关性分数。"""
+def _calc_name_score(name_lc: str, query_lc: str) -> int:
+    """
+    计算单个名称字段的相关性分数（使用常量）。
+
+    评分逻辑:
+    - 精确匹配: 100 + 短名称奖励
+    - 前缀匹配: 60 + 短名称奖励
+    - 包含查询词: 30 + 位置奖励
+    - 名称被包含: 20
+    """
+    if not name_lc or not query_lc:
+        return 0
+
+    # 1. 精确匹配
     if name_lc == query_lc:
-        return 100 + min(max(0, max_name_len - len(name_lc)), 20)
+        bonus = max(0, _SCORE_EXACT_MATCH_MAX_BONUS - len(name_lc) * _SCORE_EXACT_MATCH_BONUS_FACTOR)
+        return _SCORE_EXACT_MATCH_BASE + bonus
+
+    # 2. 前缀匹配
     if name_lc.startswith(query_lc):
-        return 50 + min(max(0, max_name_len - len(name_lc)), 15)
-    if query_lc in name_lc:
-        return 30
-    if name_lc in query_lc:
-        return 20
+        bonus = max(0, _SCORE_PREFIX_MAX_BONUS - len(query_lc) * _SCORE_PREFIX_BONUS_FACTOR)
+        return _SCORE_PREFIX_BASE + bonus
+
+    # 3. 包含查询词
+    pos = name_lc.find(query_lc)
+    if pos >= 0:
+        pos_bonus = max(0, _SCORE_CONTAINS_MAX_POS_BONUS - pos)
+        return _SCORE_CONTAINS_BASE + pos_bonus
+
+    # 4. 名称被包含
+    if len(name_lc) >= _SCORE_MIN_LENGTH_FOR_CONTAINED and name_lc in query_lc:
+        return _SCORE_CONTAINED_IN_QUERY
+
     return 0
 
 
 def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
-    """计算单条搜索结果与查询词的相关性分数（0-130）。
+    """
+    计算单条搜索结果与查询词的相关性分数（优化版，0-150+）。
 
     评分规则:
-      - 主字段精确匹配: 100 + 短名称加权(最多+20)
-      - 主字段前缀匹配: 50 + 短名称加权(最多+15)
-      - 主字段包含查询词: 30
-      - 主字段包含于查询词: 20
-      - 次字段精确匹配: 90 + 短名称加权(最多+15) - 10 = 80
-      - 次字段包含查询词: 40 - 10 = 30
-      - item 类型 wiki 来源: +5
-
-    短名称加权: 名称越短越精确，精确匹配时最多+20分，前缀匹配时最多+15分。
-    次字段分数调整: 次字段匹配的分数略低于主字段同级别匹配（-10分）。
+      - 主字段精确匹配: 100 + 短名称奖励(最多+20)
+      - 主字段前缀匹配: 60 + 短名称奖励(最多+15)
+      - 主字段包含查询词: 30 + 位置奖励(最多+10)
+      - 主字段被包含于查询词: 20 (适合缩写搜索)
+      - 次字段匹配: 同级别 -10 分
+      - Snippet 包含查询词: +5
+      - Wiki item 来源: +5
+      - 多平台命中: 每多一个平台 +10 (在 _fuse_results 中计算)
     """
     if not query or not hit:
         return 0.0
@@ -2349,53 +2646,80 @@ def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
     if not q:
         return 0.0
 
-    # 选择主要/次要评分字段
+    # 1. 选择主要/次要评分字段
     primary = name_zh if _is_cjk(q) else name_en
     secondary = name_en if primary == name_zh else name_zh
     if not primary:
         primary, secondary = secondary, ""
 
+    # 2. 计算名称分数
     score = _calc_name_score(primary, q)
     if score == 0 and secondary:
         score = _calc_name_score(secondary, q)
-        # 次字段分数调整（略低于主字段）
         if score > 0:
-            score = max(score - 10, 10)
+            score = max(score - _SCORE_SECONDARY_PENALTY, _SCORE_SECONDARY_MIN)
 
-    # item 类型：wiki 是 vanilla 物品的权威来源，+5 加权
+    # 3. Snippet 加分
+    snippet = (hit.get("snippet") or "").lower()
+    if snippet and q in snippet:
+        score += _SCORE_SNIPPET_BONUS
+
+    # 4. Wiki item 来源加分
     platform = hit.get("_platform", hit.get("source", ""))
     if content_type == "item" and platform in ("minecraft.wiki", "minecraft.wiki/zh"):
-        score += 5
+        score += _SCORE_WIKI_ITEM_BONUS
 
     return score
 
 
 def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str = "") -> list[dict]:
-    """跨平台去重合并，按相关性分数排序。
+    """
+    跨平台去重合并，按相关性分数排序。
 
     排序规则：相关性分数 DESC → 多平台命中加权 → 平台优先级 ASC（tiebreaker）
     content_type 用于调整不同类型内容的平台优先级。
     """
-    # 选择平台优先级（mod/item 使用默认优先级，其他类型使用 Wiki 优先）
     if content_type is None:
         content_type = "mod"
+
+    # 步骤1: 打分并过滤
+    scored = _score_and_filter(results, content_type, query_keyword)
+
+    # 步骤2: 统计平台命中
+    name_platform_count = _count_platform_hits(scored)
+
+    # 步骤3: 去重
+    by_name = _deduplicate_by_name(scored, name_platform_count)
+
+    # 步骤4: 排序
+    sorted_entries = _sort_entries(by_name)
+
+    # 步骤5: 构建输出
+    return _build_fused_output(sorted_entries, scored)
+
+
+def _score_and_filter(results: dict, content_type: str, query_keyword: str) -> list[dict]:
+    """步骤1: 给所有结果打分，同时过滤无关结果。"""
     prio_key = "default" if content_type in ("mod", "item") else "other"
     platform_prio = _CONTENT_PLATFORM_PRIORITY[prio_key]
 
-    # 第一步：给所有结果打分，同时过滤无关结果
     scored = []
     for platform, hits in results.items():
         for h in hits:
-            # 当搜索 mod 时，过滤 wiki 的 type="other" 结果（非模组相关内容）
+            # 过滤 wiki 的 type="other" 结果
             if content_type == "mod" and platform in ("minecraft.wiki", "minecraft.wiki/zh"):
                 if h.get("type") == "other":
-                    continue  # 跳过 wiki 的杂项结果
+                    continue
+
             score = _score_relevance(query_keyword, h, content_type=content_type)
-            # platform_prio: 数值越小越权威；sort by (-score, priority) 使 同分时高优先级（即 priority 大）排前面
             priority = platform_prio.get(platform, 99)
             scored.append({**h, "_platform": platform, "_score": score, "_priority": priority})
 
-    # 第二步：统计每个名称在多少个平台出现（用于多平台命中加权）
+    return scored
+
+
+def _count_platform_hits(scored: list[dict]) -> dict[str, set]:
+    """步骤2: 统计每个名称在多少个平台出现。"""
     name_platform_count = {}
     for entry in scored:
         key = (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()
@@ -2403,42 +2727,53 @@ def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str =
             if key not in name_platform_count:
                 name_platform_count[key] = set()
             name_platform_count[key].add(entry["_platform"])
+    return name_platform_count
 
-    # 第三步：同名去重（按分数从高到低，同分时保留平台权威度高的）
+
+def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[str, dict]:
+    """步骤3: 同名去重（按分数从高到低，同分时保留平台权威度高的）。"""
     by_name = {}
     for entry in scored:
         key = (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()
         if not key:
             continue
-        # 多平台命中加权：每个额外平台 +5 分
+
+        # 多平台命中加权
         platform_count = len(name_platform_count.get(key, set()))
         if platform_count > 1:
-            entry["_score"] += (platform_count - 1) * 5  # 多平台加权
+            entry["_score"] += (platform_count - 1) * _SCORE_MULTI_PLATFORM_BONUS
+
         if key not in by_name:
             by_name[key] = entry
         elif entry["_score"] > by_name[key]["_score"]:
             by_name[key] = entry
         elif entry["_score"] == by_name[key]["_score"]:
-            # 同分时：priority 数值大（即更权威）的赢
             if entry["_priority"] > by_name[key]["_priority"]:
                 by_name[key] = entry
 
-    # 第四步：排序（分数 DESC，同分时 priority DESC）
-    sorted_entries = sorted(by_name.values(),
-                            key=lambda e: (e["_score"], e["_priority"]),
-                            reverse=True)
+    return by_name
 
-    # 第五步：构建融合结果
+
+def _sort_entries(by_name: dict[str, dict]) -> list[dict]:
+    """步骤4: 排序（分数 DESC，同分时 priority DESC）。"""
+    return sorted(by_name.values(), key=lambda e: (e["_score"], e["_priority"]), reverse=True)
+
+
+def _build_fused_output(sorted_entries: list[dict], scored: list[dict]) -> list[dict]:
+    """步骤5: 构建融合结果输出。"""
     fused = []
     for entry in sorted_entries:
-        merged = {k: v for k, v in entry.items() if not k.startswith("_")}
+        # 保留分数，移除其他 _ 字段
+        merged = {k: v for k, v in entry.items() if not k.startswith("_") or k == "_score"}
+
         # 收集所有同名结果的平台，并去重
+        entry_name = (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()
         platforms = [e["_platform"] for e in scored
-                     if (e.get("name_zh") or e.get("name_en") or e.get("name") or "").lower()
-                     == (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()]
-        merged["_sources"] = list(dict.fromkeys(platforms))  # 去重并保持顺序
+                     if (e.get("name_zh") or e.get("name_en") or e.get("name") or "").lower() == entry_name]
+        merged["_sources"] = list(dict.fromkeys(platforms))
+
         if len(merged["_sources"]) > 1:
             merged["source"] = "|".join(merged["_sources"])
-        fused.append(merged)
 
+        fused.append(merged)
     return fused
