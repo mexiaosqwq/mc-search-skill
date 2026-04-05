@@ -71,6 +71,7 @@ _EXTERNAL_LINK_EXCLUDE_DOMAINS = [  # 排除的外部链接域名（非官方网
 _MAX_TAG_TEXT_LEN = 20  # 标签文本最大长度，过滤过长的非标签内容
 _MAX_SEARCH_SEGMENT = 2000  # 搜索片段提取长度
 _MAX_DESCRIPTION_SEGMENT = 70000  # 描述段落提取长度（支持长描述模组，如 Sodium 55K+ HTML）
+_MAX_SEARCH_DESC_CHARS = 200      # search 命令描述最大显示字符数（节省 token）
 _MAX_AUTHOR_SECTION = 15000  # 作者页面区域提取长度
 _MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
 _MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
@@ -371,7 +372,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
         "max_stack": max_stack,
         "source_mod_name": mod_name,
         "source_mod_url": mod_url,
-        "description": description,
+        "description": description[:_MAX_SEARCH_DESC_CHARS] if description else "",
         "has_recipe": "recipe" in html.lower() or "合成" in html,
     }
 
@@ -553,7 +554,7 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
         "categories": categories,
         "author": author,
         "status": status,
-        "description": description,
+        "description": description[:_MAX_SEARCH_DESC_CHARS] if description else "",
     }
 
     # 截断元信息
@@ -1109,7 +1110,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "community_stats": community_stats if any(community_stats.values()) else None,  # 新增：社区数据
         "status": status,
         "source_type": source_type,
-        "description": description,
+        "description": description[:_MAX_SEARCH_DESC_CHARS] if description else "",
         "relationships": relationships if relationships["requires"] or relationships["integrates"] else None,
         "has_changelog": has_changelog,
         "external_links": external_links if external_links else None,
