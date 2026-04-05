@@ -661,6 +661,17 @@ def _print_full_modrinth_info(mr: dict):
     desc = mr.get('description', '')
     if desc:
         print(f"  简介：{desc}")
+    # 显示完整描述正文（去除 HTML 标签）
+    body = mr.get('body', '')
+    if body:
+        import re
+        # 清洗 HTML 标签
+        clean_body = re.sub(r'<[^>]+>', '', body)
+        clean_body = re.sub(r'\s+', ' ', clean_body).strip()
+        # 截取前 500 字符
+        if len(clean_body) > 500:
+            clean_body = clean_body[:500] + '...'
+        print(f"  描述：{clean_body}")
     vg = mr.get("version_groups", [])
     if vg:
         _print_version_groups(vg)
