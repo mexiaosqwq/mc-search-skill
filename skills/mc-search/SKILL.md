@@ -67,10 +67,15 @@ mc-search --json info <模组名> -m        # 同时查 Modrinth
 ```
 
 **`full` 返回内容**：
-- MC百科详情（中文名、分类、状态、作者、截图、标签）
-- Modrinth 详情（下载量、版本历史、运行环境、更新日志）
-- 依赖树（必需/可选依赖）
-- 资料列表（物品/方块、生物/实体等）
+- `mcmod`: MC百科详情（中文名、分类、状态、作者、截图、标签）
+- `modrinth`: Modrinth 详情（下载量、版本历史、运行环境、更新日志）
+- `dependencies`: 依赖树（必需/可选依赖）
+- `search_results`: 搜索结果摘要（用于确认匹配准确性）
+- `_mr_tentative`: Modrinth 模糊匹配提示（当精确匹配失败时）
+- `author_team`: 作者团队列表（含分工信息）
+- `community_stats`: 社区统计数据（评级、浏览量等）
+
+> 注：`full` 命令返回的是 JSON 对象，以上字段均为顶级键。
 
 ### 3️⃣ Wiki 类（原版内容）
 
@@ -90,10 +95,9 @@ mc-search --json read https://minecraft.wiki/w/Diamond_Sword
 ```bash
 # 查看依赖树
 mc-search --json dep <mod_slug>
-
-# 查看版本更新
-mc-search --json update-check <mod_slug> --installed <当前版本>
 ```
+
+> 注：`update-check` 命令已移除，如需检查版本，请使用 Modrinth API 或 `full` 命令获取最新版本信息。
 
 ## 决策树（详细版）
 
@@ -292,18 +296,6 @@ pip install -e skills/mc-search
 mc-search --help
 mc-search --json search 钠
 ```
-
-## 版本优先级
-
-当 MC百科和 Modrinth 版本不一致时，**以 Modrinth 为准**（官方发布平台，更新及时）。
-
-**示例场景**：
-- MC百科显示最新版本 `0.5.0`，Modrinth 显示 `0.6.0` → 使用 Modrinth 的 `0.6.0`
-- MC百科版本信息未更新时，Modrinth 提供最新发布版本
-
-## 全局选项
-
-放在子命令前：`--json`（推荐）、`--cache`、`--no-mcmod`、`--no-mr`、`--no-wiki`、`--no-wiki-zh`
 
 ## 初始化
 

@@ -41,6 +41,8 @@
 | `has_changelog` | 是否有更新日志布尔值（MC百科 detail 才有） |
 | `is_vanilla` | 是否为 MC百科原版内容分类（URL 含 `/class/1.html`） |
 | `external_links` | 外部平台链接字典（无时为 null）：`official` / `curseforge` / `modrinth` / `github` / `wiki` / `discord` / `jenkins` / `mcbbs` |
+| `author_team` | 作者团队列表（无时为 null），包含每个作者的姓名和分工，见下方说明 |
+| `community_stats` | 社区统计数据（无时为 null），包含评级、浏览量等，见下方说明 |
 | `content_list` | MC百科资料列表（无时为 null），见下方说明 |
 
 ### `content_list` 字段结构
@@ -73,6 +75,56 @@
 > 注：type_id 由 MC百科 动态定义，以上列出所有已知的类型ID。代码会优先从页面提取标题，回退到预定义映射。
 
 > 注：type_id 可能还有其他值，具体以页面实际返回为准。代码会动态提取标题。
+
+### `author_team` 字段结构（新增）
+
+当模组在 MC百科 有完整的开发团队信息时，返回如下结构：
+
+```json
+{
+  "author_team": [
+    {"name": "药水棒冰", "roles": ["美术", "策划"]},
+    {"name": "酒石酸菌", "roles": ["程序"]}
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | str | 作者名称 |
+| `roles` | list[str] | 该作者的分工角色（如"美术"、"策划"、"程序"等） |
+
+> 注：最多返回 10 人，避免输出过长。组织名称（如"开发团队"、"工作室"等）会被自动过滤。
+
+### `community_stats` 字段结构（新增）
+
+当MC百科页面包含社区统计数据时，返回如下结构：
+
+```json
+{
+  "community_stats": {
+    "rating": 5.0,
+    "rating_text": "名扬天下",
+    "positive_rate": 100,
+    "page_views": 22200,
+    "integrations_count": 2,
+    "revision_count": 7,
+    "last_updated": "4天前"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `rating` | float | 综合评分（0-5） |
+| `rating_text` | str | 评级称号（如"名扬天下"） |
+| `positive_rate` | int | 好评率（百分比） |
+| `page_views` | int | 页面浏览量 |
+| `integrations_count` | int | 关联整合包数量 |
+| `revision_count` | int | 修订次数 |
+| `last_updated` | str | 最后更新时间描述 |
+
+> 注：该字段可能为 null，如果MC百科页面上没有社区统计数据。
 
 ---
 
