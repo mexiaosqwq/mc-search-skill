@@ -1,4 +1,4 @@
-# mc-search
+# mc-search-skill
 
 > A Claude Code Skill for searching Minecraft mods, items, and wiki content across four platforms.
 
