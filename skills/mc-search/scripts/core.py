@@ -1831,9 +1831,38 @@ def _search_wiki_impl(
                 if clean:
                     prefix = "▸ " if level == "2" else "  - "
                     sections.append(f"{prefix}{clean}")
+
+            # 提取描述 snippet（从第一段提取纯文本）
+            snippet = ""
+            # 找到 mw-parser-output 区域
+            parser_output = re.search(r'<div[^>]+class="[^"]*mw-parser-output[^"]*"[^>]*>', html)
+            if parser_output:
+                start = parser_output.end()
+                # 提取接下来 5000 字符
+                segment = html[start:start+5000]
+                # 先移除 script/style 标签
+                segment = re.sub(r'<script[^>]*>.*?</script>', ' ', segment, flags=re.DOTALL)
+                segment = re.sub(r'<style[^>]*>.*?</style>', ' ', segment, flags=re.DOTALL)
+                segment = re.sub(r'<img[^>]*/?>', ' ', segment)
+                # 清洗所有 HTML 标签
+                text = re.sub(r'<[^>]+>', '\n', segment)
+                text = re.sub(r'\s+', ' ', text).strip()
+                # 找到第一段有意义的内容
+                lines = [l.strip() for l in text.split('\n') if l.strip()]
+                skip_prefixes = (
+                    '{{', '{|', '|-', '|', '[', 'Title', '{.', '.mw-', ':root', '@media', 'var(--', 'url(',
+                )
+                for line in lines:
+                    if (len(line) > 25 and
+                        not line.startswith(skip_prefixes) and
+                        ('{' not in line or ':' not in line) and
+                        re.search(r'\w', line)):
+                        snippet = line[:200] if len(line) > 200 else line
+                        break
+
             if add_variant and article_url:
-                # 移除现有 variant 参数，统一添加 zh-cn
-                article_url = re.sub(r"[&?]variant=zh-[a-z]+", "", article_url)
+                # 移除 HTML 实体编码的 variant 参数（&amp;variant=）和正常 variant
+                article_url = re.sub(r"[&?](?:amp;)?variant=zh-[a-z]+", "", article_url)
                 separator = "&" if "?" in article_url else "?"
                 article_url = article_url + separator + "variant=zh-cn"
             results.append({
@@ -1845,6 +1874,7 @@ def _search_wiki_impl(
                 "source_id": article_url.split("/")[-1] if article_url else "",
                 "type": _infer_wiki_type(page_title, article_url or ""),
                 "sections": sections,
+                "snippet": snippet,
             })
             _cache_set("search", key, results)
             return results
@@ -1862,11 +1892,18 @@ def _search_wiki_impl(
                 snippet = hit.get("snippet", "")  # MediaWiki API 返回的搜索摘要
                 # 清洗 snippet：移除 HTML 标签
                 clean_snippet = re.sub(r'<[^>]+>', '', snippet) if snippet else ""
+                article_url = f"{base_url}/w/{urllib.parse.quote(title.replace(' ', '_'))}"
+                # API fallback: 添加 variant 参数（中文 wiki）
+                if add_variant:
+                    # 移除 HTML 实体编码的 variant 参数（&amp;variant=）
+                    article_url = re.sub(r"[&?](?:amp;)?variant=zh-[a-z]+", "", article_url)
+                    separator = "&" if "?" in article_url else "?"
+                    article_url = article_url + separator + "variant=zh-cn"
                 results.append({
                     "name": title,
                     "name_en": title if use_title_for_name_en else "",
                     "name_zh": title if use_title_for_name_zh else "",
-                    "url": f"{base_url}/w/{urllib.parse.quote(title.replace(' ', '_'))}",
+                    "url": article_url,
                     "source": source,
                     "source_id": str(page_id),
                     "type": _infer_wiki_type(title, ""),
