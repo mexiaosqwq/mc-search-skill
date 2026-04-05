@@ -30,13 +30,14 @@
 ### 安装
 
 ```bash
-cd mc-search
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+cd mc-search-skill
 pip install -e .
 ```
 
 ### 在 Claude Code 中使用
 
-当你询问 Minecraft 相关内容时，Claude Code 会自动调用此 Skill：
+当你询问 Minecraft 相关内容时，就会自动调用此 Skill：
 
 - "帮我查一下 Sodium 模组"
 - "搜索钻石剑的 Wiki 信息"
@@ -140,20 +141,6 @@ skills/mc-search/
 
 详见 [RELEASE-v4.5.md](skills/mc-search/RELEASE-v4.5.md)
 
----
-
-## 开发
-
-```bash
-git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cd mc-search-skill
-pip install -e .
-
-# 运行测试
-python3 -m py_compile scripts/core.py scripts/cli.py
-```
-
----
 
 ## 许可证
 
