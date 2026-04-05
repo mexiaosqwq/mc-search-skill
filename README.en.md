@@ -1,118 +1,156 @@
-# mc-search-skill
+# mc-search - Minecraft Aggregation Search Tool
 
-> A Claude Code Skill that searches Minecraft mods, items, and wiki content across four platforms using web scraping and APIs.
+> A Claude Code Skill that enables AI agents to search and retrieve Minecraft content from multiple platforms
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
+[![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
+[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](SKILL.md)
+
+---
 
 ## What is this?
 
-**mc-search** is a **Claude Code Skill** that enables AI agents to search and retrieve Minecraft-related information from four major platforms:
+**mc-search** is an **Agent Skill** that enables AI agents to search and retrieve Minecraft content from multiple platforms.
 
+**Supported Platforms**:
 - **MC百科** (mcmod.cn) — Chinese mod database
-- **Modrinth** — English mod/shader/resource pack platform  
-- **minecraft.wiki** — Vanilla game content wiki (English)
-- **minecraft.wiki/zh** — Vanilla game content wiki (Chinese)
+- **Modrinth** — Modern mod platform
+- **minecraft.wiki** — Game wiki (English)
+- **minecraft.wiki/zh** — Game wiki (Chinese)
 
-## How it works
+**Supported Types**: mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions
 
-When a user asks about Minecraft mods, items, or game content, Claude automatically invokes this Skill via Bash to fetch structured JSON data, then presents the results in a human-readable format.
-
-```
-User: "Help me find the Sodium mod"
-  ↓
-Claude: mc-search --json search sodium
-  ↓
-Claude parses JSON response → Presents formatted answer
-```
+---
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.8+
-- `curl` command available
-- No API keys required
-
-### Installation
+### Install
 
 ```bash
-cd skills/mc-search
-pip install -e .
+pip install mc-search
 ```
 
-### Test the Skill
+### Usage
 
 ```bash
-mc-search --help
+# Search mods
 mc-search --json search sodium
+
+# Get full info
+mc-search --json full sodium
+
+# Search wiki
+mc-search --json wiki diamond sword
+
+# Search by type
+mc-search --json search BSL --type shader
+mc-search --json search RLCraft --type modpack
 ```
 
-## Available Commands
+### Python API
+
+```python
+from scripts.core import search_all, get_mod_info
+
+# Multi-platform search
+result = search_all("sodium", fuse=True)
+
+# Get mod details
+mod = get_mod_info("sodium-fabric")
+```
+
+---
+
+## Supported Project Types
+
+| Type | Platforms | Description |
+|------|-----------|-------------|
+| `mod` | MC百科 + Modrinth | Mods (Fabric/Forge/NeoForge) |
+| `item` | MC百科 | Items/blocks |
+| `modpack` | MC百科 + Modrinth | Modpacks |
+| `shader` | Modrinth | Shader packs |
+| `resourcepack` | Modrinth | Resource/texture packs |
+| `entity` | minecraft.wiki | Entities/mobs |
+| `biome` | minecraft.wiki | Biomes |
+| `dimension` | minecraft.wiki | Dimensions |
+
+---
+
+## Commands
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `search` | Multi-platform search | `mc-search --json search sodium` |
 | `full` | Get complete mod info | `mc-search --json full sodium` |
-| `info` | MC百科 mod details | `mc-search --json info 钠` |
-| `dep` | Modrinth dependency tree | `mc-search --json dep sodium` |
+| `info` | MC百科 details | `mc-search --json info 钠` |
 | `wiki` | Search minecraft.wiki | `mc-search --json wiki enchanting` |
-| `read` | Read wiki page content | `mc-search --json read <url>` |
-| `mr` | Modrinth single-platform search | `mc-search --json mr sodium` |
-| `author` | Search by Modrinth author | `mc-search --json author jellysquid_` |
+| `read` | Read wiki page | `mc-search --json read <url>` |
+| `dep` | Modrinth dependencies | `mc-search --json dep sodium` |
+| `author` | Search by author | `mc-search --json author jellysquid_` |
 
-> **Important**: The `--json` flag must be placed **before** the subcommand.
+> **Note**: `--json` flag must come **before** the subcommand.
 
-## Key Features
+---
 
-- **Four-platform parallel search** — Search all platforms simultaneously
-- **Smart relevance sorting** — Exact match > Prefix match > Contains match
-- **Multi-platform fusion** — Automatically merge results from different platforms
-- **Structured JSON output** — Easy for AI agents to parse
-- **Local caching** — TTL 1 hour to reduce API calls
-- **No external dependencies** — Only uses Python standard library + curl
+## Global Options
 
-## Project Structure
+| Option | Description |
+|--------|-------------|
+| `--json` | JSON format output (recommended) |
+| `--cache` | Enable local cache (TTL 1 hour) |
+| `--no-mcmod` | Disable MC百科 |
+| `--no-mr` | Disable Modrinth |
+| `--no-wiki` | Disable minecraft.wiki (English) |
+| `--no-wiki-zh` | Disable Chinese wiki |
+
+---
+
+## Architecture
 
 ```
-mc-search-skill/
-├── README.md                      # This file (Chinese)
-├── README.en.md                   # This file (English)
-├── SKILL.md                       # Claude Code Skill definition
-├── CLAUDE.md                      # Project guide for Claude Code
-├── pyproject.toml                 # Python package configuration
+skills/mc-search/
+├── SKILL.md          # Claude Code Skill definition (user guide)
+├── CLAUDE.md         # Developer guide (code architecture)
 ├── scripts/
-│   ├── cli.py                     # CLI entry point
-│   └── core.py                    # Core search logic
-└── references/
-    ├── result-schema.md           # JSON response field documentation
-    ├── commands.md                # Command reference (Chinese)
-    └── troubleshooting.md         # Troubleshooting guide (Chinese)
+│   ├── core.py       # Core search logic
+│   └── cli.py        # CLI entry point
+├── references/       # Detailed documentation
+└── pyproject.toml    # Python package config
 ```
 
-## Documentation
+---
 
-- **[SKILL.md](skills/mc-search/SKILL.md)** — Primary Skill definition for Claude Code
-- **[CLAUDE.md](skills/mc-search/CLAUDE.md)** — Project guide for Claude Code instances
-- **[references/result-schema.md](skills/mc-search/references/result-schema.md)** — JSON response field documentation
-- **[references/commands.md](skills/mc-search/references/commands.md)** — Detailed command reference (Chinese)
-- **[references/troubleshooting.md](skills/mc-search/references/troubleshooting.md)** — Troubleshooting guide (Chinese)
+## v4.5.0 Improvements
 
-## Repository
+- Clean Code refactoring (15 issues fixed)
+- Hardcoded constants extracted
+- Data completeness enhanced (Modrinth fields)
+- Tests: 95/95 passing, 0 failures
 
-- **Name**: `mc-search-skill`
-- **URL**: https://github.com/mexiaosqwq/mc-search-skill
-- **Issues**: https://github.com/mexiaosqwq/mc-search-skill/issues
+See [RELEASE-v4.5.md](RELEASE-v4.5.md) for details.
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+cd mc-search-skill
+pip install -e .
+
+# Run tests
+python3 -m py_compile scripts/core.py scripts/cli.py
+```
+
+---
 
 ## License
 
-MIT License — See LICENSE file for details.
+MIT License
 
 ## Acknowledgments
 
-This Skill leverages the following platforms and APIs:
-- [MC百科](https://www.mcmod.cn/) — Chinese mod database (via web scraping)
-- [Modrinth API](https://docs.modrinth.com/) — Open mod platform
-- [minecraft.wiki API](https://minecraft.wiki/) — Vanilla game content
-
-Special thanks to all contributors and the Minecraft modding community.
+- [MC百科](https://www.mcmod.cn/) — Chinese mod database
+- [Modrinth](https://modrinth.com/) — Modern mod platform
+- [Minecraft Wiki](https://minecraft.wiki/) — Game wiki

@@ -1,6 +1,6 @@
 ---
 name: mc-search
-version: "4.0.0"
+version: "4.5.0"
 description: "Minecraft 聚合搜索工具。支持 MC百科、Modrinth、minecraft.wiki 中英双站。搜索模组/整合包/光影包/材质包/物品/实体，JSON 结构化输出。"
 license: MIT
 context: open
