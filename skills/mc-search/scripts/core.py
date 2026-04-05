@@ -1195,53 +1195,37 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
     return ret
 
 
-def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
-    """
-    获取 mod 完整信息（Modrinth）。
-    mod_id 可以是 slug 或 project_id。
-    no_limit: True 时返回完整数据（用于 full 命令），False 时使用默认限制并返回 _truncated 元信息。
-    """
-    cache_key = _cache_key("modinfo", mod_id, "full" if no_limit else "limited")
-    cached = _cache_get("mod", cache_key)
-    if cached is not None:
-        return cached
-
-    data = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
-    if not data:
-        return None
-
-    project_id = data.get("id", "")
-
-    # 解析 license 字段（可能是 dict 或 string）
-    raw_license = data.get("license")
+def _parse_modrinth_license(raw_license: dict | str) -> tuple[str, str, str]:
+    """解析 Modrinth 许可证字段。返回 (id, name, url)。"""
     if isinstance(raw_license, dict):
-        license_id = raw_license.get("id", "")
-        license_name = raw_license.get("name", "")
-        license_url = raw_license.get("url", "")
-    else:
-        license_id = raw_license or ""
-        license_name = ""
-        license_url = ""
+        return (
+            raw_license.get("id", ""),
+            raw_license.get("name", ""),
+            raw_license.get("url", ""),
+        )
+    return raw_license or "", "", ""
 
-    # 解析 donation_urls 列表
-    donation_urls = []
-    for d in data.get("donation_urls", []):
-        donation_urls.append({
-            "platform": d.get("platform", ""),
-            "url": d.get("url", ""),
-        })
 
-    # body 处理
-    raw_body = data.get("body") or ""
-    body_total_len = len(raw_body)
-    body = raw_body if no_limit else raw_body[:_MAX_BODY_CHARS]
+def _parse_modrinth_donations(data: dict) -> list[dict]:
+    """解析 Modrinth 捐赠链接列表。"""
+    return [
+        {"platform": d.get("platform", ""), "url": d.get("url", "")}
+        for d in data.get("donation_urls", [])
+    ]
 
-    # gallery 处理
-    raw_gallery = [g.get("url") for g in data.get("gallery", []) if g.get("url")]
-    gallery_total = len(raw_gallery)
-    gallery = raw_gallery if no_limit else raw_gallery[:_MAX_GALLERY]
 
-    result = {
+def _build_modrinth_result(
+    data: dict,
+    project_id: str,
+    body: str,
+    gallery: list[str],
+    license_id: str,
+    license_name: str,
+    license_url: str,
+    donation_urls: list[dict],
+) -> dict:
+    """构建 Modrinth 模组信息结果字典。"""
+    return {
         "name": data.get("title", ""),
         "slug": data.get("slug", ""),
         "id": project_id,
@@ -1272,6 +1256,47 @@ def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
         "source": "modrinth",
         "url": f"https://modrinth.com/mod/{data.get('slug', '')}",
     }
+
+
+def get_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
+    """
+    获取 mod 完整信息（Modrinth）。
+    mod_id 可以是 slug 或 project_id。
+    no_limit: True 时返回完整数据（用于 full 命令），False 时使用默认限制并返回 _truncated 元信息。
+    """
+    cache_key = _cache_key("modinfo", mod_id, "full" if no_limit else "limited")
+    cached = _cache_get("mod", cache_key)
+    if cached is not None:
+        return cached
+
+    data = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
+    if not data:
+        return None
+
+    project_id = data.get("id", "")
+
+    # 解析许可证字段
+    license_id, license_name, license_url = _parse_modrinth_license(data.get("license"))
+
+    # 解析捐赠链接
+    donation_urls = _parse_modrinth_donations(data)
+
+    # body 处理
+    raw_body = data.get("body") or ""
+    body_total_len = len(raw_body)
+    body = raw_body if no_limit else raw_body[:_MAX_BODY_CHARS]
+
+    # gallery 处理
+    raw_gallery = [g.get("url") for g in data.get("gallery", []) if g.get("url")]
+    gallery_total = len(raw_gallery)
+    gallery = raw_gallery if no_limit else raw_gallery[:_MAX_GALLERY]
+
+    # 构建结果字典
+    result = _build_modrinth_result(
+        data, project_id, body, gallery,
+        license_id, license_name, license_url,
+        donation_urls,
+    )
 
     # 截断元信息（仅非 no_limit 模式）
     truncated = {}

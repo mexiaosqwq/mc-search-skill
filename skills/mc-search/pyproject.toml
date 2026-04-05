@@ -38,10 +38,10 @@ mc-search = "scripts.cli:main"
 dev = []
 
 [project.urls]
-Homepage = "https://github.com/mexiaosqwq/mc-search"
-Documentation = "https://github.com/mexiaosqwq/mc-search#readme"
-Repository = "https://github.com/mexiaosqwq/mc-search"
-Issues = "https://github.com/mexiaosqwq/mc-search/issues"
+Homepage = "https://github.com/mexiaosqwq/mc-search-skill"
+Documentation = "https://github.com/mexiaosqwq/mc-search-skill#readme"
+Repository = "https://github.com/mexiaosqwq/mc-search-skill"
+Issues = "https://github.com/mexiaosqwq/mc-search-skill/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

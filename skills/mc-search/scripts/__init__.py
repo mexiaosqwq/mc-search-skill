@@ -1,4 +1,4 @@
-# mcmod-info
+# mc-search - Minecraft 聚合搜索工具
 from .core import (
     # 搜索
     search_all,

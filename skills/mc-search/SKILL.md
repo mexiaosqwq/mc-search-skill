@@ -252,16 +252,19 @@ mc-search --json dep sodium
 # → Sodium 无依赖
 ```
 
-### 示例 4：版本检查
+### 示例 4：获取版本信息
 
 ```bash
-# 检查已安装版本是否为最新
-mc-search --json update-check sodium --installed 0.5.0
+# 使用 full 命令获取完整信息（包含最新版本）
+mc-search --json full 钠
 
-# 输出会显示：
-# - 当前版本：0.5.0
-# - 最新版本：0.6.0
-# - 需要更新：是
+# Modrinth 返回中包含最新版本信息：
+# {
+#   "modrinth": {
+#     "latest_version": "0.6.0",
+#     "version_groups": [...]
+#   }
+# }
 ```
 
 ---
@@ -290,20 +293,10 @@ mc-search --json search 关键词 2>&1 | python3 -m json.tool
 
 ```bash
 # 安装为 Python 包（推荐）
-pip install -e skills/mc-search
+cd skills/mc-search
+pip install -e .
 
 # 测试安装
 mc-search --help
 mc-search --json search 钠
 ```
-
-## 初始化
-
-```bash
-pip install -e skills/mc-search
-```
-
-## 详细文档
-
-- [result-schema.md](references/result-schema.md) — 返回字段完整定义
-- [troubleshooting.md](references/troubleshooting.md) — 错误处理

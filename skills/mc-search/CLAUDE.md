@@ -40,7 +40,7 @@ mc-search --json full <模组名>
 用户询问模组/游戏内容
 ├── 不知道具体哪个平台 → search（四平台并行）
 ├── 想一键获取完整信息 → full（推荐，一次调用=搜索+详情+依赖+版本）
-├── 想看详细信息 → info / dep / update-check
+├── 想看详细信息 → info / dep / full
 ├── 想查原版游戏内容 → wiki / read
 └── 想查作者作品 → search --author（MC百科）/ author（Modrinth）
 ```
@@ -63,7 +63,7 @@ mc-search --json search --author Notch  # MC百科作者
 mc-search --json info 钠                # MC百科详情
 mc-search --json info 钠 -m             # 同时查 Modrinth
 mc-search --json dep sodium             # Modrinth 依赖树
-mc-search --json update-check sodium --installed 0.5.0  # 版本检查
+mc-search --json full sodium            # 完整信息（含版本）
 ```
 
 ### 一键全量（推荐）
