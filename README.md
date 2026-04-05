@@ -1,4 +1,4 @@
-# mc-search
+# mc-search-skill
 
 > 一个 Claude Code Skill，用于在四大平台搜索 Minecraft 模组、物品和 Wiki 内容。
 
