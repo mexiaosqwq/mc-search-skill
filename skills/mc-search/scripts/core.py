@@ -1443,7 +1443,10 @@ def _build_modrinth_url(slug: str, project_type: str) -> str:
 
 
 def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
-    """Modrinth搜索。返回 {"results": [...], "total": N, "returned": M}。"""
+    """Modrinth搜索。返回 {"results": [...], "total": N, "returned": M}。
+
+    每个结果包含完整description（与MC百科齐平）。
+    """
     key = _cache_key("modrinth", keyword, max_results, project_type)
     cached = _cache_get("search", key)
     if cached is not None:
@@ -1461,21 +1464,35 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
         if project_type and pt and pt != project_type:
             continue
 
-        results.append({
+        slug = hit.get("slug", "")
+        # 获取完整描述（与MC百科齐平，使用body前500字符）
+        description = hit.get("description", "")
+        full_info = fetch_mod_info(slug, no_limit=True) if slug else None
+        if full_info:
+            body = full_info.get("body", "")
+            # 用body前500字符作为详细描述
+            if body:
+                description = body[:500] + ("..." if len(body) > 500 else "")
+
+        result = {
             "name": hit.get("title", ""),
             "name_en": hit.get("title", ""),
             "name_zh": "",
-            "url": _build_modrinth_url(hit.get("slug", ""), pt or project_type or "mod"),
+            "url": _build_modrinth_url(slug, pt or project_type or "mod"),
             "source": "modrinth",
-            "source_id": hit.get("slug", ""),
+            "source_id": slug,
             "type": pt or project_type or "mod",
             "snippet": hit.get("description", ""),
+            "description": description,  # 完整描述
             "downloads": hit.get("downloads", 0),
             "follows": hit.get("follows", 0),
             "icon_url": hit.get("icon_url", ""),
             "author": hit.get("author", ""),
             "versions": hit.get("versions", []),
-        })
+        }
+
+        results.append(result)
+
     total = data.get("total_hits", 0)
     ret = {"results": results, "total": total, "returned": len(results)}
     _cache_set("search", key, ret)
