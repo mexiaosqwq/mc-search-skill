@@ -1,17 +1,17 @@
-# mc-search - Minecraft Aggregation Search Tool
+# mc-search
 
-> A Claude Code Skill that enables AI agents to search and retrieve Minecraft content from multiple platforms
+> Claude Code Skill for Minecraft content search
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
-[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](SKILL.md)
+[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](skills/mc-search/SKILL.md)
 
 ---
 
 ## What is this?
 
-**mc-search** is an **Agent Skill** that enables AI agents to search and retrieve Minecraft content from multiple platforms.
+**mc-search** is a **Claude Code Skill** that enables AI agents to search Minecraft content across four platforms simultaneously.
 
 **Supported Platforms**:
 - **MC百科** (mcmod.cn) — Chinese mod database
@@ -19,7 +19,7 @@
 - **minecraft.wiki** — Game wiki (English)
 - **minecraft.wiki/zh** — Game wiki (Chinese)
 
-**Supported Types**: mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions
+**Supported Types**: mods, items, modpacks, shaders, resourcepacks, entities, biomes, dimensions
 
 ---
 
@@ -28,10 +28,24 @@
 ### Install
 
 ```bash
-pip install mc-search
+cd skills/mc-search
+pip install -e .
 ```
 
-### Usage
+### Usage in Claude Code
+
+Claude Code will automatically invoke this Skill when you ask about Minecraft content:
+
+- "Search for Sodium mod"
+- "Find diamond sword info on wiki"
+- "Search for RLCraft modpack"
+
+Or manually trigger:
+```
+/mc-search search sodium
+```
+
+### Standalone CLI
 
 ```bash
 # Search mods
@@ -62,7 +76,7 @@ mod = get_mod_info("sodium-fabric")
 
 ---
 
-## Supported Project Types
+## What can it search?
 
 | Type | Platforms | Description |
 |------|-----------|-------------|
@@ -111,7 +125,6 @@ mod = get_mod_info("sodium-fabric")
 ```
 skills/mc-search/
 ├── SKILL.md          # Claude Code Skill definition (user guide)
-├── CLAUDE.md         # Developer guide (code architecture)
 ├── scripts/
 │   ├── core.py       # Core search logic
 │   └── cli.py        # CLI entry point
@@ -128,7 +141,7 @@ skills/mc-search/
 - Data completeness enhanced (Modrinth fields)
 - Tests: 95/95 passing, 0 failures
 
-See [RELEASE-v4.5.md](RELEASE-v4.5.md) for details.
+See [RELEASE-v4.5.md](skills/mc-search/RELEASE-v4.5.md) for details.
 
 ---
 

@@ -1,17 +1,17 @@
-# mc-search - Minecraft 聚合搜索工具
+# mc-search
 
-> 一个 Claude Code Skill，让 AI Agent 能够从四大平台搜索和检索 Minecraft 相关内容
+> Claude Code Skill for Minecraft content search
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
-[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](SKILL.md)
+[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](skills/mc-search/SKILL.md)
 
 ---
 
 ## 这是什么？
 
-**mc-search** 是一个 **Agent Skill**，让 AI Agent 能够充多平台搜索和检索 Minecraft 相关内容。
+**mc-search** 是一个 **Claude Code Skill**，让 AI Agent 能够从四大平台搜索和检索 Minecraft 相关内容。
 
 **支持平台**：
 - **MC百科** (mcmod.cn) — 中文模组数据库
@@ -28,10 +28,24 @@
 ### 安装
 
 ```bash
-pip install mc-search
+cd skills/mc-search
+pip install -e .
 ```
 
-### 使用
+### 在 Claude Code 中使用
+
+当你询问 Minecraft 相关内容时，Claude Code 会自动调用此 Skill：
+
+- "帮我查一下 Sodium 模组"
+- "搜索钻石剑的 Wiki 信息"
+- "查找 RLCraft 整合包"
+
+或者手动触发：
+```
+/mc-search search 钠
+```
+
+### 独立 CLI 使用
 
 ```bash
 # 搜索模组
@@ -111,7 +125,6 @@ mod = get_mod_info("sodium-fabric")
 ```
 skills/mc-search/
 ├── SKILL.md          # Claude Code Skill 定义（用户指南）
-├── CLAUDE.md         # 开发者指南（代码架构）
 ├── scripts/
 │   ├── core.py       # 核心搜索逻辑
 │   └── cli.py        # CLI 入口
@@ -128,7 +141,7 @@ skills/mc-search/
 - 数据完整性增强（Modrinth 字段）
 - 测试：95/95 通过，0 失败
 
-详见 [RELEASE-v4.5.md](RELEASE-v4.5.md)
+详见 [RELEASE-v4.5.md](skills/mc-search/RELEASE-v4.5.md)
 
 ---
 
