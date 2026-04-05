@@ -614,25 +614,64 @@ def main():
         # 无精确匹配，返回第一个结果作为候选
         return None, hits[0].get("name") or hits[0].get("name_en") or ""
 
-    def _print_full_modrinth_info(mr: dict):
-        """打印 Modrinth 详细信息。"""
-        print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
-        _print_side_info(mr)
-        vg = mr.get("version_groups", [])
-        if vg:
-            _print_version_groups(vg)
-        else:
-            print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
-        print(f"  链接：{mr.get('url', '')}")
+def _search_modrinth_exact(keyword: str) -> dict | None:
+    """在 Modrinth 上精确搜索项目（slug/名称完全匹配）。"""
+    try:
+        direct_data = core.search_modrinth(keyword, max_results=5)
+        direct_hits = direct_data.get("results", [])
 
-    def _print_full_mcmod_info(mc: dict):
-        """打印 MC百科详细信息。"""
-        print(f"  名称：{mc.get('name_zh')} ({mc.get('name_en', '')})")
-        print(f"  平台：MC百科 | {mc.get('url', '')}")
-        if mc.get('author'):
-            print(f"  作者：{mc['author']}")
-        if mc.get('status'):
-            print(f"  状态：{mc['status']}")
+        if not direct_hits:
+            return None
+
+        norm_arg = re.sub(r"[^a-z0-9_-]", "", keyword.lower().replace(" ", "-"))
+        for hit in direct_hits:
+            hit_slug = (hit.get("slug", "") or "").lower()
+            hit_name_raw = hit.get("name") or hit.get("name_en") or ""
+            hit_name_norm = re.sub(r"[^a-z0-9]", "", hit_name_raw.lower())
+
+            # slug 完全匹配（最高优先级）
+            if hit_slug == norm_arg:
+                slug = hit.get("source_id", "") or hit.get("slug", "")
+                if slug:
+                    try:
+                        return core.get_mod_info(slug, no_limit=True)
+                    except Exception:
+                        pass
+
+            # 名称精确匹配
+            if hit_name_norm == norm_arg:
+                slug = hit.get("source_id", "") or hit.get("slug", "")
+                if slug:
+                    try:
+                        return core.get_mod_info(slug, no_limit=True)
+                    except Exception:
+                        pass
+
+        # 无精确匹配，返回第一个作为候选
+        return direct_hits[0] if direct_hits else None
+    except Exception:
+        return None
+
+
+def _print_full_modrinth_info(mr: dict):
+    """打印 Modrinth 详细信息。"""
+    print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
+    _print_side_info(mr)
+    vg = mr.get("version_groups", [])
+    if vg:
+        _print_version_groups(vg)
+    else:
+        print(f"  最新版本：{mr.get('latest_version')} [{', '.join(mr.get('loaders', []))}]")
+    print(f"  链接：{mr.get('url', '')}")
+
+def _print_full_mcmod_info(mc: dict):
+    """打印 MC百科详细信息。"""
+    print(f"  名称：{mc.get('name_zh')} ({mc.get('name_en', '')})")
+    print(f"  平台：MC百科 | {mc.get('url', '')}")
+    if mc.get('author'):
+        print(f"  作者：{mc['author']}")
+    if mc.get('status'):
+        print(f"  状态：{mc['status']}")
         vers = mc.get('supported_versions', [])
         if vers:
             print(f"  支持版本：{', '.join(vers)}")
@@ -709,7 +748,7 @@ def main():
             print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
             return
 
-        # 非 Modrinth URL：尝试通过 Modrinth 搜索匹配 slug
+        # 非 Modrinth URL：尝试通过 Modrinth 搜索匹配
         class_id = ident["class_id"]
         mcmod_name = ident["mcmod_name"]
 
@@ -718,41 +757,15 @@ def main():
         tentative_name = None
 
         if not args.skip_mr and mcmod_name:
-            try:
-                direct_data = core.search_modrinth(mcmod_name, max_results=5)
-                direct_hits = direct_data.get("results", [])
-
-                if direct_hits:
-                    # 尝试 slug 精确匹配
-                    norm_arg = re.sub(r"[^a-z0-9_-]", "", mcmod_name.lower().replace(" ", "-"))
-                    for hit in direct_hits:
-                        hit_slug = (hit.get("slug", "") or "").lower()
-                        hit_name_raw = hit.get("name") or hit.get("name_en") or ""
-                        hit_name_norm = re.sub(r"[^a-z0-9]", "", hit_name_raw.lower())
-
-                        # slug 完全匹配（最高优先级）
-                        if hit_slug == norm_arg:
-                            slug = hit.get("source_id", "") or hit.get("slug", "")
-                            if slug:
-                                try:
-                                    mr_info = core.get_mod_info(slug, no_limit=True)
-                                    break
-                                except Exception:
-                                    pass
-
-                        # 名称精确匹配
-                        if hit_name_norm == norm_arg:
-                            slug = hit.get("source_id", "") or hit.get("slug", "")
-                            if slug and not mr_info:
-                                try:
-                                    mr_info = core.get_mod_info(slug, no_limit=True)
-                                except Exception:
-                                    pass
-
-                    if not mr_info and direct_hits:
-                        tentative_name = direct_hits[0].get("name") or direct_hits[0].get("name_en") or ""
-            except Exception:
-                pass
+            mr_hit = _search_modrinth_exact(mcmod_name)
+            if mr_hit and isinstance(mr_hit, dict) and mr_hit.get("slug"):
+                slug = mr_hit.get("source_id") or mr_hit.get("slug")
+                try:
+                    mr_info = core.get_mod_info(slug, no_limit=True)
+                except Exception:
+                    mr_info = None
+            if mr_hit and not mr_info:
+                tentative_name = mr_hit.get("name") or mr_hit.get("name_en") or ""
 
         # ── 阶段二：获取 MC百科信息（仅 mod/item/modpack）──
         mcmod_info, search_results = _fetch_mcmod_info(class_id, mcmod_name)
