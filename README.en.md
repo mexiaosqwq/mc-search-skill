@@ -27,21 +27,39 @@
 
 ## Quick Start
 
-### Install
+### Method 1: Clone and use (Recommended)
 
 ```bash
+# Clone repository
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cd mc-search-skill
+cd mc-search-skill/skills/mc-search
+
+# Install
 pip install -e .
 ```
 
-### Usage in Claude Code
+After installation, use anywhere:
+```bash
+mc-search --json search sodium
+```
 
-When you ask about Minecraft content, this Skill will be automatically invoked:
+### Method 2: Copy to Claude Code Skills directory
 
-- "Search for Sodium mod"
-- "Find diamond sword info on wiki"
-- "Search for RLCraft modpack"
+To let Claude Code automatically use this Skill:
+
+```bash
+# 1. Clone or download repository
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+
+# 2. Copy skill to Claude Code directory
+cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
+
+# 3. Install in skill directory
+cd ~/.claude/skills/mc-search
+pip install -e .
+```
+
+> **Important**: Must run `pip install -e .` in the `skills/mc-search/` directory, because that's where `pyproject.toml` is located.
 
 ### Standalone CLI
 
