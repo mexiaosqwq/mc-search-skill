@@ -1,121 +1,119 @@
-# mc-search-skill
+# mc-search - Minecraft 聚合搜索工具
 
-> 一个 Claude Code Skill，通过爬虫和 API 在四大平台搜索 Minecraft 模组、物品和 Wiki 内容。
+[![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
+[![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+> Minecraft 内容聚合搜索工具，支持 **四平台并行搜索**：MC百科、Modrinth、minecraft.wiki（中英双站）
 
-[English Documentation →](README.en.md)
+## ✨ 特性
 
----
+- 🌐 **四平台并行**: MC百科、Modrinth、minecraft.wiki 英文/中文
+- 📦 **多类型支持**: 模组/整合包/光影包/材质包/物品/实体/生物群系/维度
+- 🔍 **智能搜索**: 相关性评分、多平台融合、去重排序
+- 📊 **完整数据**: Infobox 提取、版本历史、依赖关系、截图画廊
+- 🚀 **高性能**: 并发搜索、本地缓存（TTL 1小时）
+- 📝 **CLI 友好**: JSON 输出、Agent 集成
 
-## 这是什么？
-
-**mc-search** 是一个 **Claude Code Skill**，让 AI Agent 能够从四大平台搜索和检索 Minecraft 相关信息：
-
-- **MC百科** (mcmod.cn) — 中文模组数据库
-- **Modrinth** — 英文 mod/光影/材质包平台
-- **minecraft.wiki** — 原版游戏内容 Wiki（英文）
-- **minecraft.wiki/zh** — 原版游戏内容 Wiki（中文）
-
-## 工作原理
-
-当用户询问 Minecraft 模组、物品或游戏内容时，Claude 会通过 Bash 自动调用此 Skill 获取结构化 JSON 数据，然后以人类可读的格式呈现结果。
-
-```
-用户："帮我查一下 Sodium 模组"
-  ↓
-Claude: mc-search --json search sodium
-  ↓
-Claude 解析 JSON 响应 → 呈现格式化答案
-```
-
-## 快速开始
-
-### 前置要求
-
-- Python 3.8+
-- 可用 `curl` 命令
-- 无需 API key
+## 🚀 快速开始
 
 ### 安装
 
 ```bash
-cd skills/mc-search
-pip install -e .
+pip install mc-search
 ```
 
-### 测试 Skill
+### 基本用法
 
 ```bash
-mc-search --help
+# 搜索模组
 mc-search --json search 钠
+
+# 获取完整信息
+mc-search --json full sodium
+
+# Wiki 搜索
+mc-search --json wiki 钻石剑
+
+# 按类型搜索
+mc-search --json search BSL --type shader
+mc-search --json search RLCraft --type modpack
 ```
 
-## 可用命令
+### Python API
 
-| 命令 | 描述 | 示例 |
-|------|------|------|
-| `search` | 多平台搜索 | `mc-search --json search 钠` |
-| `full` | 获取完整模组信息 | `mc-search --json full 钠` |
-| `info` | MC百科模组详情 | `mc-search --json info 钠` |
-| `dep` | Modrinth 依赖树 | `mc-search --json dep sodium` |
-| `wiki` | 搜索 minecraft.wiki | `mc-search --json wiki 附魔` |
-| `read` | 读取 Wiki 页面内容 | `mc-search --json read <url>` |
-| `mr` | Modrinth 单平台搜索 | `mc-search --json mr sodium` |
-| `author` | 按 Modrinth 作者搜索 | `mc-search --json author jellysquid_` |
+```python
+from scripts.core import search_all, get_mod_info, read_wiki
 
-> **重要**：`--json` 标志必须放在**子命令之前**。
+# 多平台搜索
+result = search_all("sodium", fuse=True)
 
-## 主要特性
+# 获取模组详情
+mod = get_mod_info("sodium-fabric")
 
-- **四平台并行搜索** — 同时搜索所有平台
-- **智能相关性排序** — 精确匹配 > 前缀匹配 > 包含匹配
-- **多平台融合** — 自动合并来自不同平台的结果
-- **结构化 JSON 输出** — 便于 AI Agent 解析
-- **本地缓存** — TTL 1 小时，减少 API 调用
-- **无外部依赖** — 仅使用 Python 标准库 + curl
+# 读取 Wiki 页面
+wiki = read_wiki("https://minecraft.wiki/w/Diamond_Sword")
+```
 
-## 项目结构
+## 📊 支持的项目类型
+
+| 类型 | 说明 | 支持平台 |
+|------|------|----------|
+| `mod` | 模组 | MC百科 + Modrinth |
+| `item` | 物品/方块 | MC百科 |
+| `modpack` | 整合包 | MC百科 + Modrinth |
+| `shader` | 光影包 | Modrinth |
+| `resourcepack` | 材质包 | Modrinth |
+| `entity` | 实体/生物 | minecraft.wiki |
+| `biome` | 生物群系 | minecraft.wiki |
+| `dimension` | 维度 | minecraft.wiki |
+
+## 🏗️ 架构
 
 ```
-mc-search-skill/
-├── README.md                      # 本文件
-├── SKILL.md                       # Claude Code Skill 定义
-├── CLAUDE.md                      # Claude Code 项目指南
-├── pyproject.toml                 # Python 包配置
+skills/mc-search/
 ├── scripts/
-│   ├── cli.py                     # CLI 入口
-│   └── core.py                    # 核心搜索逻辑
-└── references/
-    ├── result-schema.md           # JSON 响应字段文档
-    ├── commands.md                # 命令参考（中文）
-    └── troubleshooting.md         # 故障排查指南（中文）
+│   ├── core.py       # 核心搜索逻辑 (~2800 行)
+│   └── cli.py        # CLI 入口 (~1000 行)
+├── SKILL.md          # Agent 接口定义
+├── CLAUDE.md         # 开发者指南
+└── RELEASE-v4.5.md   # 发布说明
 ```
 
-## 文档
+## 📈 代码质量
 
-- **[SKILL.md](skills/mc-search/SKILL.md)** — Claude Code Skill 主要定义
-- **[CLAUDE.md](skills/mc-search/CLAUDE.md)** — Claude Code 实例项目指南
-- **[references/result-schema.md](skills/mc-search/references/result-schema.md)** — JSON 响应字段文档
-- **[references/commands.md](skills/mc-search/references/commands.md)** — 详细命令参考
-- **[references/troubleshooting.md](skills/mc-search/references/troubleshooting.md)** — 故障排查指南
+**v4.5.0 改进**:
+- ✅ Clean Code 重构 (15 个问题修复)
+- ✅ 硬编码清理 (类型常量提取)
+- ✅ 数据完整性增强 (Modrinth 字段)
+- ✅ 测试: 95/95 通过，0 失败
 
-## 仓库信息
+## 📖 文档
 
-- **名称**: `mc-search-skill`
-- **URL**: https://github.com/mexiaosqwq/mc-search-skill
-- **Issues**: https://github.com/mexiaosqwq/mc-search-skill/issues
+- **[SKILL.md](SKILL.md)** - Agent 接口定义（用户使用指南）
+- **[CLAUDE.md](CLAUDE.md)** - 开发者指南（代码架构）
+- **[RELEASE-v4.5.md](RELEASE-v4.5.md)** - 发布说明
 
-## 许可证
+## 🔧 开发
 
-MIT License — 详见 LICENSE 文件
+```bash
+# 克隆仓库
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+cd mc-search-skill
 
-## 致谢
+# 安装依赖
+pip install -e .
 
-本 Skill 利用了以下平台和 API：
-- [MC百科](https://www.mcmod.cn/) — 中文模组数据库（通过网页爬取）
-- [Modrinth API](https://docs.modrinth.com/) — 开放模组平台
-- [minecraft.wiki API](https://minecraft.wiki/) — 原版游戏内容
+# 运行测试
+python3 -m py_compile scripts/core.py scripts/cli.py
+```
 
-感谢所有贡献者和 Minecraft 模组社区的支持。
+## 📄 许可证
+
+MIT License
+
+## 🙏 致谢
+
+- [MC百科](https://www.mcmod.cn/) - 中文模组百科
+- [Modrinth](https://modrinth.com/) - 现代化模组平台
+- [Minecraft Wiki](https://minecraft.wiki/) - 原版游戏Wiki
