@@ -85,6 +85,7 @@ _DEFAULT_PARAGRAPHS = 5  # wiki 页面默认段落数
 _DISPLAY_WIKI_PARAGRAPHS = 4    # wiki 搜索后自动 read 的段落数
 _DISPLAY_LINE_MAX = 200         # 单行最大显示字符数（search/wiki 命令）
 _DISPLAY_READ_LINE_MAX = 250    # read 命令正文单行最大长度
+_DISPLAY_BODY_MAX = 500         # Modrinth body 描述最大显示字符数
 
 
 
@@ -668,9 +669,9 @@ def _print_full_modrinth_info(mr: dict):
         # 清洗 HTML 标签
         clean_body = re.sub(r'<[^>]+>', '', body)
         clean_body = re.sub(r'\s+', ' ', clean_body).strip()
-        # 截取前 500 字符
-        if len(clean_body) > 500:
-            clean_body = clean_body[:500] + '...'
+        # 截取描述长度
+        if len(clean_body) > _DISPLAY_BODY_MAX:
+            clean_body = clean_body[:_DISPLAY_BODY_MAX] + '...'
         print(f"  描述：{clean_body}")
     vg = mr.get("version_groups", [])
     if vg:
