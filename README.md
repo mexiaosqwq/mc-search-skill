@@ -27,21 +27,39 @@
 
 ## 快速开始
 
-### 安装
+### 方法1：克隆即用（推荐）
 
 ```bash
+# 克隆仓库
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cd mc-search-skill
+cd mc-search-skill/skills/mc-search
+
+# 安装
 pip install -e .
 ```
 
-### 在 Claude Code 中使用
+安装后，在任何地方都可以使用：
+```bash
+mc-search --json search 钠
+```
 
-当你询问 Minecraft 相关内容时，就会自动调用此 Skill：
+### 方法2：复制到 Claude Code Skills 目录
 
-- "帮我查一下 Sodium 模组"
-- "搜索钻石剑的 Wiki 信息"
-- "查找 RLCraft 整合包"
+如果你想让 Claude Code 自动使用此 Skill：
+
+```bash
+# 1. 克隆或下载仓库
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+
+# 2. 复制 skill 到 Claude Code 目录
+cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
+
+# 3. 在 skill 目录中安装
+cd ~/.claude/skills/mc-search
+pip install -e .
+```
+
+> **重要**：必须在 `skills/mc-search/` 目录中执行 `pip install -e .`，因为 `pyproject.toml` 在那里。
 
 ### 独立 CLI 使用
 
