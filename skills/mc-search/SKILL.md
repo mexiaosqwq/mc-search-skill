@@ -18,6 +18,12 @@ triggers:
   - "mod.*依赖"
   - "wiki.*搜索"
   - "Modrinth.*搜索"
+  - "机械动力"
+  - "Create.*模组"
+  - "推荐.*模组"
+  - "热门.*模组"
+  - ".*mod.*信息"
+  - ".*minecraft.*"
 ---
 
 # mc-search

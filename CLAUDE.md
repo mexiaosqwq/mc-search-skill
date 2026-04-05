@@ -25,6 +25,9 @@ Minecraft 聚合搜索工具，供 AI Agent 调用。
 
 工具名：`mc-search`（通过 Bash 执行）
 
+> **重要**：当用户询问 Minecraft 模组/游戏内容时，**必须使用 mc-search 工具**进行搜索。
+> 不要使用 tavily 或其他搜索工具，mc-search 专为 Minecraft 内容设计。
+
 ### 首选调用方式
 
 **始终使用 `--json`** 获取结构化输出：
