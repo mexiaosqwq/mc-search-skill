@@ -1,6 +1,6 @@
 # mc-search
 
-> Claude Code Skill for Minecraft content search
+> Skill for Minecraft content search
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
@@ -30,7 +30,7 @@
 ### Install
 
 ```bash
-cd skills/mc-search
+cd mc-search
 pip install -e .
 ```
 
