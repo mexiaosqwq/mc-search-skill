@@ -657,6 +657,10 @@ def _print_full_modrinth_info(mr: dict):
     """打印 Modrinth 详细信息。"""
     print(f"  下载：{mr.get('downloads', 0):,} | 关注：{mr.get('followers', 0):,}")
     _print_side_info(mr)
+    # 显示简介
+    desc = mr.get('description', '')
+    if desc:
+        print(f"  简介：{desc}")
     vg = mr.get("version_groups", [])
     if vg:
         _print_version_groups(vg)
