@@ -30,22 +30,18 @@
 ### Install
 
 ```bash
-cd mc-search
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+cd mc-search-skill
 pip install -e .
 ```
 
 ### Usage in Claude Code
 
-Claude Code will automatically invoke this Skill when you ask about Minecraft content:
+When you ask about Minecraft content, this Skill will be automatically invoked:
 
 - "Search for Sodium mod"
 - "Find diamond sword info on wiki"
 - "Search for RLCraft modpack"
-
-Or manually trigger:
-```
-/mc-search search sodium
-```
 
 ### Standalone CLI
 
@@ -144,21 +140,6 @@ skills/mc-search/
 - Tests: 95/95 passing, 0 failures
 
 See [RELEASE-v4.5.md](skills/mc-search/RELEASE-v4.5.md) for details.
-
----
-
-## Development
-
-```bash
-git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cd mc-search-skill
-pip install -e .
-
-# Run tests
-python3 -m py_compile scripts/core.py scripts/cli.py
-```
-
----
 
 ## License
 
