@@ -1,6 +1,6 @@
 # mc-search-skill
 
-> 一个 Claude Code Skill，用于在四大平台搜索 Minecraft 模组、物品和 Wiki 内容。
+> 一个 Claude Code Skill，通过爬虫和 API 在四大平台搜索 Minecraft 模组、物品和 Wiki 内容。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -113,8 +113,8 @@ MIT License — 详见 LICENSE 文件
 
 ## 致谢
 
-本 Skill 利用了以下 API 和平台：
-- [MC百科 API](https://www.mcmod.cn/) — 中文模组数据库
+本 Skill 利用了以下平台和 API：
+- [MC百科](https://www.mcmod.cn/) — 中文模组数据库（通过网页爬取）
 - [Modrinth API](https://docs.modrinth.com/) — 开放模组平台
 - [minecraft.wiki API](https://minecraft.wiki/) — 原版游戏内容
 

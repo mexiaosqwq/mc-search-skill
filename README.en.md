@@ -1,6 +1,6 @@
 # mc-search-skill
 
-> A Claude Code Skill for searching Minecraft mods, items, and wiki content across four platforms.
+> A Claude Code Skill that searches Minecraft mods, items, and wiki content across four platforms using web scraping and APIs.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -110,8 +110,8 @@ MIT License — See LICENSE file for details.
 
 ## Acknowledgments
 
-This Skill leverages the following APIs and platforms:
-- [MC百科 API](https://www.mcmod.cn/) — Chinese mod database
+This Skill leverages the following platforms and APIs:
+- [MC百科](https://www.mcmod.cn/) — Chinese mod database (via web scraping)
 - [Modrinth API](https://docs.modrinth.com/) — Open mod platform
 - [minecraft.wiki API](https://minecraft.wiki/) — Vanilla game content
 
