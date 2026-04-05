@@ -1,7 +1,7 @@
 ---
 name: mc-search
-version: "4.5.1"
-description: "Minecraft模组搜索工具。当用户询问模组推荐、模组信息、整合包、光影包、材质包、原版wiki时使用。Trigger: 模组, mod, 推荐, 搜索, 机械动力, create, 整合包, 光影, 材质, wiki, minecraft"
+version: "4.5.2"
+description: "Minecraft模组搜索工具。当用户询问模组推荐、模组信息、整合包、光影包、材质包、原版wiki、机械动力时使用。Trigger: 模组, mod, 推荐, 搜索, 机械动力, create, 整合包, 光影, 材质, wiki, minecraft"
 license: MIT
 context: open
 user-invocable: true
@@ -12,6 +12,7 @@ triggers:
   - "Minecraft"
   - "minecraft"
   - "机械动力"
+  - "create"
   - "整合包"
   - "光影包"
   - "材质包"
