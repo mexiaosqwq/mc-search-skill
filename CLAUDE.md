@@ -21,27 +21,11 @@ Minecraft 聚合搜索工具，供 AI Agent 调用。
 
 ---
 
-## 代码结构
-
-实际代码位于 `skills/mc-search/` 子目录中：
-
-```
-skills/mc-search/
-├── SKILL.md              # Agent 接口定义（核心文档）
-├── CLAUDE.md             # 项目指南（本文件）
-├── pyproject.toml        # Python 包配置（定义入口 mc-search = scripts.cli:main）
-├── scripts/
-│   ├── cli.py            # CLI 入口和命令处理
-│   └── core.py           # 核心搜索逻辑和 API 调用
-└── references/
-    ├── result-schema.md  # 结果字段说明
-    ├── commands.md       # 命令参考
-    └── troubleshooting.md # 故障排查指南
-```
-
-## Agent 调用方式
+## Agent 工具接口
 
 工具名：`mc-search`（通过 Bash 执行）
+
+### 首选调用方式
 
 **始终使用 `--json`** 获取结构化输出：
 
@@ -53,30 +37,22 @@ mc-search --json full <模组名>
 
 > **重要**：全局选项（`--json`、`--cache`、平台开关）必须放在子命令 **之前**。
 
-## 核心功能模块
+---
 
-### 搜索功能 (cli.py:_cmd_search)
-- 四平台并行搜索
-- 支持类型过滤 (--type)
-- 支持作者搜索 (--author)
-- 支持结果融合 (--fuse)
+## 决策树
 
-### 项目详情 (cli.py:_cmd_info, _cmd_full)
-- MC百科详情解析 (core.py:_parse_mcmod_result)
-- Modrinth API 调用 (core.py:get_mod_info)
-- 依赖关系查询 (core.py:get_mod_dependencies)
+```
+用户询问模组/游戏内容/整合包
+├── 不知道具体哪个平台 → search（四平台并行）
+├── 想一键获取完整信息 → full（推荐，一次调用=搜索+详情+依赖+版本）
+├── 想看详细信息 → info / dep / full
+├── 想查原版游戏内容 → wiki / read
+├── 想查整合包 → search --type modpack / full <整合包名>
+├── 想查光影包/材质包 → search --type shader|resourcepack / full <URL>
+└── 想查作者作品 → search --author（MC百科）/ author（Modrinth）
+```
 
-### Wiki 功能 (cli.py:_cmd_wiki, _cmd_read)
-- minecraft.wiki 搜索
-- 页面正文读取和解析
-
-### 核心 API (core.py)
-- `_curl()` - 统一 HTTP 请求
-- `search_mcmod()` - MC百科搜索
-- `search_modrinth()` - Modrinth 搜索
-- `search_wiki()` / `search_wiki_zh()` - Wiki 搜索
-- `get_mod_info()` - 获取 Modrinth 详情
-- `_parse_mcmod_result()` - 解析 MC百科页面
+---
 
 ## 常用命令
 
@@ -85,17 +61,39 @@ mc-search --json full <模组名>
 ```bash
 mc-search --json search 钠              # 四平台并行
 mc-search --json search 钻石剑 --type item  # 物品搜索
-mc-search --json search 科技 --type modpack  # 整合包搜索
+mc-search --json search 科技 --type modpack  # 整合包搜索（MC百科 + Modrinth）
 mc-search --json search BSL --type shader  # 光影包（仅 Modrinth）
+mc-search --json search Faithful --type resourcepack  # 材质包（仅 Modrinth）
 mc-search --json search --author Notch  # MC百科作者
 ```
+
+**说明**：
+- 整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行
+- 光影包（`--type shader`）和材质包（`--type resourcepack`）**仅 Modrinth** 支持
+- minecraft.wiki 不支持整合包/光影包/材质包搜索
+- 整合包返回字段包含 `is_official`（是否为 MC百科官方收录）
 
 ### 详情
 
 ```bash
 mc-search --json info 钠                # MC百科详情
-mc-search --json full sodium            # 完整信息（推荐）
+mc-search --json info 钠 -m             # 同时查 Modrinth
 mc-search --json dep sodium             # Modrinth 依赖树
+mc-search --json full sodium            # 完整信息（含版本）
+```
+
+### 核心代码模块
+
+- **cli.py** - CLI 入口和命令处理（`_cmd_search`, `_cmd_info`, `_cmd_full`, `_cmd_wiki`, `_cmd_read`, `_cmd_dep`, `_cmd_author`）
+- **core.py** - 核心搜索逻辑和 API 调用（`search_mcmod`, `search_modrinth`, `search_wiki`, `get_mod_info`, `get_mod_dependencies`, `read_wiki`, `_curl`, `_parse_mcmod_result`）
+
+### 一键全量（推荐）
+
+```bash
+mc-search --json full 钠                # 一次获取模组全部信息
+mc-search --json full https://modrinth.com/shader/bsl  # 光影包
+mc-search --json full https://modrinth.com/resourcepack/faithful  # 材质包
+mc-search --json full https://modrinth.com/modpack/rl-craft  # 整合包
 ```
 
 ### Wiki
@@ -104,6 +102,8 @@ mc-search --json dep sodium             # Modrinth 依赖树
 mc-search --json wiki 附魔台            # Wiki 搜索
 mc-search --json read https://minecraft.wiki/w/Diamond_Sword  # 读取正文
 ```
+
+---
 
 ## 全局选项
 
@@ -115,6 +115,36 @@ mc-search --json read https://minecraft.wiki/w/Diamond_Sword  # 读取正文
 | `--no-mr` | 禁用 Modrinth |
 | `--no-wiki` | 禁用 minecraft.wiki |
 | `--no-wiki-zh` | 禁用中文 wiki |
+| `-o <file>` | 输出到文件 |
+
+---
+
+## 项目结构
+
+```
+mc-search-skill/
+├── .github/
+│   └── workflows/
+│       ├── claude-agent.yml      # Claude Agent CI/CD 工作流
+│       └── claude-review.yml     # 代码审查工作流
+├── .gitignore                     # Git 忽略配置
+├── LICENSE                        # MIT 许可证
+├── README.md                      # 中文说明文档
+├── README.en.md                   # 英文说明文档
+└── skills/mc-search/
+    ├── SKILL.md                   # Agent Skill 定义（触发器+命令）
+    ├── pyproject.toml             # Python 包配置（入口：mc-search = scripts.cli:main）
+    ├── scripts/
+    │   ├── __init__.py
+    │   ├── cli.py                 # CLI 入口和命令处理
+    │   └── core.py                # 核心搜索逻辑和 API 调用
+    └── references/
+        ├── result-schema.md       # 返回字段说明
+        ├── commands.md            # 命令参考
+        └── troubleshooting.md     # 故障排查指南
+```
+
+---
 
 ## 开发规范
 
@@ -123,6 +153,8 @@ mc-search --json read https://minecraft.wiki/w/Diamond_Sword  # 读取正文
 3. **网络请求**：统一通过 `core._curl()` 发出
 4. **依赖**：仅使用 Python 标准库 + curl，无外部依赖
 5. **数据处理**：MC百科使用 HTML 解析，Modrinth 使用 REST API
+
+---
 
 ## 本地测试
 
