@@ -1,17 +1,19 @@
 # mc-search
 
-> Claude Code Skill for Minecraft content search
+> Skill for Minecraft content search
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
 [![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](skills/mc-search/SKILL.md)
 
+[English Documentation →](README.en.md)
+
 ---
 
 ## 这是什么？
 
-**mc-search** 是一个 **Claude Code Skill**，让 AI Agent 能够从四大平台搜索和检索 Minecraft 相关内容。
+**mc-search** 是一个 **Agent Skill**，让 AI Agent 能够从四大平台搜索和检索 Minecraft 相关内容。
 
 **支持平台**：
 - **MC百科** (mcmod.cn) — 中文模组数据库
@@ -28,7 +30,7 @@
 ### 安装
 
 ```bash
-cd skills/mc-search
+cd mc-search
 pip install -e .
 ```
 

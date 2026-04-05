@@ -7,6 +7,8 @@
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
 [![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](skills/mc-search/SKILL.md)
 
+[中文文档 →](README.md)
+
 ---
 
 ## What is this?
