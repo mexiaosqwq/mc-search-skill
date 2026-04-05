@@ -1328,11 +1328,13 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
 
 def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     """
-    MC百科 整合包搜索。
+    MC百科 整合包搜索（优化版）。
 
-    搜索整合包使用 /modpack/ 页面，结构与 class 页面不同。
-    MC百科整合包搜索 URL: https://search.mcmod.cn/s?key={keyword}&filter=10
-    filter=10 是整合包过滤器。
+    搜索策略：
+    1. filter=2：整合包过滤（中文关键词效果最好）
+    2. filter=0：模组搜索（有时也返回整合包）
+    3. filter=20：另一种整合包过滤
+    4. filter=10：较少结果，作为补充
 
     注意：如果搜索关键词没有匹配结果，返回空列表而非抛出异常。
     """
@@ -1342,39 +1344,47 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
         return cached
 
     q = urllib.parse.quote(keyword)
-    # 使用 filter=2 而非 filter=10，返回更多整合包结果
-    html = _curl(f"https://search.mcmod.cn/s?key={q}&filter=2")
-    if not html:
-        return []  # 网络失败返回空列表
 
-    idx = html.find("search-result-list")
-    if idx == -1:
-        return []  # 页面结构变化返回空列表
-
-    # 找到结果区域的结束位置（分页区域）
-    end_idx = html.find('class="pagination"', idx)
-    if end_idx == -1:
-        end_idx = len(html)
-    section = html[idx:end_idx]
-    clean = re.sub(r"<em[^>]*>|</em>", "", section)
-
-    # 提取整合包 URL（/modpack/ 路径）
-    pairs = re.findall(
-        r'href="(https://www\.mcmod\.cn/modpack/\d+\.html)">([^<]+)</a>',
-        clean,
-    )
-
-    if not pairs:
-        return []  # 无结果返回空列表
-
-    # 去重
-    seen = set()
+    # 多 filter 策略：按优先级尝试不同的 filter 值
+    # filter=2 对中文关键词效果最好，filter=0/20/10 补充
     all_pairs = []
-    for raw_url, name in pairs:
-        name = name.strip()
-        if name and raw_url not in seen and not name.startswith("www."):
-            seen.add(raw_url)
-            all_pairs.append((raw_url, name))
+    seen = set()
+
+    for filter_val in ["2", "0", "20", "10"]:
+        html = _curl(f"https://search.mcmod.cn/s?key={q}&filter={filter_val}")
+        if not html:
+            continue
+
+        idx = html.find("search-result-list")
+        if idx == -1:
+            continue
+
+        # 找到结果区域的结束位置（分页区域）
+        end_idx = html.find('class="pagination"', idx)
+        if end_idx == -1:
+            end_idx = len(html)
+        section = html[idx:end_idx]
+        clean = re.sub(r"<em[^>]*>|</em>", "", section)
+
+        # 提取整合包 URL（/modpack/ 路径）
+        pairs = re.findall(
+            r'href="(https://www\.mcmod\.cn/modpack/\d+\.html)">([^<]+)</a>',
+            clean,
+        )
+
+        # 去重并添加到结果集
+        for raw_url, name in pairs:
+            name = name.strip()
+            if name and raw_url not in seen and not name.startswith("www."):
+                seen.add(raw_url)
+                all_pairs.append((raw_url, name))
+
+        # 如果已经找到足够结果，提前结束
+        if len(all_pairs) >= max_results:
+            break
+
+    if not all_pairs:
+        return []
 
     # 重新排序：名称匹配度优先（复用模组排序逻辑）
     keyword_lower = keyword.lower().replace(" ", "")
@@ -1396,7 +1406,7 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
         tier = _match_tier(pair)
         tiers[tier].append(pair)
 
-    # 合并：精确匹配优先
+    # 合并：精确匹配优先，其余保持原始顺序
     reordered = []
     for tier in [0, 1, 2, 3]:
         reordered.extend(tiers[tier])
