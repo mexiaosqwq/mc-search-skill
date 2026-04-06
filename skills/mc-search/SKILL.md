@@ -1,7 +1,7 @@
 ---
 name: mc-search
-version: "4.5.5"
-description: "Minecraft模组、整合包、光影包、wiki搜索工具"
+version: "4.5.6"
+description: "Minecraft 内容搜索 - 模组/整合包/光影/材质包/wiki 四平台聚合"
 license: MIT
 context: open
 user-invocable: true
@@ -11,482 +11,252 @@ triggers:
   - "查询"
   - "查找"
   - "模组"
-  - "mod"
   - "整合包"
   - "光影包"
   - "材质包"
   - "wiki"
 ---
 
-# mc-search — Minecraft Content Search
+# mc-search
 
-**When to use**: User asks about Minecraft mods, modpacks, shaders, resource packs, or vanilla game content.
+Minecraft 内容搜索工具，支持四平台并行：
+- **MC百科** (mcmod.cn) - 中文模组/整合包
+- **Modrinth** - 英文 mod/光影/材质
+- **minecraft.wiki** - 原版游戏内容
 
-**What it does**: Searches 4 platforms (MC百科, Modrinth, minecraft.wiki EN/ZH) and returns structured JSON results.
+## 何时使用
 
-## Quick Start
+当用户询问以下任何内容时**立即触发**：
 
-```bash
-mc-search --json search <keyword>
-mc-search --json full <mod-name>
-mc-search --json wiki <keyword>
-```
+### 模组/mod 相关
+- "搜索机械动力"
+- "钠模组信息"
+- "Create mod 怎么样"
+- "推荐几个科技模组"
+- "有什么好玩的模组"
 
-## Common Triggers
+### 整合包相关
+- "RLCraft 是什么"
+- "搜索科技整合包"
+- "推荐服务器整合包"
 
-| User says | Action |
-|-----------|--------|
-| "推荐几个xxx模组" | `search` by category |
-| "查一下xxx模组" | `full` for details |
-| "xxx mod 信息" | `full` or `info` |
-| "帮我找xxx" | `search` |
-| "wiki xxx" | `wiki` search |
-| "机械动力附属" | `search` for Create addons |
+### 光影/材质相关
+- "BSL 光影"
+- "搜索高清材质包"
+- "Complementary 光影怎么样"
 
-## I/O Contract
+### wiki/原版内容相关
+- "wiki 附魔台"
+- "下界合金怎么获得"
+- "村民交易列表"
 
-**Input**: Keyword or mod name (Chinese or English)
-**Output**: JSON array with search results
-
-**Key fields per result**:
-- `name` / `name_en` / `name_zh` - Display names
-- `description` - Full description (500 chars from body)
-- `source` - Platform (mcmod.cn / modrinth / minecraft.wiki)
-- `url` - Link to mod page
-- `downloads` / `author` / `supported_versions`
-
-## Usage Examples
+## 快速命令
 
 ```bash
-# Search mods
-mc-search --json search 机械动力
-mc-search --json search Create
+# 模糊搜索 - 不确定具体名称时
+mc-search --json search <关键词> [--type mod/item/modpack/shader/resourcepack]
 
-# Get full details
-mc-search --json full create
-mc-search --json full "Create: Steam 'n' Rails"
+# 获取详情 - 知道名称时（推荐首选）
+mc-search --json full <模组名>
 
-# Search wiki
-mc-search --json wiki diamond sword
-
-# By type
-mc-search --json search BSL --type shader
-mc-search --json search RLCraft --type modpack
+# wiki 查询 - 原版游戏内容
+mc-search --json wiki <关键词>
 ```
 
-## Integration
+## 决策表
 
-For Claude Code to auto-trigger this skill, ensure:
-1. User's message contains trigger words (see Common Triggers)
-2. skill is installed in `~/.claude/skills/mc-search/`
-3. `pip install -e .` was run in the skill directory
+| 用户需求 | 命令 | 示例 |
+|----------|------|------|
+| 知道名称，要详情 | `full` | `mc-search --json full 机械动力` |
+| 不确定名称，模糊搜 | `search` | `mc-search --json search 钠` |
+| 按类型过滤 | `search --type` | `mc-search --json search BSL --type shader` |
+| 查 wiki | `wiki` | `mc-search --json wiki 下界合金` |
+| 作者作品 | `search --author` | `mc-search --json search --author Notch` |
 
-## References
+## 返回数据结构
 
-- [commands.md](references/commands.md) - Full command reference
-- [result-schema.md](references/result-schema.md) - JSON schema details
-- [troubleshooting.md](references/troubleshooting.md) - Common issues
+### search 命令（JSON 数组）
 
-## 支持的项目类型
-
-| 类型 | 说明 | 支持平台 | 典型用途 |
-|------|------|----------|----------|
-| `mod` | 模组 | MC百科 + Modrinth | 搜索 Fabric/Forge 模组 |
-| `item` | 物品/方块 | MC百科 | 查询物品属性、合成表 |
-| `modpack` | 整合包 | MC百科 + Modrinth | 搜索整合包（如 RLCraft） |
-| `shader` | 光影包 | Modrinth | 搜索着色器（如 BSL、Complementary） |
-| `resourcepack` | 材质包/资源包 | Modrinth | 搜索材质包（如 Faithful） |
-| `entity` | 实体/生物 | minecraft.wiki | 查询原版生物信息 |
-| `biome` | 生物群系 | minecraft.wiki | 查询群系信息 |
-| `dimension` | 维度 | minecraft.wiki | 查询维度信息（下界/末地） |
-
----
-
-## 快速开始
-
-**执行格式**：
-```bash
-mc-search --json <子命令> <参数>
-```
-
-> ⚠️ **`--json` 必须放在最前面**（全局选项优先）
-
-### 快速决策表
-
-| 用户意图 | 推荐命令 | 示例 |
-|----------|----------|------|
-| 知道名称，要完整信息 | `full <名称>` | `mc-search --json full 钠` |
-| 不确定名称，模糊搜索 | `search <关键词>` | `mc-search --json search 钠` |
-| 搜索整合包 | `search --type modpack` | `mc-search --json search RLCraft --type modpack` |
-| 搜索光影包 | `search --type shader` | `mc-search --json search BSL --type shader` |
-| 搜索材质包 | `search --type resourcepack` | `mc-search --json search Faithful --type resourcepack` |
-| 查原版游戏内容 | `wiki <关键词>` | `mc-search --json wiki 附魔台` |
-| 查 Modrinth 依赖 | `dep <slug>` | `mc-search --json dep sodium` |
-| 查作者作品 | `search --author` | `mc-search --json search --author Notch` |
-
----
-
-## 命令参考
-
-### 1. search — 多平台并行搜索
-
-**用途**：不确定具体模组名时的模糊搜索，支持类型过滤。
-
-```bash
-mc-search --json search <关键词> [选项]
-```
-
-**选项**：
-| 选项 | 说明 | 默认 |
-|------|------|------|
-| `--type <类型>` | 类型过滤：`mod`/`item`/`modpack`/`shader`/`resourcepack`/`entity` | `mod` |
-| `-n <数量>` | 每平台最多结果数 | `3` |
-| `-t <秒>` | 超时时间 | `12` |
-| `--author <作者>` | MC百科作者搜索 | - |
-| `--fuse` | 融合四平台结果去重 | - |
-
-**示例**：
-```bash
-# 通用搜索
-mc-search --json search 钠
-
-# 类型过滤
-mc-search --json search 钻石剑 --type item
-mc-search --json search 科技 --type modpack
-mc-search --json search BSL --type shader
-
-# 作者搜索
-mc-search --json search --author Notch
-```
-
-**返回字段**（JSON）：
 ```json
 [
   {
-    "name": "钠",
-    "name_en": "Sodium",
-    "name_zh": "钠",
-    "url": "https://www.mcmod.cn/class/2785.html",
+    "name": "机械动力",
+    "name_en": "Create",
+    "name_zh": "机械动力",
+    "url": "https://www.mcmod.cn/class/2021.html",
     "source": "mcmod.cn",
     "type": "mod",
-    "snippet": "现代化优化模组...",
-    "categories": ["优化Mod"]
+    "snippet": "简述...",
+    "categories": ["科技Mod"],
+    "downloads": 5000000
   }
 ]
 ```
 
-### 2. full — 一键获取完整信息
+### full 命令（JSON 对象）
 
-**用途**：知道模组/整合包名称或 URL，获取所有详细信息（推荐首选）。
-
-```bash
-mc-search --json full <名称或URL> [选项]
-```
-
-**选项**：
-| 选项 | 说明 |
-|------|------|
-| `--skip-dep` | 跳过依赖查询（加速） |
-| `--skip-mr` | 跳过 Modrinth 查询（加速） |
-
-**示例**：
-```bash
-# 模组
-mc-search --json full 钠
-
-# 整合包
-mc-search --json full RLCraft
-mc-search --json full https://www.mcmod.cn/modpack/339.html
-
-# 光影包
-mc-search --json full https://modrinth.com/shader/complementary-reimagined
-
-# 材质包
-mc-search --json full https://modrinth.com/resourcepack/faithful
-```
-
-**返回字段**（JSON 对象）：
 ```json
 {
   "mcmod": {
-    "name_zh": "钠",
-    "name_en": "Sodium",
+    "name_zh": "机械动力",
+    "name_en": "Create",
     "status": "活跃",
-    "author": "JellySquid",
-    "categories": ["优化Mod"],
-    "supported_versions": ["1.20.1", "1.19.4"]
+    "author_team": [{"name": "Simibubi", "roles": ["程序"]}],
+    "description": "简介...",
+    "categories": ["科技Mod"],
+    "tags": ["机械", "自动化"],
+    "supported_versions": ["1.20.1", "1.18.2"],
+    "relationships": {
+      "requires": [{"name_zh": "飞轮", "url": "..."}],
+      "integrates": [{"name_zh": "JEI", "url": "..."}]
+    }
   },
   "modrinth": {
-    "downloads": 25000000,
-    "followers": 50000,
-    "latest_version": "0.6.0",
-    "loaders": ["fabric", "neoforge"],
-    "client_side": "required",
-    "server_side": "optional"
+    "downloads": 14000000,
+    "followers": 52000,
+    "author": "simibubi",
+    "client_side": "optional",
+    "server_side": "optional",
+    "license_name": "MIT",
+    "latest_version": "6.0.9",
+    "loaders": ["fabric", "neoforge"]
   },
   "dependencies": {
-    "deps": {},
-    "required_count": 0,
+    "deps": {
+      "flywheel": {"name": "Flywheel", "type": "required"}
+    },
+    "required_count": 1,
     "optional_count": 0
-  }
+  },
+  "saved_files": ["/path/to/output/Create_mod_full.md"]
 }
 ```
 
-### 3. info — MC百科详情
+### 关键字段说明
 
-**用途**：查看 MC百科 模组/物品的详细信息。
-
-```bash
-mc-search --json info <名称或URL或ID> [选项]
-```
-
-**选项**：
-| 选项 | 说明 |
+| 字段 | 说明 |
 |------|------|
-| `-T` | 仅名称/别名 |
-| `-a` | 仅作者 |
-| `-d` | 仅前置/联动模组 |
-| `-v` | 仅支持版本 |
-| `-g` | 仅截图/封面 |
-| `-c` | 仅分类/标签 |
-| `-s` | 仅来源链接 |
-| `-S` | 仅状态/开源属性 |
-| `-m` | 同时查 Modrinth |
-| `-r` | 显示物品合成表（仅 item） |
+| `name` / `name_en` / `name_zh` | 中英文名称 |
+| `source` | 数据来源平台 |
+| `type` | 项目类型 (mod/item/modpack/shader/resourcepack) |
+| `status` | 模组状态 (活跃/半弃坑/弃坑) |
+| `client_side` / `server_side` | 客户端/服务端需求 (required/optional/unsupported) |
+| `relationships.requires` | 前置模组（必需依赖） |
+| `relationships.integrates` | 联动模组（兼容） |
 
-**示例**：
-```bash
-mc-search --json info 钠
-mc-search --json info 钠 -m
-mc-search --json info 钻石剑 -r
+## 文件输出
+
+当描述过长时**自动保存**到 `output/` 目录：
+
+**触发条件**：
+- Modrinth body > 3000 字符
+- MC百科简介 > 5000 字符
+
+**文件命名**：`{名称}_{类型}_full.md`
+
+**JSON 响应**包含：
+```json
+{
+  "saved_files": [
+    "/path/to/skill/output/Create_mod_full.md"
+  ]
+}
 ```
 
-### 4. wiki — minecraft.wiki 搜索
+AI 可直接读取或上传这些文件。
 
-**用途**：搜索原版游戏内容（附魔、合成、生物、方块等）。
+## 依赖显示规则
 
+- **前置模组（必需依赖）**：优先显示 Modrinth 数据
+- **联动模组**：使用 MC百科 数据
+- 如果都没有：显示"无"
+
+## 实用示例
+
+### 1. 搜索模组
 ```bash
-mc-search --json wiki <关键词> [选项]
+mc-search --json search 机械动力
 ```
 
-**选项**：
-| 选项 | 说明 |
-|------|------|
-| `-n <数量>` | 最多结果数 | `5` |
-| `-r` | 搜索后直接读取第一个页面 |
-
-**示例**：
+### 2. 获取完整信息
 ```bash
-mc-search --json wiki 附魔台
-mc-search --json wiki 凋灵 -r
+mc-search --json full Create
 ```
 
-### 5. read — 读取 wiki 页面正文
-
-**用途**：已知 wiki URL，读取完整内容。
+### 3. 按类型搜索
 
 ```bash
-mc-search --json read <URL> [选项]
+mc-search --json search BSL --type shader           # 光影包
+mc-search --json search Faithful --type resourcepack # 材质包
+mc-search --json search RLCraft --type modpack       # 整合包
 ```
 
-**选项**：
-| 选项 | 说明 |
-|------|------|
-| `-p <段落数>` | 最多段落数 | `5` |
-
-**示例**：
-```bash
-mc-search --json read https://minecraft.wiki/w/Diamond_Sword -p 8
-```
-
-### 6. dep — Modrinth 依赖树
-
-**用途**：查看 Modrinth 模组的依赖关系。
+### 4. wiki 查询（原版内容）
 
 ```bash
-mc-search --json dep <mod_slug>
+mc-search --json wiki 下界合金
+mc-search --json wiki "Villager Trading"  # 英文
 ```
 
-**示例**：
+**wiki 搜索特点**：
+- 只搜索 minecraft.wiki（中英双站）
+- 返回游戏机制、合成表等原版内容
+- 不适用于模组内容
+
+### 5. 依赖查询
 ```bash
 mc-search --json dep sodium
 ```
 
-### 7. author — Modrinth 作者搜索
+## 注意事项
 
-**用途**：查看某作者在 Modrinth 上的作品。
+1. **`--json` 位置**：必须放在子命令**之前**
+   ```bash
+   mc-search --json search 钠   # ✓
+   mc-search search --json 钠   # ✗
+   ```
 
-```bash
-mc-search --json author <用户名> [选项]
-```
+2. **类型过滤**：支持 `mod`/`item`/`modpack`/`shader`/`resourcepack`
 
-**选项**：
-| 选项 | 说明 |
-|------|------|
-| `-n <数量>` | 最多结果数 | `10` |
+3. **网络稳定性**：四平台并行，单个失败不影响其他结果
 
-**示例**：
-```bash
-mc-search --json author jellysquid_ -n 20
-```
+4. **缓存**：可使用 `--cache` 启用本地缓存（TTL 1小时）
 
-### 8. mr — Modrinth 单平台搜索
+## 平台特性
 
-**用途**：直接在 Modrinth 上搜索（支持光影/材质包），比 `search` 更快。
+| 平台 | 优势 | 适用场景 |
+|------|------|----------|
+| MC百科 | 中文详细，联动信息全 | 中文用户、找联动模组 |
+| Modrinth | 英文官方，依赖准确 | 依赖查询、版本信息、光影/材质包 |
+| minecraft.wiki | 原版百科 | 合成表、游戏机制 |
 
-```bash
-mc-search --json mr <关键词> [选项]
-```
+## 不同类型内容的差异
 
-**选项**：
-| 选项 | 说明 | 默认 |
-|------|------|------|
-| `-t <类型>` | 项目类型：`mod`/`shader`/`resourcepack` | `mod` |
-| `-n <数量>` | 最多结果数 | `5` |
+### 模组 (mod)
+- **搜索范围**: MC百科 + Modrinth
+- **返回**: 中英文信息、依赖关系、支持版本
 
-**示例**：
-```bash
-# 搜索模组
-mc-search --json mr sodium
+### 光影包 (shader)
+- **搜索范围**: 仅 Modrinth
+- **返回**: 英文信息、截图、下载量
 
-# 搜索光影包
-mc-search --json mr shaders -t shader
+### 材质包 (resourcepack)
+- **搜索范围**: 仅 Modrinth
+- **返回**: 英文信息、预览图
 
-# 搜索材质包
-mc-search --json mr faithful -t resourcepack
-```
+### 整合包 (modpack)
+- **搜索范围**: MC百科 + Modrinth
+- **返回**: 包含模组列表、下载链接
 
----
-
-## 特殊搜索场景
-
-### 搜索生物群系 (biome)
-
-```bash
-# 搜索生物群系（minecraft.wiki）
-mc-search --json search " Plains" --type biome
-mc-search --json search "Nether" --type biome
-```
-
-### 搜索维度 (dimension)
-
-```bash
-# 搜索维度（minecraft.wiki）
-mc-search --json search "Overworld" --type dimension
-mc-search --json search "End" --type dimension
-```
-
-### 搜索实体 (entity)
-
-```bash
-# 搜索实体/生物（minecraft.wiki）
-mc-search --json search "Creeper" --type entity
-mc-search --json search "Villager" --type entity
-```
-
-### 融合搜索结果
-
-```bash
-# 融合四平台结果，去重后返回
-mc-search --json search sodium --fuse
-```
-
-> **`--fuse` 说明**：将四平台结果合并，按相关性排序并去重同名项目，返回最多 15 条结果。
-
----
-
-## 全局选项
-
-> ⚠️ **位置**：必须放在子命令**之前**
-
-```bash
-mc-search --json search 钠          # ✓ 正确
-mc-search search --json 钠          # ✗ 错误
-```
-
-| 选项 | 说明 |
-|------|------|
-| `--json` | JSON 格式输出（Agent 推荐） |
-| `--cache` | 启用本地缓存（TTL 1小时） |
-| `--no-mcmod` | 禁用 MC百科 |
-| `--no-mr` | 禁用 Modrinth |
-| `--no-wiki` | 禁用 minecraft.wiki（英文） |
-| `--no-wiki-zh` | 禁用中文 wiki |
-| `-o <文件>` | 输出到文件 |
-
----
-
-## 智能排序逻辑
-
-### 搜索排序规则
-
-`search` 命令使用相关性排序，优先级从高到低：
-
-| 优先级 | 条件 | 示例 |
-|--------|------|------|
-| 1️⃣ 精确匹配 | 名称完全等于搜索词 | 搜 "spawn" → "Spawn" 排第 1 |
-| 2️⃣ 前缀匹配 | 名称以搜索词开头 | 搜 "sod" → "Sodium" 排前 |
-| 3️⃣ 包含匹配 | 名称包含搜索词 | 搜 "spawn" → "OreSpawn" 排后 |
-| 4️⃣ 多平台加权 | 同时出现在多个平台 | 跨平台结果排名提升 |
-| 5️⃣ 平台权威度 | 同分时优先级 | MC百科 > Modrinth > Wiki |
-
-### 版本优先级
-
-当 MC百科 和 Modrinth 版本不一致时，**以 Modrinth 为准**：
-- Modrinth 是官方发布平台，更新更及时
-- MC百科 可能存在版本信息延迟
-
----
-
-## 使用示例
-
-### 示例 1：搜索模组
-
-```bash
-# 搜索并获取完整信息
-mc-search --json search 钠
-mc-search --json full 钠
-```
-
-### 示例 2：搜索光影包
-
-```bash
-# 搜索光影包（仅 Modrinth）
-mc-search --json search Complementary --type shader
-
-# 获取完整信息
-mc-search --json full https://modrinth.com/shader/complementary-reimagined
-```
-
-### 示例 3：搜索整合包
-
-```bash
-# 搜索整合包（MC百科 + Modrinth）
-mc-search --json search RLCraft --type modpack
-
-# 获取完整信息
-mc-search --json full RLCraft
-```
-
----
+### wiki 内容
+- **搜索范围**: minecraft.wiki (中英)
+- **返回**: 游戏机制、合成表、生物信息
+- **不适用**: --type 参数
 
 ## 错误处理
 
-| 错误信息 | 原因 | 解决方法 |
-|----------|------|----------|
-| `四个平台均无 [关键词] 相关结果` | 关键词不存在或拼写错误 | 尝试其他关键词 |
-| `无法解析模组 ID` | URL 格式问题 | 直接使用 URL：`info <URL>` |
-| `mod_id 查询依赖时网络错误` | API 限流（360次/小时） | 稍后重试 |
-
-**调试技巧**：
-```bash
-mc-search --json search 关键词 2>&1 | python3 -m json.tool
-```
-
----
-
-## 相关文档
-
-- [commands.md](references/commands.md) — 完整命令参考
-- [result-schema.md](references/result-schema.md) — 返回字段定义
-- [troubleshooting.md](references/troubleshooting.md) — 故障排查指南
+| 情况 | 处理 |
+|------|------|
+| 无结果 | 尝试其他关键词/平台 |
+| 网络错误 | 自动重试 |
+| 版本不一致 | 以 Modrinth 为准（官方发布） |

@@ -733,9 +733,19 @@ def _extract_mcmod_relationships(html: str) -> dict:
 
 def _extract_mcmod_author_status(html: str) -> tuple[str | None, str | None, str | None, bool]:
     """提取作者、状态、开源属性。返回 (author, status, source_type)。"""
-    # 使用通用函数提取作者和状态
+    # 使用通用函数提取作者
     author = _extract_mcmod_field(html, "Mod作者/开发团队") or _extract_mcmod_field(html, "作者")
-    status = _extract_mcmod_field(html, "状态")
+
+    # 提取状态：新版MC百科使用 <div class="class-status"> 结构
+    status = None
+    status_match = re.search(r'class="class-status[^"]*">([^<]+)', html)
+    if status_match:
+        status = status_match.group(1).strip()
+    else:
+        # 降级：尝试旧版表格结构
+        status = _extract_mcmod_field(html, "状态")
+        if not status:
+            status = None
 
     # 如果作者字段为空，尝试从 title 属性提取
     if not author:
@@ -1128,7 +1138,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "community_stats": community_stats if any(community_stats.values()) else None,  # 新增：社区数据
         "status": status,
         "source_type": source_type,
-        "description": description[:_MAX_SEARCH_DESC_CHARS] if description else "",
+        "description": description,  # 返回完整描述（由调用方决定是否截断）
         "relationships": relationships if relationships["requires"] or relationships["integrates"] else None,
         "has_changelog": has_changelog,
         "external_links": external_links if external_links else None,
@@ -1162,41 +1172,24 @@ def _parallel_fetch_with_fallback(items: list, fetch_func: callable, max_workers
     return results
 
 
-def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") -> list[dict]:
-    """
-    MC百科 搜索。
-
-    content_type: "mod" | "item" | "modpack"
-      - "mod"     → filter=0  → /class/ 页面（综合排序，主模组更靠前）
-      - "item"    → filter=3  → /item/  页面（物品/方块）
-      - "modpack" → 使用多 filter 策略搜索整合包
-    """
-    # 整合包使用专用搜索函数（多 filter 策略）
-    if content_type == "modpack":
-        return search_mcmod_modpack(keyword, max_results)
-
+def _build_mcmod_search_urls(keyword: str, content_type: str) -> list[str]:
+    """构建MC百科搜索URL列表"""
     # filter 映射
     filter_map = {"mod": _MCMOD_FILTER_MOD, "item": _MCMOD_FILTER_ITEM}
-    if content_type not in filter_map:
+    if content_type not in filter_map and content_type != "modpack":
         raise ValueError(f"search_mcmod 不支持的 content_type: {content_type}。仅支持 'mod' / 'item' / 'modpack'")
-    filter_val = filter_map[content_type]
-
-    # 整合包使用专用搜索函数
-    if content_type == "modpack":
-        return search_mcmod_modpack(keyword, max_results)
-
-    key = _cache_key("mcmod", keyword, max_results, content_type)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
 
     q = urllib.parse.quote(keyword)
-    html = _curl(f"https://search.mcmod.cn/s?key={q}&filter={filter_val}")
-    if not html:
-        raise _SearchError(f"MC百科 网络请求失败（空响应）：{keyword}")
-    if len(html) < _MIN_HTML_LEN:
-        raise _SearchError(f"MC百科 响应过短（可能被封）：{keyword}")
 
+    # 物品用 /item/ URL，模组用 /class/ URL
+    if content_type == "item":
+        return [f"https://search.mcmod.cn/s?key={q}&filter={_MCMOD_FILTER_ITEM}"]
+    else:
+        return [f"https://search.mcmod.cn/s?key={q}&filter={_MCMOD_FILTER_MOD}"]
+
+
+def _parse_mcmod_search_results(html: str, content_type: str, keyword: str) -> list[tuple[str, str]]:
+    """解析MC百科搜索结果页面，提取URL和名称对"""
     idx = html.find("search-result-list")
     if idx == -1:
         raise _SearchError(f"MC百科 搜索结果页结构变化（无 search-result-list）：{keyword}")
@@ -1228,7 +1221,7 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     if not pairs:
         raise _SearchError(f"MC百科 无结果（{content_type}）：{keyword}")
 
-    # 去重（但不限制数量，先排序再截断）
+    # 去重
     seen = set()
     all_pairs = []
     for raw_url, name in pairs:
@@ -1237,8 +1230,13 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
             seen.add(raw_url)
             all_pairs.append((raw_url, name))
 
-    # 重新排序：名称匹配度优先
+    return all_pairs
+
+
+def _rank_mcmod_results(all_pairs: list[tuple[str, str]], keyword: str) -> list[tuple[str, str]]:
+    """按名称匹配度排序MC百科搜索结果"""
     keyword_lower = keyword.lower().replace(" ", "")
+
     def _match_tier(pair):
         """返回匹配层级（0-3），数值越小越匹配"""
         raw_url, name = pair
@@ -1262,10 +1260,14 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     for tier in [0, 1, 2, 3]:
         reordered.extend(tiers[tier])
 
-    # 最后截断到 max_results
-    limited_pairs = reordered[:max_results]
+    return reordered
 
-    # 并行抓取详情页（使用通用辅助函数）
+
+def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str) -> list[dict]:
+    """并行抓取模组详情页"""
+    if not limited_pairs:
+        return []
+
     def _fetch_one(args):
         raw_url, name = args
         page_html = _curl(raw_url)
@@ -1279,7 +1281,56 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
         limited_pairs, _fetch_one,
         max_workers=min(len(limited_pairs), _MAX_FETCH_WORKERS)
     )
+    return results
 
+
+def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") -> list[dict]:
+    """
+    MC百科 搜索。
+
+    content_type: "mod" | "item" | "modpack"
+      - "mod"     → filter=0  → /class/ 页面（综合排序，主模组更靠前）
+      - "item"    → filter=3  → /item/  页面（物品/方块）
+      - "modpack" → 使用多 filter 策略搜索整合包
+    """
+    # 整合包使用专用搜索函数（多 filter 策略）
+    if content_type == "modpack":
+        return search_mcmod_modpack(keyword, max_results)
+
+    # 1. 缓存检查
+    key = _cache_key("mcmod", keyword, max_results, content_type)
+    cached = _cache_get("search", key)
+    if cached is not None:
+        return cached
+
+    # 2. 构建搜索URL
+    urls = _build_mcmod_search_urls(keyword, content_type)
+
+    # 3. 执行搜索
+    html = _curl(urls[0])
+    if not html:
+        raise _SearchError(f"MC百科 网络请求失败（空响应）：{keyword}")
+    if len(html) < _MIN_HTML_LEN:
+        raise _SearchError(f"MC百科 响应过短（可能被封）：{keyword}")
+
+    # 4. 解析结果
+    all_pairs = _parse_mcmod_search_results(html, content_type, keyword)
+
+    # 5. 按匹配度排序
+    reordered = _rank_mcmod_results(all_pairs, keyword)
+
+    # 6. 截断到 max_results
+    limited_pairs = reordered[:max_results]
+
+    # 7. 抓取详情
+    results = _fetch_mcmod_details(limited_pairs, content_type)
+
+    # 8. 截断描述（控制 token 消耗）
+    for r in results:
+        if r.get('description') and len(r['description']) > _MAX_SEARCH_DESC_CHARS:
+            r['description'] = r['description'][:_MAX_SEARCH_DESC_CHARS]
+
+    # 9. 缓存并返回
     _cache_set("search", key, results)
     return results
 
@@ -1470,9 +1521,9 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
         full_info = fetch_mod_info(slug, no_limit=True) if slug else None
         if full_info:
             body = full_info.get("body", "")
-            # 用body前500字符作为详细描述
+            # 用body前_MAX_SEARCH_DESC_CHARS字符作为详细描述
             if body:
-                description = body[:500] + ("..." if len(body) > 500 else "")
+                description = body[:_MAX_SEARCH_DESC_CHARS] + ("..." if len(body) > _MAX_SEARCH_DESC_CHARS else "")
 
         result = {
             "name": hit.get("title", ""),
@@ -1518,6 +1569,128 @@ def _parse_modrinth_donations(data: dict) -> list[dict]:
     ]
 
 
+def _html_to_text(html: str) -> str:
+    """将 HTML 转换为纯文本。
+
+    处理常见的 HTML 标签：
+    - <p>, <div>, <br>, <h1-h6> -> 换行
+    - <a> -> 保留链接文本
+    - <iframe> -> 提取 YouTube 链接
+    - 去除 HTML 实体
+    """
+    if not html:
+        return html
+
+    text = html
+
+    # 1. 提取 YouTube iframe 链接
+    def replace_iframe(m):
+        attrs = m.group(1)
+        src_match = re.search(r'src="([^"]+)"', attrs)
+        if src_match:
+            src = src_match.group(1)
+            if 'youtube' in src:
+                return f'\n\n[YouTube 视频]({src})\n\n'
+        return ''
+
+    text = re.sub(r'<iframe([^>]*)>', replace_iframe, text, flags=re.IGNORECASE)
+
+    # 2. 处理链接：<a href="...">text</a> -> text
+    text = re.sub(r'<a[^>]*>(.*?)</a>', r'\1', text, flags=re.DOTALL | re.IGNORECASE)
+
+    # 3. 处理图片：<img alt="..." src="..."> -> ![alt](src)
+    def replace_img(m):
+        alt_match = re.search(r'alt="([^"]*)"', m.group(0))
+        src_match = re.search(r'src="([^"]*)"', m.group(0))
+        alt = alt_match.group(1) if alt_match else ''
+        src = src_match.group(1) if src_match else ''
+        if alt and src:
+            return f'![{alt}]({src})'
+        return ''
+
+    text = re.sub(r'<img[^>]*/?>', replace_img, text, flags=re.IGNORECASE)
+
+    # 4. 处理标题标签 -> 加 ## 前缀
+    text = re.sub(r'<h[1-6][^>]*>', '\n## ', text, flags=re.IGNORECASE)
+    text = re.sub(r'</h[1-6]>', '\n', text, flags=re.IGNORECASE)
+
+    # 5. 处理段落和换行
+    text = re.sub(r'<(p|div|br|hr|blockquote)[^>]*>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'</(p|div|br|hr|blockquote)>', '\n', text, flags=re.IGNORECASE)
+
+    # 6. 处理列表
+    text = re.sub(r'<li[^>]*>', '\n- ', text, flags=re.IGNORECASE)
+    text = re.sub(r'</li>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'</?(ul|ol)[^>]*>', '\n', text, flags=re.IGNORECASE)
+
+    # 7. 处理代码块
+    text = re.sub(r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```\n', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', text, flags=re.DOTALL | re.IGNORECASE)
+
+    # 8. 处理粗体和斜体
+    text = re.sub(r'<(strong|b)[^>]*>(.*?)</\1>', r'**\2**', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<(em|i)[^>]*>(.*?)</\1>', r'*\2*', text, flags=re.DOTALL | re.IGNORECASE)
+
+    # 9. 移除所有剩余的 HTML 标签
+    text = re.sub(r'<[^>]+>', '', text)
+
+    # 10. 处理 HTML 实体
+    text = html_module.unescape(text)
+
+    # 11. 清理多余空行（超过2个连续空行 -> 2个）
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    # 12. 将 \xa0 (nbsp) 替换为普通空格
+    text = text.replace('\xa0', ' ')
+
+    # 13. 去除首尾空白
+    text = text.strip()
+
+    return text
+
+
+def _clean_modrinth_body(body: str) -> str:
+    """清洗 Modrinth body 字段：HTML 转文本 + 移除赞助者名单。
+
+    步骤：
+    1. 将 HTML 转换为纯文本
+    2. 截断到 "Our Patrons" 等标记处
+    """
+    if not body:
+        return body
+
+    # 1. 先转换 HTML 为纯文本
+    text = _html_to_text(body)
+
+    # 2. 定义多个可能的截断标记（按优先级排序）
+    cut_markers = [
+        "## Our Patrons",
+        "### Our Patrons",
+        "Our Patrons",
+        "## Patrons",
+        "### Patrons",
+        "## Supporters",
+        "### Supporters",
+    ]
+
+    best_cut_pos = len(text)  # 默认不截断
+
+    for marker in cut_markers:
+        pos = text.find(marker)
+        if pos != -1 and pos < best_cut_pos:
+            best_cut_pos = pos
+
+    # 如果找到了截断位置，截取并添加提示
+    if best_cut_pos < len(text):
+        cut_text = text[:best_cut_pos].rstrip()
+        # 如果截取后为空，返回原文
+        if not cut_text:
+            return text
+        return cut_text + "\n\n*(赞助者名单等冗长内容已省略)*"
+
+    return text
+
+
 def _build_modrinth_result(data: dict, project_id: str, body: str, gallery: list[str], ctx: dict) -> dict:
     """构建Modrinth结果字典。返回包含name/url/downloads等字段的dict。"""
     project_type = data.get("project_type", "mod")
@@ -1558,114 +1731,142 @@ def _build_modrinth_result(data: dict, project_id: str, body: str, gallery: list
     }
 
 
+def _format_modrinth_versions(project_id: str, no_limit: bool) -> dict:
+    """获取并格式化Modrinth版本信息"""
+    versions = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/version?max={_MAX_VERSIONS_FETCH}", [])
+    if not versions:
+        return {}
+
+    # 获取最新版本信息
+    latest = versions[0]
+    result = {
+        "latest_version": latest.get("version_number", ""),
+        "game_versions": latest.get("game_versions", []),
+        "loaders": latest.get("loaders", []),
+    }
+
+    # 按mod版本号分组（去掉loader前缀和mc<ver>-前缀）
+    known_loaders = {"fabric", "forge", "neoforge", "quilt"}
+    seen_mod_vers = {}
+    for v in versions:
+        vn = v.get("version_number", "")
+        if not vn:
+            continue
+        stripped_ver = vn
+        for ld in known_loaders:
+            if stripped_ver.endswith(f"-{ld}"):
+                stripped_ver = stripped_ver[:-len(ld) - 1]
+                break
+        mod_ver = re.sub(r'^mc[\d\.]+-', '', stripped_ver) or stripped_ver
+        if mod_ver not in seen_mod_vers:
+            seen_mod_vers[mod_ver] = {"game_versions": set(), "loaders": set()}
+        seen_mod_vers[mod_ver]["game_versions"].update(v.get("game_versions", []))
+        seen_mod_vers[mod_ver]["loaders"].update(v.get("loaders", []))
+
+    items = [(k, {"game_versions": sorted(v["game_versions"]), "loaders": sorted(v["loaders"])})
+             for k, v in seen_mod_vers.items()]
+
+    version_total = len(items)
+    result["version_groups"] = items if no_limit else items[:_MAX_VERSION_GROUPS]
+    result["_version_total"] = version_total  # 用于截断元信息
+
+    # changelog处理
+    changelogs = []
+    for v in (versions if no_limit else versions[:_MAX_CHANGELOGS]):
+        cl = v.get("changelog", "").strip()
+        if cl:
+            changelogs.append({
+                "version": v.get("version_number", ""),
+                "date": (v.get("date_published") or "")[:10],
+                "changelog": cl,
+            })
+    changelog_total = sum(1 for v in versions if v.get("changelog", "").strip())
+    result["changelogs"] = changelogs
+    result["_changelog_total"] = changelog_total  # 用于截断元信息
+
+    return result
+
+
+def _fetch_modrinth_team_author(project_id: str) -> str:
+    """从团队成员中获取作者"""
+    team = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/members", [])
+    for m in team:
+        if m.get("role") in ("Owner", "Developer", "Project Lead"):
+            return m.get("user", {}).get("username") or m.get("user", {}).get("name", "")
+    return ""
+
+
 def fetch_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
     """
     获取 mod 完整信息（Modrinth）。
     mod_id 可以是 slug 或 project_id。
     no_limit: True 时返回完整数据（用于 full 命令），False 时使用默认限制并返回 _truncated 元信息。
     """
+    # 1. 缓存检查
     cache_key = _cache_key("modinfo", mod_id, "full" if no_limit else "limited")
     cached = _cache_get("mod", cache_key)
     if cached is not None:
         return cached
 
+    # 2. API调用
     data = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
     if not data:
         return None
 
     project_id = data.get("id", "")
 
-    # 解析许可证字段
+    # 3. 解析许可证和捐赠
     license_id, license_name, license_url = _parse_modrinth_license(data.get("license"))
-
-    # 解析捐赠链接
     donation_urls = _parse_modrinth_donations(data)
 
-    # body 处理
+    # 4. 处理body和gallery（无限制，返回完整数据）
     raw_body = data.get("body") or ""
-    body_total_len = len(raw_body)
-    body = raw_body if no_limit else raw_body[:_MAX_BODY_CHARS]
+    # 清洗：移除 "Our Patrons" 及之后的赞助者名单（Modrinth 特有脏数据）
+    cleaned_body = _clean_modrinth_body(raw_body)
+    body_total_len = len(cleaned_body)
+    body = cleaned_body  # 完整返回，不截断
 
-    # gallery 处理
     raw_gallery = [g.get("url") for g in data.get("gallery", []) if g.get("url")]
     gallery_total = len(raw_gallery)
-    gallery = raw_gallery if no_limit else raw_gallery[:_MAX_GALLERY]
+    gallery = raw_gallery  # 完整返回，不截断
 
-    # 构建解析上下文（减少参数传递）
+    # 5. 构建结果
     ctx = {
         "license_id": license_id,
         "license_name": license_name,
         "license_url": license_url,
         "donation_urls": donation_urls,
     }
-
-    # 构建结果字典
     result = _build_modrinth_result(data, project_id, body, gallery, ctx)
 
-    # 截断元信息（仅非 no_limit 模式）
+    # 6. 添加截断元信息（仅当实际截断时）
     truncated = {}
-    if not no_limit:
-        if body_total_len > _MAX_BODY_CHARS:
-            truncated["body"] = {"returned": _MAX_BODY_CHARS, "total": body_total_len}
-        if gallery_total > _MAX_GALLERY:
-            truncated["gallery"] = {"returned": _MAX_GALLERY, "total": gallery_total}
+    if gallery_total > _MAX_GALLERY and not no_limit:
+        truncated["gallery"] = {"returned": _MAX_GALLERY, "total": gallery_total}
 
-    # 获取团队成员（作者）
-    team = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/members", [])
-    for m in team:
-        if m.get("role") in ("Owner", "Developer", "Project Lead"):
-            result["author"] = m.get("user", {}).get("username") or m.get("user", {}).get("name", "")
-            break
+    # 7. 获取作者
+    result["author"] = _fetch_modrinth_team_author(project_id)
 
-    # 获取所有版本，聚合：按 mod 版本号分组（去掉 loader 前缀和 mc<ver>- 前缀）
-    versions = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/version?max={_MAX_VERSIONS_FETCH}", [])
-    if versions:
-        latest = versions[0]
-        result["latest_version"] = latest.get("version_number", "")
-        result["game_versions"] = latest.get("game_versions", [])
-        result["loaders"] = latest.get("loaders", [])
+    # 8. 获取版本信息
+    version_info = _format_modrinth_versions(project_id, no_limit)
+    if version_info:
+        result.update({
+            "latest_version": version_info.get("latest_version"),
+            "game_versions": version_info.get("game_versions"),
+            "loaders": version_info.get("loaders"),
+            "version_groups": version_info.get("version_groups"),
+            "changelogs": version_info.get("changelogs"),
+        })
+        # 添加截断元信息
+        if not no_limit:
+            version_total = version_info.get("_version_total", 0)
+            changelog_total = version_info.get("_changelog_total", 0)
+            if version_total > _MAX_VERSION_GROUPS:
+                truncated["version_groups"] = {"returned": _MAX_VERSION_GROUPS, "total": version_total}
+            if changelog_total > _MAX_CHANGELOGS:
+                truncated["changelogs"] = {"returned": _MAX_CHANGELOGS, "total": changelog_total}
 
-        known_loaders = {"fabric", "forge", "neoforge", "quilt"}
-        seen_mod_vers = {}
-        for v in versions:
-            vn = v.get("version_number", "")
-            if not vn:
-                continue
-            # Strip -<loader> suffix, then mc<game_ver>- prefix
-            stripped_ver = vn
-            for ld in known_loaders:
-                if stripped_ver.endswith(f"-{ld}"):
-                    stripped_ver = stripped_ver[:-len(ld) - 1]
-                    break
-            mod_ver = re.sub(r'^mc[\d\.]+-', '', stripped_ver) or stripped_ver
-            if mod_ver not in seen_mod_vers:
-                seen_mod_vers[mod_ver] = {"game_versions": set(), "loaders": set()}
-            seen_mod_vers[mod_ver]["game_versions"].update(v.get("game_versions", []))
-            seen_mod_vers[mod_ver]["loaders"].update(v.get("loaders", []))
-        items = [(k, {"game_versions": sorted(v["game_versions"]), "loaders": sorted(v["loaders"])})
-                 for k, v in seen_mod_vers.items()]
-
-        version_total = len(items)
-        result["version_groups"] = items if no_limit else items[:_MAX_VERSION_GROUPS]
-        if not no_limit and version_total > _MAX_VERSION_GROUPS:
-            truncated["version_groups"] = {"returned": _MAX_VERSION_GROUPS, "total": version_total}
-
-        # changelog 处理
-        changelogs = []
-        for v in (versions if no_limit else versions[:_MAX_CHANGELOGS]):
-            cl = v.get("changelog", "").strip()
-            if cl:
-                changelogs.append({
-                    "version": v.get("version_number", ""),
-                    "date": (v.get("date_published") or "")[:10],
-                    "changelog": cl,
-                })
-        changelog_total = sum(1 for v in versions if v.get("changelog", "").strip())
-        result["changelogs"] = changelogs
-        if not no_limit and changelog_total > _MAX_CHANGELOGS:
-            truncated["changelogs"] = {"returned": _MAX_CHANGELOGS, "total": changelog_total}
-
-    # 添加截断元信息
+    # 9. 添加截断元信息并返回
     if truncated:
         result["_truncated"] = truncated
 
@@ -1820,6 +2021,7 @@ def _search_wiki_impl(
 
             # 提取描述 snippet（从第一段提取纯文本）
             snippet = ""
+            snippet_source = "intro"  # 标记来源
             # 找到 mw-parser-output 区域
             parser_output = re.search(r'<div[^>]+class="[^"]*mw-parser-output[^"]*"[^>]*>', html)
             if parser_output:
@@ -1829,9 +2031,16 @@ def _search_wiki_impl(
                 # 先移除 script/style/media 标签
                 segment = re.sub(r'<script[^>]*>.*?</script>', ' ', segment, flags=re.DOTALL)
                 segment = re.sub(r'<style[^>]*>.*?</style>', ' ', segment, flags=re.DOTALL)
-                segment = re.sub(r'<img[^>]*/?>', ' ', segment)
-                # 清洗所有 HTML 标签
-                text = re.sub(r'<[^>]+>', '\n', segment)
+                # 彻底移除所有图片/媒体标签
+                segment = re.sub(r'<img[^>]*/?>', ' ', segment, flags=re.IGNORECASE)
+                segment = re.sub(r'<source[^>]*/?>', ' ', segment, flags=re.IGNORECASE)
+                segment = re.sub(r'<picture[^>]*/?>', ' ', segment, flags=re.IGNORECASE)
+                # 清洗所有 HTML 完整标签
+                text = re.sub(r'<[^>]+>', ' ', segment)
+                # 清理未闭合的 HTML 标签（如 <img src=" ...，但保留中文文本）
+                text = re.sub(r'<[a-zA-Z]\w*\s[^>]*', ' ', text)
+                # 清理 wiki 内部链接 [[...]]
+                text = re.sub(r'\[\[[^\]]*\]\]', ' ', text)
                 text = re.sub(r'\s+', ' ', text).strip()
                 # 找到第一段有意义的内容
                 lines = [l.strip() for l in text.split('\n') if l.strip()]
@@ -1839,8 +2048,13 @@ def _search_wiki_impl(
                     '{{', '{|', '|-', '|', '[', 'Title', '{.', '.mw-', ':root', '@media', 'var(--', 'url(',
                 )
                 for line in lines:
-                    # 清理图片标签
-                    cleaned_line = re.sub(r'<img[^>]*/?>', '', line).strip()
+                    # 二次清理所有残留的 HTML 标签
+                    # 只清理完整的标签（<...>）
+                    cleaned_line = re.sub(r'<[^>]+>', '', line).strip()
+                    # 清理未闭合的 HTML 标签（如 <img src=" ...，但保留中文文本）
+                    cleaned_line = re.sub(r'<[a-zA-Z]\w*\s[^>]*', '', cleaned_line).strip()
+                    # 清理 wiki 内部链接 [[...]]
+                    cleaned_line = re.sub(r'\[\[[^\]]*\]\]', '', cleaned_line).strip()
                     cleaned_line = re.sub(r'/images/[^ )\]]+', '', cleaned_line).strip()
 
                     # 跳过消歧义和信息框垃圾
@@ -1852,9 +2066,37 @@ def _search_wiki_impl(
                         not cleaned_line.startswith(skip_prefixes) and
                         ('{' not in cleaned_line or ':' not in cleaned_line) and
                         re.search(r'[\u4e00-\u9fff\w]', cleaned_line)):
-                        # 提高 snippet 长度限制到 500
-                        snippet = cleaned_line[:500] if len(cleaned_line) > 500 else cleaned_line
+                        # snippet 长度限制
+                        snippet = cleaned_line[:_MAX_SEARCH_DESC_CHARS] if len(cleaned_line) > _MAX_SEARCH_DESC_CHARS else cleaned_line
+                        snippet_source = "intro"
                         break
+
+            # Fallback: 如果第一段没有内容，尝试从页面主体提取更多内容
+            if not snippet:
+                # 扩大搜索范围到 20000 字符
+                large_segment = html[start:start+20000]
+                large_segment = re.sub(r'<script[^>]*>.*?</script>', ' ', large_segment, flags=re.DOTALL)
+                large_segment = re.sub(r'<style[^>]*>.*?</style>', ' ', large_segment, flags=re.DOTALL)
+                large_segment = re.sub(r'<img[^>]*/?>', ' ', large_segment, flags=re.IGNORECASE)
+                large_segment = re.sub(r'<source[^>]*/?>', ' ', large_segment, flags=re.IGNORECASE)
+                large_segment = re.sub(r'<picture[^>]*/?>', ' ', large_segment, flags=re.IGNORECASE)
+                large_text = re.sub(r'<[^>]+>', ' ', large_segment)
+                large_text = re.sub(r'<[a-zA-Z]\w*\s[^>]*', ' ', large_text)
+                large_text = re.sub(r'\[\[[^\]]*\]\]', ' ', large_text)
+                large_text = re.sub(r'\s+', ' ', large_text).strip()
+
+                # 查找有意义的中文字符段
+                cjk_segments = re.findall(r'[\u4e00-\u9fff]{10,}', large_text)
+                if cjk_segments:
+                    # 取第一个有意义的段（跳过信息框标签）
+                    for seg in cjk_segments[:3]:
+                        if not any(seg.startswith(kw) for kw in skip_prefixes) and len(seg) > 8:
+                            snippet = seg[:_MAX_SEARCH_DESC_CHARS]
+                            snippet_source = "fallback"
+                            break
+                # 繁简转换（中文 wiki fallback snippet）
+                if snippet and source == "minecraft.wiki/zh":
+                    snippet = _traditional_to_simplified_title(snippet)
 
             # 繁简转换（中文 wiki 强制返回简体标题）
             if source == "minecraft.wiki/zh":
@@ -2367,6 +2609,10 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     fuse: True 时返回 {"results": [...融合列表...], "platform_stats": {platform: {total, returned}}}
          False 时返回 {platform: [results]}（向后兼容）
     """
+    # 验证关键词：拦截空关键词
+    if not keyword or not keyword.strip():
+        return {"results": [], "platform_stats": {}}
+
     # 按 content_type 分级设置每平台结果数（用户指定优先）
     per_source = max_per_source if max_per_source != 3 else _SOURCE_MAX
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
@@ -2651,6 +2897,7 @@ def _build_fused_output(sorted_entries: list[dict], scored: list[dict]) -> list[
         merged["_sources"] = list(dict.fromkeys(platforms))
 
         if len(merged["_sources"]) > 1:
+            # 多平台同名结果：组合 source 字段（如 "mcmod.cn|modrinth"）
             merged["source"] = "|".join(merged["_sources"])
 
         fused.append(merged)
