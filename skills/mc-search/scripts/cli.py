@@ -283,10 +283,18 @@ def main():
     s = sub.add_parser("search", help="多平台并行搜索（MC百科+Modrinth+minecraft.wiki+minecraft.wiki/zh）")
     s.add_argument("keyword", nargs="?", help="搜索关键词（作者搜索时忽略）")
     s.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX, help=f"每平台最多结果（默认{_DEFAULT_MAX}）")
-    s.add_argument("-t", "--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
-    s.add_argument("--type", dest="content_type", default="mod",
+    s.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
+    s.add_argument("--type", dest="content_type", default=None,
                    choices=["mod", "item", "modpack", "entity", "biome", "dimension", "shader", "resourcepack"],
-                   help="内容类型（默认 mod）；用于融合排序偏好，同时决定搜索范围（modpack/shader/resourcepack 仅搜 Modrinth）")
+                   help="内容类型（可选，自动推断）")
+    s.add_argument("--platform", "-p",
+                   choices=["all", "mcmod", "modrinth", "wiki", "wiki-zh"],
+                   default="all",
+                   help="指定平台搜索（默认：all 多平台并行）")
+    s.add_argument("--detail", action="store_true",
+                   help="详细信息搜索（+分类+标签+状态+截图）")
+    s.add_argument("--full", action="store_true",
+                   help="完整信息搜索（详细信息+依赖+版本+changelogs）")
     s.add_argument("--author", dest="author_name", default=None,
                    help="MC百科作者搜索（仅搜 MC百科，忽略 --type）")
     s.add_argument("--fuse", action="store_true",
@@ -331,13 +339,29 @@ def main():
     if_info.add_argument("-r", "--recipe", action="store_true",
                         help="显示物品/方块合成表（仅 item 类型有效）")
 
-    # 全量信息命令：一次获取搜索+详情+Modrinth+依赖
-    fl = sub.add_parser("full", help="一键获取完整信息（模组/光影/材质/整合包：搜索→详情→依赖→版本）")
+    # 全量信息命令：一次获取搜索+详情+Modrinth+依赖（已废弃，使用 details --full）
+    fl = sub.add_parser("full", help="[已废弃] 使用 mc-search details xxx --full")
     fl.add_argument("project", help="名称 / MC百科 URL/ID / Modrinth URL/slug（支持 mod/shader/resourcepack/modpack）")
     fl.add_argument("--skip-dep", dest="skip_dep", action="store_true",
                     help="跳过依赖查询（加速）")
     fl.add_argument("--skip-mr", dest="skip_mr", action="store_true",
                     help="跳过 Modrinth 查询（加速）")
+
+    # 详情命令：查看模组/整合包详细信息
+    dt = sub.add_parser("details", help="查看模组/整合包详细信息")
+    dt.add_argument("name", help="模组名称 / URL / MC百科ID")
+    dt.add_argument("--detail", action="store_true",
+                    help="详细信息（+分类+标签+状态+截图）")
+    dt.add_argument("--full", action="store_true",
+                    help="完整信息（详细信息+依赖+版本+changelogs）")
+    dt.add_argument("--deps-only", action="store_true",
+                    help="仅依赖关系")
+    dt.add_argument("--recipe", action="store_true",
+                    help="显示合成表（仅 item 类型有效）")
+
+    # 依赖命令：快速查看依赖关系
+    dp_new = sub.add_parser("deps", help="查看模组依赖关系")
+    dp_new.add_argument("name", help="模组名称 / URL")
 
     args = parser.parse_args()
 
@@ -371,6 +395,40 @@ def main():
         else:
             func()
 
+    # ============================================================
+    # 辅助函数：自动类型推断
+    # ============================================================
+    def _infer_project_type(keyword: str) -> str:
+        """根据关键词自动推断项目类型"""
+        mod_keywords = ["钠", "sodium", "create", "jei", "nei", "tinkers", "mekanism"]
+        shader_keywords = ["光影", "shader", "bsl", "optifine", "seus", "chocapic"]
+        texture_keywords = ["材质", "texture", "faithful", "resourcepack", "资源包"]
+        modpack_keywords = ["整合", "整合包", "科技", "RL", "RLCraft", "ftb", "atlantis"]
+
+        kw_lower = keyword.lower()
+
+        # 中文关键词匹配
+        if any(kw in kw_lower for kw in shader_keywords):
+            return "shader"
+        elif any(kw in kw_lower for kw in texture_keywords):
+            return "resourcepack"
+        elif any(kw in kw_lower for kw in modpack_keywords):
+            return "modpack"
+        elif any(kw in kw_lower for kw in mod_keywords):
+            return "mod"
+        else:
+            return "mod"  # 默认 mod
+
+    def _extract_slug_from_url(url: str) -> str:
+        """从 Modrinth URL 提取 slug"""
+        # 支持: https://modrinth.com/mod/sodium
+        #       https://modrinth.com/shader/bsl
+        match = re.search(r'/mod|shader|resourcepack|modpack/([^/?#]+)', url)
+        return match.group(1) if match else url
+
+    # ============================================================
+    # search 命令
+    # ============================================================
     @_timed
     def _cmd_search():
         if args.author_name:
@@ -399,13 +457,70 @@ def main():
         # 去除关键词前后空格
         args.keyword = args.keyword.strip()
 
+        # 自动推断类型（如果未指定 --type）
+        content_type = args.content_type or _infer_project_type(args.keyword)
+
+        # --platform 支持：指定平台搜索
+        if args.platform != "all":
+            if args.platform == "modrinth":
+                # 仅 Modrinth 搜索
+                data = core.search_modrinth(args.keyword, max_results=args.max, project_type=content_type)
+                results = data.get("results", [])
+                if args.full or args.detail:
+                    # --full/--detail: 为每个结果获取详细信息
+                    enriched = []
+                    for r in results:
+                        slug = r.get("source_id", "")
+                        if slug:
+                            try:
+                                info = core.fetch_mod_info(slug, no_limit=args.full)
+                                if info:
+                                    # 合并搜索结果和详细信息
+                                    merged = {**r, **info}
+                                    # --full: 保留 changelogs（5条），--detail: 移除
+                                    if not args.full and "changelogs" in merged:
+                                        del merged["changelogs"]
+                                    enriched.append(merged)
+                            except Exception:
+                                enriched.append(r)
+                        else:
+                            enriched.append(r)
+                    results = enriched
+                if args.json:
+                    _json({"results": results, "platform": "modrinth", "returned": len(results)})
+                else:
+                    if not results:
+                        print(f"Modrinth 无 [{args.keyword}] 相关结果")
+                        sys.exit(1)
+                    for h in results:
+                        print_hit(h)
+                return
+            elif args.platform == "mcmod":
+                # 仅 MC百科 搜索
+                try:
+                    results = core.search_mcmod(args.keyword, max_results=args.max)
+                except Exception:
+                    results = []
+                if args.json:
+                    _json({"results": results, "platform": "mcmod", "returned": len(results)})
+                else:
+                    if not results:
+                        print(f"MC百科 无 [{args.keyword}] 相关结果")
+                        sys.exit(1)
+                    for h in results:
+                        print_hit(h)
+                return
+            else:
+                # wiki/wiki-zh: 交给 search_all 处理
+                pass
+
+        # 默认：多平台并行搜索
         results = core.search_all(args.keyword, max_per_source=args.max,
-                                  timeout=args.timeout, content_type=args.content_type,
+                                  timeout=args.timeout, content_type=content_type,
                                   fuse=True)
         if args.json:
             _json(results)
         else:
-            # 融合结果：统一按相关性排序，逐条打印（platform_stats 仅在 JSON 中显示）
             if not results.get("results"):
                 print(f"所有平台均无 [{args.keyword}] 相关结果")
                 sys.exit(1)
