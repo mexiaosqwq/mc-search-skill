@@ -610,6 +610,8 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
         "author": author,
         "status": status,
         "description": description[:_MAX_SEARCH_DESC_CHARS] if description else "",
+        "snippet": description[:_MAX_SEARCH_DESC_CHARS] if description else "",  # 与 search 接口保持一致
+        "downloads": 0,  # MC百科整合包通常不提供下载量统计
     }
 
     # 截断元信息
@@ -1536,7 +1538,7 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "snippet": hit.get("description", ""),
             "description": description,  # 完整描述
             "downloads": hit.get("downloads", 0),
-            "follows": hit.get("follows", 0),
+            "followers": hit.get("followers", 0),
             "icon_url": hit.get("icon_url", ""),
             "author": hit.get("author", ""),
             "versions": hit.get("versions", []),
@@ -2547,6 +2549,7 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
         "name": title,
         "url": url,
         "source": source,
+        "language": "zh" if "minecraft.wiki/zh" in source or "zh.minecraft.wiki" in source else "en",
         "content": paragraphs,
         "_sections": sections_output,
     }

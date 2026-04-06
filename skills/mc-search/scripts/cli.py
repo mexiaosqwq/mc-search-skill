@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 
 from . import core
 
@@ -394,6 +395,7 @@ def main():
             else:
                 if not hits:
                     print(f"MC百科 未找到作者 [{args.author_name}] 的页面（作者名需精确匹配）")
+                    sys.exit(1)
                 else:
                     print(f"[{args.author_name}] 的 MC百科 作品（共 {len(hits)} 个）：")
                     for h in hits:
@@ -403,7 +405,7 @@ def main():
         # 校验空关键词
         if not args.keyword or not args.keyword.strip():
             print("错误: 搜索关键词不能为空")
-            return
+            sys.exit(1)
 
         # 去除关键词前后空格
         args.keyword = args.keyword.strip()
@@ -417,6 +419,7 @@ def main():
             # 融合结果：统一按相关性排序，逐条打印（platform_stats 仅在 JSON 中显示）
             if not results.get("results"):
                 print(f"所有平台均无 [{args.keyword}] 相关结果")
+                sys.exit(1)
             else:
                 for h in results["results"]:
                     print_hit(h)
@@ -430,7 +433,10 @@ def main():
                                   fuse=True)
         hits = result.get("results", [])
         if not hits:
-            print(f"minecraft.wiki 无 [{args.keyword}] 相关结果")
+            if args.json:
+                _json([])
+            else:
+                print(f"minecraft.wiki 无 [{args.keyword}] 相关结果")
             return
         if args.json:
             _json(hits)
@@ -480,7 +486,11 @@ def main():
 
     @_timed
     def _cmd_read():
-        content = core.read_wiki(args.url, max_paragraphs=args.paragraphs)
+        # 判断是否为中文 wiki URL
+        if "zh.minecraft.wiki" in args.url or args.url.startswith("minecraft.wiki/w/zh"):
+            content = core.read_wiki_zh(args.url, max_paragraphs=args.paragraphs)
+        else:
+            content = core.read_wiki(args.url, max_paragraphs=args.paragraphs)
         if args.json:
             _json(content)
         elif "error" in content:
@@ -519,6 +529,7 @@ def main():
             _json(data)
         elif not data.get("results"):
             print(f"Modrinth 无 [{args.keyword}] 相关结果（类型：{args.ptype}）")
+            sys.exit(1)
         else:
             for i, h in enumerate(data["results"][:10], 1):
                 name = h.get("name", "?")
@@ -566,6 +577,7 @@ def main():
         # 校验空用户名
         if not args.username or not args.username.strip():
             print("错误: 作者用户名不能为空")
+            sys.exit(1)
             return
 
         args.username = args.username.strip()
@@ -575,6 +587,7 @@ def main():
             _json(hits)
         elif not hits:
             print(f"Modrinth 无 [{args.username}] 的作品（用户名不存在或无公开项目）")
+            sys.exit(1)
         else:
             print(f"[{args.username}] 的 Modrinth 作品（共 {len(hits)} 个）：")
             for h in hits:
@@ -610,17 +623,20 @@ def main():
             class_id = match.group(1)
         else:
             print(f"无法解析模组标识：{mod_arg}")
+            sys.exit(1)
             return
 
         # 抓取 class 页面
         html = core._curl(_mcmod_class_url(class_id))
         if not html or len(html) < core._MIN_HTML_LEN:
             print(f"无法获取模组页面（ID: {class_id}）")
+            sys.exit(1)
             return
 
         # 检测 MC百科错误页面（重定向到 /error/）
         if '/error/' in html or 'Jump' in html and '/error/' in html:
             print(f"错误: 未找到 ID 为 {class_id} 的模组页面（MC百科返回错误页面）")
+            sys.exit(1)
             return
 
         info = core._parse_mcmod_result(html, _mcmod_class_url(class_id), "")
@@ -944,6 +960,15 @@ def main():
                         print_deps(deps)
                 else:
                     print(f"未找到该项目（slug: {ident['mr_slug']}）")
+            # 检查是否未找到
+            if result["modrinth"] is None:
+                if args.json:
+                    result["error"] = "NOT_FOUND"
+                    result["message"] = f"未找到 [{project_arg}] 的相关信息"
+                    _json_print(result)
+                else:
+                    print(f"未找到名为 [{project_arg}] 的项目信息")
+                sys.exit(1)
             return
 
         # 非 Modrinth URL：尝试通过 Modrinth 搜索匹配
@@ -972,10 +997,13 @@ def main():
 
         # 如果 MC百科 未找到且 Modrinth 也未有结果，提前退出
         if not result["mcmod"] and not mr_info:
+            result["error"] = "NOT_FOUND"
+            result["message"] = f"未找到 [{project_arg}] 的相关信息"
             if args.json:
                 print(json.dumps(result, ensure_ascii=False))
             else:
                 print(f"未找到名为 [{project_arg}] 的项目信息")
+            sys.exit(1)
             return
 
         # ── 阶段三：补充 Modrinth 信息（如果阶段一未找到）──
@@ -1068,6 +1096,15 @@ def main():
             # 未找到任何信息
             if not mc and not mr:
                 print(f"未找到名为 [{project_arg}] 的项目信息")
+                sys.exit(1)
+
+        # JSON 模式：检查是否全 null/空
+        if args.json:
+            if all(v is None or v == [] for v in [result["mcmod"], result["modrinth"]]):
+                result["error"] = "NOT_FOUND"
+                result["message"] = f"未找到 [{project_arg}] 的相关信息"
+                _json_print(result)
+                sys.exit(1)
 
     # 分发
     commands = {
