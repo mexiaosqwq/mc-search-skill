@@ -1210,6 +1210,90 @@ def main():
                 _json_print(result)
                 sys.exit(1)
 
+    @_timed
+    def _cmd_details():
+        """details 命令：查看模组/整合包详细信息"""
+        name = args.name
+        # 自动识别类型（URL 或 名称）
+        is_url = name.startswith("http")
+
+        if is_url:
+            # URL 直接处理
+            if "modrinth.com" in name:
+                slug = _extract_slug_from_url(name)
+                try:
+                    info = core.fetch_mod_info(slug, no_limit=args.full)
+                    if info:
+                        if args.json:
+                            _json(info)
+                        else:
+                            _print_full_modrinth_info(info)
+                    else:
+                        print(f"无法获取 Modrinth 项目信息: {slug}")
+                        sys.exit(1)
+                except Exception as e:
+                    print(f"获取失败: {e}")
+                    sys.exit(1)
+            else:
+                print(f"不支持的 URL: {name}")
+                sys.exit(1)
+        else:
+            # 名称搜索：先搜索再获取详情
+            # 尝试精确匹配
+            hit = _search_modrinth_exact(name)
+            if hit:
+                slug = hit.get("source_id") or hit.get("slug")
+                try:
+                    info = core.fetch_mod_info(slug, no_limit=args.full)
+                    if info:
+                        if args.json:
+                            _json(info)
+                        else:
+                            _print_full_modrinth_info(info)
+                    else:
+                        print(f"无法获取项目信息: {name}")
+                        sys.exit(1)
+                except Exception as e:
+                    print(f"获取失败: {e}")
+                    sys.exit(1)
+            else:
+                print(f"未找到相关项目: {name}")
+                sys.exit(1)
+
+    @_timed
+    def _cmd_deps():
+        """deps 命令：快速查看依赖关系"""
+        name = args.name
+        # 自动识别类型
+        is_url = name.startswith("http")
+
+        if is_url and "modrinth.com" in name:
+            slug = _extract_slug_from_url(name)
+        else:
+            # 名称搜索
+            hit = _search_modrinth_exact(name)
+            if hit:
+                slug = hit.get("source_id") or hit.get("slug")
+            else:
+                print(f"未找到相关项目: {name}")
+                sys.exit(1)
+                return
+
+        # 获取依赖
+        try:
+            deps = core.get_mod_dependencies(slug, project_id=None)
+            if deps:
+                if args.json:
+                    _json(deps)
+                else:
+                    print(f"依赖关系（共 {len(deps.get('deps', {}))} 个）：")
+                    print_deps(deps)
+            else:
+                print("无依赖")
+        except Exception as e:
+            print(f"获取失败: {e}")
+            sys.exit(1)
+
     # 分发
     commands = {
         "search": _cmd_search,
@@ -1217,9 +1301,11 @@ def main():
         "read": _cmd_read,
         "mr": _cmd_mr,
         "dep": _cmd_dep,
+        "deps": _cmd_deps,
         "author": _cmd_author,
         "info": _cmd_info,
         "full": _cmd_full,
+        "details": _cmd_details,
     }
 
     if args.cmd in commands:
