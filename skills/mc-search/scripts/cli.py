@@ -118,7 +118,7 @@ _DEFAULT_MAX = 3        # 每平台最多结果
 _DEFAULT_TIMEOUT = 12    # 整体超时秒数
 _DEFAULT_WIKI_MAX = 5   # wiki 默认最多结果
 _DEFAULT_AUTHOR_MAX = 10  # 作者搜索默认最多结果
-_DEFAULT_PARAGRAPHS = 5  # wiki 页面默认段落数
+_DEFAULT_PARAGRAPHS = 20  # wiki 页面默认段落数（提升信息量）
 
 # 显示截断长度
 _DISPLAY_WIKI_PARAGRAPHS = 4    # wiki 搜索后自动 read 的段落数
@@ -929,17 +929,20 @@ def main():
             if mr_type_match:
                 mr_type = mr_type_match.group(1)
 
-            # 先尝试直接获取，如果失败则搜索获取正确 slug
+            # 直接通过slug精确获取（禁止搜索fallback）
             result["modrinth"] = core.fetch_mod_info(ident["mr_slug"], no_limit=True)
-            if result["modrinth"] is None:
-                # 尝试搜索获取正确的 slug（传入正确的项目类型）
-                search_results = core.search_modrinth(ident["mr_slug"], max_results=3, project_type=mr_type)
-                if search_results.get("results"):
-                    # 使用 source_id 字段（而不是 slug）
-                    correct_slug = search_results["results"][0].get("source_id", "")
-                    if correct_slug:
-                        result["modrinth"] = core.fetch_mod_info(correct_slug, no_limit=True)
 
+            # 如果URL中的slug不存在，直接返回错误
+            if result["modrinth"] is None:
+                result["error"] = "URL_NOT_FOUND"
+                result["message"] = f"Modrinth上不存在slug为 '{ident['mr_slug']}' 的项目"
+                if args.json:
+                    _json_print(result)
+                else:
+                    print(result["message"])
+                sys.exit(1)
+
+            # 获取依赖
             if result["modrinth"] and not args.skip_dep:
                 result["dependencies"] = core.get_mod_dependencies(
                     ident["mr_slug"], project_id=result["modrinth"].get("id"))
@@ -960,15 +963,6 @@ def main():
                         print_deps(deps)
                 else:
                     print(f"未找到该项目（slug: {ident['mr_slug']}）")
-            # 检查是否未找到
-            if result["modrinth"] is None:
-                if args.json:
-                    result["error"] = "NOT_FOUND"
-                    result["message"] = f"未找到 [{project_arg}] 的相关信息"
-                    _json_print(result)
-                else:
-                    print(f"未找到名为 [{project_arg}] 的项目信息")
-                sys.exit(1)
             return
 
         # 非 Modrinth URL：尝试通过 Modrinth 搜索匹配
@@ -1055,22 +1049,28 @@ def main():
             if has_mr_deps or mc_integrations:
                 print(f"\n  ── 依赖关系 ──")
 
-                # 前置模组（必需依赖）- 优先使用 Modrinth 数据
+                # Modrinth 依赖 - 展示运行环境要求
                 if has_mr_deps:
                     mr_deps = deps.get('deps', {})
                     if isinstance(mr_deps, dict):
-                        req_count = deps.get('required_count', 0)
-                        opt_count = deps.get('optional_count', 0)
-                        print(f"  前置模组（必需:{req_count} | 可选:{opt_count}）：")
+                        print(f"  依赖模组（共 {len(mr_deps)} 个）：")
                         for slug, dep_info in mr_deps.items():
+                            client_req = dep_info.get('client_side', 'unknown')
+                            server_req = dep_info.get('server_side', 'unknown')
+
+                            def env_label(v):
+                                return {"required": "必需", "optional": "可选",
+                                        "unsupported": "不支持", "unknown": "未知"}.get(v, v)
+
                             dep_name = dep_info.get('name', slug)
-                            dep_type = dep_info.get('type', 'required')
                             dep_desc = dep_info.get('summary') or dep_info.get('snippet') or ''
+
                             print(f"    • {dep_name}")
                             if dep_desc:
                                 desc_lines = dep_desc.split('\n')
                                 for line in desc_lines[:2]:
                                     print(f"      {line.strip()}")
+                            print(f"      客户端:{env_label(client_req)}, 服务端:{env_label(server_req)}")
                             print(f"      {_modrinth_project_url(slug)}")
 
                 # 联动模组 - 使用 MC百科 数据
@@ -1527,19 +1527,38 @@ def print_hit(h: dict, index: int = 0, total: int = 1):
 # 通用输出辅助函数
 
 def print_deps(deps: dict, mod_name: str = ""):
-    """打印依赖树。"""
+    """打印依赖树（Modrinth数据来源）。"""
     dep_dict = deps.get("deps", {})
     if not dep_dict:
         print(f"[{mod_name}] 无声明依赖")
         return
-    opt_cnt = deps.get("optional_count", 0)
-    req_cnt = deps.get("required_count", 0)
-    print(f"[{mod_name}] 依赖树（必需:{req_cnt} | 可选:{opt_cnt}）：")
+
+    print(f"[{mod_name}] 依赖列表（共 {len(dep_dict)} 个）：")
+
+    # 运行环境标签映射
+    def env_label(value):
+        labels = {
+            "required": "必需",
+            "optional": "可选",
+            "unsupported": "不支持",
+            "unknown": "未知"
+        }
+        return labels.get(value, value)
+
     for dep_id, dep in dep_dict.items():
-        side = f"client:{dep['client_side']} / server:{dep['server_side']}"
-        print(f"  [{dep['type']}] {dep['name']} ({side})")
-        if dep.get("url"):
-            print(f"    {dep['url']}")
+        client_req = dep.get('client_side', 'unknown')
+        server_req = dep.get('server_side', 'unknown')
+
+        client_label = env_label(client_req)
+        server_label = env_label(server_req)
+
+        dep_name = dep.get('name', dep_id)
+        dep_url = dep.get('url', '')
+
+        print(f"  • {dep_name}")
+        print(f"    运行环境: 客户端{client_label}, 服务端{server_label}")
+        if dep_url:
+            print(f"    {dep_url}")
 
 
 

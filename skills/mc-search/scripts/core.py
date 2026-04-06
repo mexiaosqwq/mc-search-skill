@@ -55,7 +55,7 @@ _MIN_SHORT_TEXT_LEN = 35    # 短文本判定阈值（用于判断是否为 item
 _MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性 <li> 最小长度
 _MIN_DESCRIPTION_LINE_LEN = 10   # 描述行最小长度
 _MIN_SECTION_MARKER_DISTANCE = 200  # section marker 最小距离
-_MAX_SECTION_PARAGRAPHS = 10  # 每 wiki 章节最多段落数（2->10，提升信息密度）
+_MAX_SECTION_PARAGRAPHS = 100  # 每wiki章节最多段落数（支持长文章）
 _MIN_TABLE_CELL_LEN = 2     # table cell 最小长度
 _MAX_TABLE_ITEMS = 50        # table 最大 item 数（8->50，完整提取表格数据）
 _MAX_BODY_CHARS = 20000      # Modrinth 详情 body 字段最大截断长度（5000->20000，支持长描述模组）
@@ -1920,32 +1920,19 @@ def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
     if not project_id:
         proj = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
         if not proj:
-            return {"deps": {}, "optional_count": 0, "required_count": 0, "error": "PROJECT_NOT_FOUND"}
+            return {"deps": {}, "error": "PROJECT_NOT_FOUND"}
         project_id = proj.get("id", mod_id)
 
     deps = {}
-    optional_count = 0
-    required_count = 0
     deps_data = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/dependencies")
     if not deps_data:
-        return {"deps": {}, "optional_count": 0, "required_count": 0, "error": "API_ERROR"}
+        return {"deps": {}, "error": "API_ERROR"}
 
     for dep_proj in deps_data.get("projects", []):
         slug = dep_proj.get("slug", "")
         dep_id = dep_proj.get("id", "")
         client = dep_proj.get("client_side", "unknown")
         server = dep_proj.get("server_side", "unknown")
-
-        if client == "required" or server == "required":
-            dtype = "required"
-            required_count += 1
-        elif client == "optional" or server == "optional":
-            dtype = "optional"
-            optional_count += 1
-        elif client == "unsupported" or server == "unsupported":
-            dtype = "unsupported"
-        else:
-            dtype = "unknown"
 
         key = slug or dep_id
         deps[key] = {
@@ -1954,11 +1941,11 @@ def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
             "id": dep_id,
             "client_side": client,
             "server_side": server,
-            "type": dtype,
             "url": f"https://modrinth.com/mod/{slug}" if slug else None,
+            # 不再派生 "type" 字段，因为它有误导性
         }
 
-    result = {"deps": deps, "optional_count": optional_count, "required_count": required_count}
+    result = {"deps": deps}
     _cache_set("mod", cache_key, result)
     return result
 
@@ -2431,7 +2418,8 @@ def _extract_sections(
             })
             paragraphs.extend(section_lines)
 
-        if len(paragraphs) >= max_paragraphs:
+        # 支持-1表示无限制
+        if max_paragraphs > 0 and len(paragraphs) >= max_paragraphs:
             paragraphs = paragraphs[:max_paragraphs]
             break
 
@@ -2565,8 +2553,13 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
     return result
 
 
-def read_wiki(url: str, max_paragraphs: int = 20, include_infobox: bool = True) -> dict:
-    """读取minecraft.wiki英文页面正文。返回 {"name": "...", "content": [...], "_sections": [...]}。"""
+def read_wiki(url: str, max_paragraphs: int = -1, include_infobox: bool = True) -> dict:
+    """
+    读取minecraft.wiki英文页面正文。
+    参数:
+      max_paragraphs: 最大段落数, -1 表示不限制
+    返回: {"name": "...", "content": [...], "_sections": [...]}
+    """
     result = _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("History of", "v ", "[edit"),
@@ -2580,8 +2573,12 @@ def read_wiki(url: str, max_paragraphs: int = 20, include_infobox: bool = True) 
     return result
 
 
-def read_wiki_zh(url: str, max_paragraphs: int = 20, include_infobox: bool = True) -> dict:
-    """读取minecraft.wiki/zh中文wiki页面正文。"""
+def read_wiki_zh(url: str, max_paragraphs: int = -1, include_infobox: bool = True) -> dict:
+    """
+    读取minecraft.wiki/zh中文wiki页面正文。
+    参数:
+      max_paragraphs: 最大段落数, -1 表示不限制
+    """
     result = _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("历史", "编辑", "History of", "v ", "[edit"),
