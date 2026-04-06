@@ -1283,11 +1283,11 @@ def _print_full_modrinth_info(mr: dict, saved_files: list = None):
         if len(vg) > 8:
             print(f"    ... 还有 {len(vg) - 8} 个版本")
 
-    # 更新日志（如果可用）
+    # 更新日志（如果可用）- 显示与 JSON 相同的数量（5 个）
     changelogs = mr.get('changelogs', [])
     if changelogs:
         print(f"\n  最近更新:")
-        for cl in changelogs[:2]:
+        for cl in changelogs:
             print(f"    • v{cl.get('version', '?')} ({cl.get('date', '?')})")
             log_text = cl.get('changelog', '')
             if log_text:

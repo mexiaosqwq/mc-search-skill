@@ -1520,12 +1520,16 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
         slug = hit.get("slug", "")
         # 获取完整描述（与MC百科齐平，使用body前500字符）
         description = hit.get("description", "")
+        changelogs = []
         full_info = fetch_mod_info(slug, no_limit=True) if slug else None
         if full_info:
             body = full_info.get("body", "")
             # 用body前_MAX_SEARCH_DESC_CHARS字符作为详细描述
             if body:
                 description = body[:_MAX_SEARCH_DESC_CHARS] + ("..." if len(body) > _MAX_SEARCH_DESC_CHARS else "")
+            # 提取前3条 changelogs（非 full 命令限制为3条）
+            cl_list = full_info.get("changelogs", [])
+            changelogs = cl_list[:3]
 
         result = {
             "name": hit.get("title", ""),
@@ -1542,6 +1546,7 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "icon_url": hit.get("icon_url", ""),
             "author": hit.get("author", ""),
             "versions": hit.get("versions", []),
+            "changelogs": changelogs,  # 前3条更新日志
         }
 
         results.append(result)
@@ -1772,9 +1777,12 @@ def _format_modrinth_versions(project_id: str, no_limit: bool) -> dict:
     result["version_groups"] = items if no_limit else items[:_MAX_VERSION_GROUPS]
     result["_version_total"] = version_total  # 用于截断元信息
 
-    # changelog处理
+    # changelog处理 - 根据 no_limit 标志区分数量
+    # no_limit=True (full命令): 取前5个
+    # no_limit=False (普通命令): 取前3个
+    changelog_limit = 5 if no_limit else 3
     changelogs = []
-    for v in (versions if no_limit else versions[:_MAX_CHANGELOGS]):
+    for v in versions[:changelog_limit]:
         cl = v.get("changelog", "").strip()
         if cl:
             changelogs.append({
