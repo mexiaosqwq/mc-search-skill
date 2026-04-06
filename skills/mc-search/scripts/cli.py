@@ -270,7 +270,8 @@ def main():
         description="mc-search: Minecraft 聚合搜索",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--json", action="store_true", help="以 JSON 格式输出（所有命令）")
+    parser.add_argument("--json", action="store_true", dest="global_json",
+                        help="以 JSON 格式输出（推荐）")
     parser.add_argument("--cache", action="store_true", help="启用本地缓存（TTL 1小时）")
     parser.add_argument("--no-mcmod", dest="no_mcmod", action="store_true", help="禁用 MC百科")
     parser.add_argument("--no-mr", dest="no_mr", action="store_true", help="禁用 Modrinth")
@@ -280,7 +281,6 @@ def main():
     sub = parser.add_subparsers(dest="cmd")
 
     s = sub.add_parser("search", help="多平台并行搜索（MC百科+Modrinth+minecraft.wiki+minecraft.wiki/zh）")
-    s.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     s.add_argument("keyword", nargs="?", help="搜索关键词（作者搜索时忽略）")
     s.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX, help=f"每平台最多结果（默认{_DEFAULT_MAX}）")
     s.add_argument("-t", "--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
@@ -293,19 +293,16 @@ def main():
                    help="融合四平台结果去重（--json 时自动融合）")
 
     w = sub.add_parser("wiki", help="minecraft.wiki 搜索")
-    w.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     w.add_argument("keyword", help="搜索关键词")
     w.add_argument("-n", "--max", type=int, default=_DEFAULT_WIKI_MAX)
     w.add_argument("-r", "--read", action="store_true", help="搜索后直接读取第一个页面正文")
     w.add_argument("-t", "--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
 
     r = sub.add_parser("read", help="读取 wiki 页面正文")
-    r.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     r.add_argument("url", help="页面 URL")
     r.add_argument("-p", "--paragraphs", type=int, default=_DEFAULT_PARAGRAPHS)
 
     mr = sub.add_parser("mr", help="Modrinth 搜索（支持光影/纹理包）")
-    mr.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     mr.add_argument("keyword", help="搜索关键词")
     mr.add_argument("-n", "--max", type=int, default=_DEFAULT_WIKI_MAX)
     mr.add_argument("-t", "--type", dest="ptype", default="mod",
@@ -313,16 +310,13 @@ def main():
                     help="项目类型（默认 mod）")
 
     dp = sub.add_parser("dep", help="查看 mod 依赖树（Modrinth）")
-    dp.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     dp.add_argument("mod_id", help="Mod ID（slug 或 project id）")
 
     at = sub.add_parser("author", help="按作者搜索 Modrinth 项目（支持模糊匹配）")
-    at.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     at.add_argument("username", help="作者用户名（Modrinth username）")
     at.add_argument("-n", "--max", type=int, default=_DEFAULT_AUTHOR_MAX, help=f"最多结果（默认{_DEFAULT_AUTHOR_MAX}）")
 
     if_info = sub.add_parser("info", help="读取 MC百科模组详情（默认全字段，可选 -T/-a/-d/-v/-g/-c/-s/-S/-m）")
-    if_info.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     if_info.add_argument("mod", help="模组名称 / MC百科 class ID / class URL")
     if_info.add_argument("-T", "--title", action="store_true", help="仅显示名称/别名")
     if_info.add_argument("-a", "--author", action="store_true", help="仅显示作者")
@@ -339,7 +333,6 @@ def main():
 
     # 全量信息命令：一次获取搜索+详情+Modrinth+依赖
     fl = sub.add_parser("full", help="一键获取完整信息（模组/光影/材质/整合包：搜索→详情→依赖→版本）")
-    fl.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     fl.add_argument("project", help="名称 / MC百科 URL/ID / Modrinth URL/slug（支持 mod/shader/resourcepack/modpack）")
     fl.add_argument("--skip-dep", dest="skip_dep", action="store_true",
                     help="跳过依赖查询（加速）")
@@ -348,14 +341,10 @@ def main():
 
     args = parser.parse_args()
 
-    # 修复：全局 --json 传播到子命令
-    # 当用户使用 "mc-search --json full xxx" 时，argparse 可能只设置子命令的 json 为 True
-    # 所以这里统一确保所有子命令的 json 标志与全局一致
-    import sys as _sys
-    if '--json' in _sys.argv:
-        args.json = True
+    # 统一 --json 处理：全局标志传播到所有子命令
+    args.json = getattr(args, 'global_json', False)
 
-    # 全局 --json 辅助
+    # 全局 --json 辅助函数
     def _json(obj):
         if args.json:
             print(json.dumps(obj, ensure_ascii=False))
