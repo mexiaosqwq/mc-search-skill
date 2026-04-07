@@ -109,10 +109,6 @@ def _print_version_groups(vg: list, max_display: int = 7):
             print(f"    ... 还有 {total - max_display} 个版本")
 
 
-def _json_print(obj):
-    """打印 JSON 格式输出。"""
-    print(json.dumps(obj, ensure_ascii=False))
-
 # CLI 默认值
 _DEFAULT_MAX = 3        # 每平台最多结果
 _DEFAULT_TIMEOUT = 12    # 整体超时秒数
@@ -152,6 +148,24 @@ _DISPLAY_MAX_VERSIONS = 8       # 支持版本最多显示数
 # 保存阈值
 _SAVE_BODY_LENGTH_THRESHOLD = 3000    # Modrinth body 保存文件阈值
 _SAVE_DESC_LENGTH_THRESHOLD = 5000    # MC百科简介保存文件阈值
+
+# === 映射字典常量 ===
+_PROJECT_TYPE_LABELS = {
+    "mod": "模组",
+    "modpack": "整合包",
+    "resourcepack": "材质包",
+    "shader": "光影",
+    "block": "方块",
+    "item": "物品",
+    "entity": "实体",
+}
+
+_SIDE_LABELS = {
+    "required": "必需安装",
+    "optional": "可选安装",
+    "unsupported": "不支持",
+    "unknown": "未知",
+}
 
 # Modrinth 正文预览相关
 _MODRINTH_PREVIEW_LEN = 2000          # 预览最大字符数
@@ -717,7 +731,6 @@ def main():
         if not args.username or not args.username.strip():
             print("错误: 作者用户名不能为空")
             sys.exit(1)
-            return
 
         args.username = args.username.strip()
 
@@ -763,7 +776,6 @@ def main():
         else:
             print(f"无法解析模组标识：{mod_arg}")
             sys.exit(1)
-            return
 
         # 抓取 class 页面
         html = core._curl(_mcmod_class_url(class_id))
@@ -1076,7 +1088,7 @@ def main():
                 result["error"] = "URL_NOT_FOUND"
                 result["message"] = f"Modrinth上不存在slug为 '{ident['mr_slug']}' 的项目"
                 if args.json:
-                    _json_print(result)
+                    _json(result)
                 else:
                     print(result["message"])
                 sys.exit(1)
@@ -1137,7 +1149,6 @@ def main():
             else:
                 print(f"未找到名为 [{project_arg}] 的项目信息")
             sys.exit(1)
-            return
 
         # ── 阶段三：补充 Modrinth 信息（如果阶段一未找到）──
         if not mr_info:
@@ -1197,9 +1208,8 @@ def main():
                             client_req = dep_info.get('client_side', 'unknown')
                             server_req = dep_info.get('server_side', 'unknown')
 
-                            def env_label(v):
-                                return {"required": "必需", "optional": "可选",
-                                        "unsupported": "不支持", "unknown": "未知"}.get(v, v)
+                            client_label = _SIDE_LABELS.get(client_req, client_req)
+                            server_label = _SIDE_LABELS.get(server_req, server_req)
 
                             dep_name = dep_info.get('name', slug)
                             dep_desc = dep_info.get('summary') or dep_info.get('snippet') or ''
@@ -1209,7 +1219,7 @@ def main():
                                 desc_lines = dep_desc.split('\n')
                                 for line in desc_lines[:2]:
                                     print(f"      {line.strip()}")
-                            print(f"      客户端:{env_label(client_req)}, 服务端:{env_label(server_req)}")
+                            print(f"      客户端:{client_label}, 服务端:{server_label}")
                             print(f"      {_modrinth_project_url(slug)}")
 
                 # 联动模组 - 使用 MC百科 数据
@@ -1329,7 +1339,6 @@ def main():
                 else:
                     print(f"未找到相关项目: {name}")
                 sys.exit(1)
-                return
 
         # 获取依赖
         try:
@@ -1780,22 +1789,12 @@ def print_deps(deps: dict, mod_name: str = ""):
 
     print(f"[{mod_name}] 依赖列表（共 {len(dep_dict)} 个）：")
 
-    # 运行环境标签映射
-    def env_label(value):
-        labels = {
-            "required": "必需",
-            "optional": "可选",
-            "unsupported": "不支持",
-            "unknown": "未知"
-        }
-        return labels.get(value, value)
-
     for dep_id, dep in dep_dict.items():
         client_req = dep.get('client_side', 'unknown')
         server_req = dep.get('server_side', 'unknown')
 
-        client_label = env_label(client_req)
-        server_label = env_label(server_req)
+        client_label = _SIDE_LABELS.get(client_req, client_req)
+        server_label = _SIDE_LABELS.get(server_req, server_req)
 
         dep_name = dep.get('name', dep_id)
         dep_url = dep.get('url', '')
