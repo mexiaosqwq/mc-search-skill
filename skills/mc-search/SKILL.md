@@ -21,8 +21,9 @@ triggers:
 
 Minecraft 内容搜索工具，支持四平台并行：
 - **MC百科** (mcmod.cn) - 中文模组/整合包
-- **Modrinth** - 英文 mod/光影/材质
-- **minecraft.wiki** - 原版游戏内容
+- **Modrinth** - 英文 mod/光影/材质/整合包
+- **minecraft.wiki** - 原版游戏内容（英文）
+- **minecraft.wiki/zh** - 原版游戏内容（中文）
 
 ## 何时使用
 
@@ -67,33 +68,42 @@ mc-search --json wiki <关键词>
 
 | 用户需求 | 命令 | 示例 |
 |----------|------|------|
-| 知道名称，要详情 | `full` | `mc-search --json full 机械动力` |
+| 知道名称，要详情 | `details` | `mc-search --json details create` |
 | 不确定名称，模糊搜 | `search` | `mc-search --json search 钠` |
+| 按平台搜索 | `search --platform` | `mc-search --json search sodium --platform modrinth` |
 | 按类型过滤 | `search --type` | `mc-search --json search BSL --type shader` |
+| 获取完整信息 | `details --full` | `mc-search --json details sodium --full` |
+| 只看依赖 | `deps` | `mc-search --json deps sodium` |
 | 查 wiki | `wiki` | `mc-search --json wiki 下界合金` |
-| 作者作品 | `search --author` | `mc-search --json search --author Notch` |
+| MC百科作者 | `search --author` | `mc-search --json search --author Notch` |
+| Modrinth作者 | `author` | `mc-search --json author Notch` |
+
+**注意**: `full` 命令已标记为[已废弃]，请改用 `details --full`。
 
 ## 返回数据结构
 
-### search 命令（JSON 数组）
+### search 命令（JSON 对象）
 
 ```json
-[
-  {
-    "name": "机械动力",
-    "name_en": "Create",
-    "name_zh": "机械动力",
-    "url": "https://www.mcmod.cn/class/2021.html",
-    "source": "mcmod.cn",
-    "type": "mod",
-    "snippet": "简述...",
-    "categories": ["科技Mod"],
-    "downloads": 5000000
-  }
-]
+{
+  "results": [
+    {
+      "name": "机械动力",
+      "name_en": "Create",
+      "name_zh": "机械动力",
+      "url": "https://www.mcmod.cn/class/2021.html",
+      "source": "mcmod.cn",
+      "type": "mod",
+      "snippet": "简述...",
+      "categories": ["科技Mod"],
+      "downloads": 5000000
+    }
+  ],
+  "platform_stats": {"mcmod": 1, "modrinth": 0}
+}
 ```
 
-### full 命令（JSON 对象）
+### details 命令（JSON 对象，替代 full）
 
 ```json
 {

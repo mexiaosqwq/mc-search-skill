@@ -1256,7 +1256,7 @@ def main():
             if all(v is None or v == [] for v in [result["mcmod"], result["modrinth"]]):
                 result["error"] = "NOT_FOUND"
                 result["message"] = f"未找到 [{project_arg}] 的相关信息"
-                _json_print(result)
+                _json(result)
                 sys.exit(1)
 
     @_timed
