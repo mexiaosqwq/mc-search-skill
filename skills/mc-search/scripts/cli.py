@@ -69,29 +69,29 @@ def _timed(func):
 
 
 _SOURCE_TYPE_LABELS = {"open_source": "开源", "closed_source": "闭源"}
-_SIDE_LABELS = {"required": "必需", "optional": "可选", "unsupported": "不支持"}
-_PROJECT_TYPE_LABELS = {
-    "mod": "模组",
-    "shader": "光影包",
-    "resourcepack": "材质包",
-    "modpack": "整合包",
-}
 
 def _print_side_info(mr: dict):
     """打印 Modrinth 运行环境信息。"""
     cs = mr.get('client_side', '')
     ss = mr.get('server_side', '')
 
+    # 使用顶层常量
+    _labels = {
+        "required": "必需",
+        "optional": "可选",
+        "unsupported": "不支持"
+    }
+
     # 简化显示：两端相同则合并
     if cs and ss and cs == ss:
-        label = _SIDE_LABELS.get(cs, cs)
+        label = _labels.get(cs, cs)
         print(f"  运行环境：客户端/服务端均{label}")
     else:
         side_info = []
         if cs:
-            side_info.append(f"客户端: {_SIDE_LABELS.get(cs, cs)}")
+            side_info.append(f"客户端: {_labels.get(cs, cs)}")
         if ss:
-            side_info.append(f"服务端: {_SIDE_LABELS.get(ss, ss)}")
+            side_info.append(f"服务端: {_labels.get(ss, ss)}")
         if side_info:
             print(f"  运行环境：{' | '.join(side_info)}")
 
@@ -673,7 +673,7 @@ def main():
         # 校验空关键词
         if not args.keyword or not args.keyword.strip():
             print("错误: 搜索关键词不能为空")
-            return
+            sys.exit(1)
 
         args.keyword = args.keyword.strip()
 
@@ -714,14 +714,12 @@ def main():
             error_msg = {"error": "EMPTY_INPUT", "message": "Mod ID 不能为空"}
             _print_error_or_json(error_msg, args.json)
             sys.exit(1)
-            return
 
         info = core.fetch_mod_info(args.mod_id)
         if not info:
             error_msg = {"error": "MOD_NOT_FOUND", "message": f"[{args.mod_id}] 未在 Modrinth 上找到该 mod"}
             _print_error_or_json(error_msg, args.json)
             sys.exit(1)
-            return
         result = core.get_mod_dependencies(args.mod_id, project_id=info.get("id"))
 
         if args.json:
@@ -775,13 +773,11 @@ def main():
                 error_msg = {"error": "MOD_NOT_FOUND", "message": f"未找到名为 [{ident['mcmod_name']}] 的模组"}
                 _print_error_or_json(error_msg, args.json)
                 sys.exit(1)
-                return
             match = re.search(r"/class/(\d+)", results[0].get("url", ""))
             if not match:
                 error_msg = {"error": "INVALID_ID", "message": "无法解析模组 ID"}
                 _print_error_or_json(error_msg, args.json)
                 sys.exit(1)
-                return
             class_id = match.group(1)
         else:
             print(f"无法解析模组标识：{mod_arg}")
@@ -1108,7 +1104,7 @@ def main():
                 result["dependencies"] = core.get_mod_dependencies(
                     ident["mr_slug"], project_id=result["modrinth"].get("id"))
             if args.json:
-                _json_print(result)
+                _json(result)
             else:
                 mr = result.get("modrinth")
                 deps = result.get("dependencies")
