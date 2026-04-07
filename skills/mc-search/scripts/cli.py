@@ -1469,14 +1469,9 @@ def _print_full_modrinth_info(mr: dict, saved_files: list = None):
     # 双端支持情况（重点显示）
     client = mr.get('client_side', 'unknown')
     server = mr.get('server_side', 'unknown')
-    side_map = {
-        'required': '必需安装',
-        'optional': '可选安装',
-        'unsupported': '不支持'
-    }
     print(f"\n  双端支持:")
-    print(f"    客户端: {side_map.get(client, client)}")
-    print(f"    服务端: {side_map.get(server, server)}")
+    print(f"    客户端: {_SIDE_LABELS.get(client, client)}")
+    print(f"    服务端: {_SIDE_LABELS.get(server, server)}")
     if client == 'required' and server == 'required':
         print(f"    → 这是双端必需模组，客户端和服务端都必须安装")
     elif client == 'optional' or server == 'optional':
