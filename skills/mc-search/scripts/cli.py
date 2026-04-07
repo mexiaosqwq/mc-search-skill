@@ -709,10 +709,18 @@ def main():
 
     @_timed
     def _cmd_dep():
+        # 验证空参数
+        if not args.mod_id or not args.mod_id.strip():
+            error_msg = {"error": "EMPTY_INPUT", "message": "Mod ID 不能为空"}
+            _print_error_or_json(error_msg, args.json)
+            sys.exit(1)
+            return
+
         info = core.fetch_mod_info(args.mod_id)
         if not info:
             error_msg = {"error": "MOD_NOT_FOUND", "message": f"[{args.mod_id}] 未在 Modrinth 上找到该 mod"}
             _print_error_or_json(error_msg, args.json)
+            sys.exit(1)
             return
         result = core.get_mod_dependencies(args.mod_id, project_id=info.get("id"))
 
@@ -766,11 +774,13 @@ def main():
             if not results:
                 error_msg = {"error": "MOD_NOT_FOUND", "message": f"未找到名为 [{ident['mcmod_name']}] 的模组"}
                 _print_error_or_json(error_msg, args.json)
+                sys.exit(1)
                 return
             match = re.search(r"/class/(\d+)", results[0].get("url", ""))
             if not match:
                 error_msg = {"error": "INVALID_ID", "message": "无法解析模组 ID"}
                 _print_error_or_json(error_msg, args.json)
+                sys.exit(1)
                 return
             class_id = match.group(1)
         else:
@@ -1270,18 +1280,36 @@ def main():
                     # --detail 和 --full 都获取完整信息（no_limit=True）
                     info = core.fetch_mod_info(slug, no_limit=True)
                     if info:
-                        # --detail 不返回 changelogs，--full 返回 5 条
-                        if args.detail and not args.full and "changelogs" in info:
-                            del info["changelogs"]
-                        if args.json:
-                            _json(info)
+                        # --deps-only: 仅显示依赖
+                        if args.deps_only:
+                            deps = core.get_mod_dependencies(slug, project_id=info.get("id"))
+                            if args.json:
+                                _json(deps)
+                            else:
+                                print_deps(deps, info.get("name", slug))
+                        # --recipe: 不支持（Modrinth 无合成表数据）
+                        elif args.recipe:
+                            print("Modrinth 模组不支持合成表查询")
+                            sys.exit(1)
                         else:
-                            _print_full_modrinth_info(info)
+                            # --detail 不返回 changelogs，--full 返回 5 条
+                            if args.detail and not args.full and "changelogs" in info:
+                                del info["changelogs"]
+                            if args.json:
+                                _json(info)
+                            else:
+                                _print_full_modrinth_info(info)
                     else:
-                        print(f"无法获取 Modrinth 项目信息: {slug}")
+                        if args.json:
+                            _json({"error": "NOT_FOUND", "message": f"无法获取 Modrinth 项目信息: {slug}"})
+                        else:
+                            print(f"无法获取 Modrinth 项目信息: {slug}")
                         sys.exit(1)
                 except Exception as e:
-                    print(f"获取失败: {e}")
+                    if args.json:
+                        _json({"error": "FETCH_FAILED", "message": str(e)})
+                    else:
+                        print(f"获取失败: {e}")
                     sys.exit(1)
             else:
                 print(f"不支持的 URL: {name}")
@@ -1296,13 +1324,25 @@ def main():
                     # --detail 和 --full 都获取完整信息（no_limit=True）
                     info = core.fetch_mod_info(slug, no_limit=True)
                     if info:
-                        # --detail 不返回 changelogs，--full 返回 5 条
-                        if args.detail and not args.full and "changelogs" in info:
-                            del info["changelogs"]
-                        if args.json:
-                            _json(info)
+                        # --deps-only: 仅显示依赖
+                        if args.deps_only:
+                            deps = core.get_mod_dependencies(slug, project_id=info.get("id"))
+                            if args.json:
+                                _json(deps)
+                            else:
+                                print_deps(deps, info.get("name", slug))
+                        # --recipe: 不支持（Modrinth 无合成表数据）
+                        elif args.recipe:
+                            print("Modrinth 模组不支持合成表查询")
+                            sys.exit(1)
                         else:
-                            _print_full_modrinth_info(info)
+                            # --detail 不返回 changelogs，--full 返回 5 条
+                            if args.detail and not args.full and "changelogs" in info:
+                                del info["changelogs"]
+                            if args.json:
+                                _json(info)
+                            else:
+                                _print_full_modrinth_info(info)
                     else:
                         if args.json:
                             _json({"error": "NOT_FOUND", "message": f"无法获取项目信息: {name}"})
