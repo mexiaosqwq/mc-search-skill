@@ -67,8 +67,11 @@ pip install -e .
 # 搜索模组
 mc-search --json search 钠
 
-# 获取完整信息
-mc-search --json full sodium
+# 获取完整信息（推荐）
+mc-search --json details sodium --full
+
+# 获取模组详情
+mc-search --json details sodium
 
 # 搜索 Wiki
 mc-search --json wiki 钻石剑
@@ -76,18 +79,21 @@ mc-search --json wiki 钻石剑
 # 按类型搜索
 mc-search --json search BSL --type shader
 mc-search --json search RLCraft --type modpack
+
+# 快速查看依赖
+mc-search --json deps sodium
 ```
 
 ### Python API
 
 ```python
-from scripts.core import search_all, get_mod_info
+from scripts.core import search_all, fetch_mod_info  # 注意：是 fetch_mod_info
 
 # 多平台搜索
 result = search_all("sodium", fuse=True)
 
 # 获取模组详情
-mod = get_mod_info("sodium-fabric")
+mod = fetch_mod_info("sodium-fabric")
 ```
 
 ---
@@ -112,8 +118,12 @@ mod = get_mod_info("sodium-fabric")
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `search` | 多平台搜索 | `mc-search --json search 钠` |
-| `full` | 获取完整模组信息 | `mc-search --json full sodium` |
+| `search --platform` | 指定平台搜索 | `mc-search --json search sodium --platform modrinth` |
+| `details` | 获取模组详情 | `mc-search --json details sodium` |
+| `details --full` | 完整信息（含依赖+版本） | `mc-search --json details sodium --full` |
+| `deps` | 快速查看依赖 | `mc-search --json deps sodium` |
 | `info` | MC百科详情 | `mc-search --json info 钠` |
+| `full` | [已废弃] 完整信息 | `mc-search --json full sodium` |
 | `wiki` | 搜索 minecraft.wiki | `mc-search --json wiki 附魔` |
 | `read` | 读取 Wiki 页面 | `mc-search --json read <url>` |
 | `dep` | Modrinth 依赖关系 | `mc-search --json dep sodium` |
@@ -128,6 +138,7 @@ mod = get_mod_info("sodium-fabric")
 | 选项 | 说明 |
 |------|------|
 | `--json` | JSON 格式输出（推荐） |
+| `-o, --output` | 输出到文件 |
 | `--cache` | 启用本地缓存（TTL 1小时） |
 | `--no-mcmod` | 禁用 MC百科 |
 | `--no-mr` | 禁用 Modrinth |

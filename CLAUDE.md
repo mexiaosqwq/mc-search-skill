@@ -79,10 +79,11 @@ mc-search --json search --author Notch  # MC百科作者
 ### 详情
 
 ```bash
-mc-search --json info 钠                # MC百科详情
-mc-search --json info 钠 -m             # 同时查 Modrinth
-mc-search --json dep sodium             # Modrinth 依赖树
-mc-search --json full sodium            # 完整信息（含版本）
+mc-search --json details sodium             # 模组详情（推荐）
+mc-search --json details sodium --full      # 完整信息（含依赖+版本+changelogs）
+mc-search --json info 钠                    # MC百科详情（旧命令，仍可用）
+mc-search --json dep sodium                 # Modrinth 依赖树
+mc-search --json deps sodium                # 依赖关系（快捷命令）
 ```
 
 ### 核心代码模块
@@ -93,7 +94,8 @@ mc-search --json full sodium            # 完整信息（含版本）
 ### 一键全量（推荐）
 
 ```bash
-mc-search --json full 钠                # 一次获取模组全部信息
+mc-search --json details sodium --full   # 一次获取模组全部信息（推荐）
+mc-search --json full 钠                 # [已废弃] 仍可用，建议使用 details --full
 mc-search --json full https://modrinth.com/shader/bsl  # 光影包
 mc-search --json full https://modrinth.com/resourcepack/faithful  # 材质包
 mc-search --json full https://modrinth.com/modpack/rl-craft  # 整合包
@@ -148,6 +150,18 @@ mc-search-skill/
 ```
 
 ---
+
+## Python API（注意函数名）
+
+```python
+from scripts.core import search_all, fetch_mod_info  # 注意是 fetch_mod_info，不是 get_mod_info
+
+# 多平台搜索
+result = search_all("sodium", fuse=True)
+
+# 获取模组详情
+mod = fetch_mod_info("sodium-fabric")
+```
 
 ## 开发规范
 

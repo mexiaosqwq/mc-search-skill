@@ -67,8 +67,11 @@ pip install -e .
 # Search mods
 mc-search --json search sodium
 
-# Get full info
-mc-search --json full sodium
+# Get full info (recommended)
+mc-search --json details sodium --full
+
+# Get mod details
+mc-search --json details sodium
 
 # Search wiki
 mc-search --json wiki diamond sword
@@ -76,18 +79,21 @@ mc-search --json wiki diamond sword
 # Search by type
 mc-search --json search BSL --type shader
 mc-search --json search RLCraft --type modpack
+
+# Quick dependencies
+mc-search --json deps sodium
 ```
 
 ### Python API
 
 ```python
-from scripts.core import search_all, get_mod_info
+from scripts.core import search_all, fetch_mod_info  # Note: fetch_mod_info, not get_mod_info
 
 # Multi-platform search
 result = search_all("sodium", fuse=True)
 
 # Get mod details
-mod = get_mod_info("sodium-fabric")
+mod = fetch_mod_info("sodium-fabric")
 ```
 
 ---
@@ -112,8 +118,12 @@ mod = get_mod_info("sodium-fabric")
 | Command | Description | Example |
 |---------|-------------|---------|
 | `search` | Multi-platform search | `mc-search --json search sodium` |
-| `full` | Get complete mod info | `mc-search --json full sodium` |
+| `search --platform` | Search specific platform | `mc-search --json search sodium --platform modrinth` |
+| `details` | Get mod details | `mc-search --json details sodium` |
+| `details --full` | Full info (deps+versions) | `mc-search --json details sodium --full` |
+| `deps` | Quick dependencies | `mc-search --json deps sodium` |
 | `info` | MC百科 details | `mc-search --json info 钠` |
+| `full` | [Deprecated] Full info | `mc-search --json full sodium` |
 | `wiki` | Search minecraft.wiki | `mc-search --json wiki enchanting` |
 | `read` | Read wiki page | `mc-search --json read <url>` |
 | `dep` | Modrinth dependencies | `mc-search --json dep sodium` |
@@ -128,6 +138,7 @@ mod = get_mod_info("sodium-fabric")
 | Option | Description |
 |--------|-------------|
 | `--json` | JSON format output (recommended) |
+| `-o, --output` | Output to file |
 | `--cache` | Enable local cache (TTL 1 hour) |
 | `--no-mcmod` | Disable MC百科 |
 | `--no-mr` | Disable Modrinth |
