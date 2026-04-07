@@ -70,45 +70,6 @@ def _timed(func):
 
 _SOURCE_TYPE_LABELS = {"open_source": "开源", "closed_source": "闭源"}
 
-def _print_side_info(mr: dict):
-    """打印 Modrinth 运行环境信息。"""
-    cs = mr.get('client_side', '')
-    ss = mr.get('server_side', '')
-
-    # 使用顶层常量
-    _labels = {
-        "required": "必需",
-        "optional": "可选",
-        "unsupported": "不支持"
-    }
-
-    # 简化显示：两端相同则合并
-    if cs and ss and cs == ss:
-        label = _labels.get(cs, cs)
-        print(f"  运行环境：客户端/服务端均{label}")
-    else:
-        side_info = []
-        if cs:
-            side_info.append(f"客户端: {_labels.get(cs, cs)}")
-        if ss:
-            side_info.append(f"服务端: {_labels.get(ss, ss)}")
-        if side_info:
-            print(f"  运行环境：{' | '.join(side_info)}")
-
-
-def _print_version_groups(vg: list, max_display: int = 7):
-    """打印 Modrinth 版本列表（默认显示前 7 个）。"""
-    if vg:
-        total = len(vg)
-        print(f"  版本列表：（共 {total} 个，显示前 {min(max_display, total)} 个）")
-        for mod_ver, meta in vg[:max_display]:
-            ld = ", ".join(meta.get("loaders", []))
-            gv = ", ".join(meta.get("game_versions", [])[:4])
-            print(f"    {mod_ver}  [{ld}]  游戏: {gv}")
-        if total > max_display:
-            print(f"    ... 还有 {total - max_display} 个版本")
-
-
 # CLI 默认值
 _DEFAULT_MAX = 3        # 每平台最多结果
 _DEFAULT_TIMEOUT = 12    # 整体超时秒数
@@ -200,12 +161,6 @@ def _mcmod_class_url(class_id: str) -> str:
 def _modrinth_project_url(slug: str, project_type: str = "mod") -> str:
     """生成 Modrinth 项目 URL。"""
     return f"https://modrinth.com/{project_type}/{slug}"
-
-
-def _mcmod_search_url(keyword: str, filter_val: str) -> str:
-    """生成 MC百科搜索 URL。"""
-    q = urllib.parse.quote(keyword)
-    return f"https://search.mcmod.cn/s?key={q}&filter={filter_val}"
 
 
 # 文本清理辅助函数
