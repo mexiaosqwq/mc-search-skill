@@ -423,7 +423,9 @@ def main():
         """从 Modrinth URL 提取 slug"""
         # 支持: https://modrinth.com/mod/sodium
         #       https://modrinth.com/shader/bsl
-        match = re.search(r'/mod|shader|resourcepack|modpack/([^/?#]+)', url)
+        #       https://modrinth.com/resourcepack/faithful
+        #       https://modrinth.com/modpack/rlcraft
+        match = re.search(r'/(?:mod|shader|resourcepack|modpack)/([^/?#]+)', url)
         return match.group(1) if match else url
 
     # ============================================================
@@ -510,9 +512,42 @@ def main():
                     for h in results:
                         print_hit(h)
                 return
-            else:
-                # wiki/wiki-zh: 交给 search_all 处理
-                pass
+            elif args.platform == "wiki":
+                # 仅英文 wiki 搜索
+                core.set_platform_enabled(mcmod=False, modrinth=False, wiki=True, wiki_zh=False)
+                try:
+                    results = core.search_all(args.keyword, max_per_source=args.max,
+                                              timeout=args.timeout, content_type=content_type,
+                                              fuse=True)
+                except Exception:
+                    results = {"results": []}
+                if args.json:
+                    _json({"results": results.get("results", []), "platform": "wiki", "returned": len(results.get("results", []))})
+                else:
+                    if not results.get("results"):
+                        print(f"minecraft.wiki 无 [{args.keyword}] 相关结果")
+                        sys.exit(1)
+                    for h in results["results"]:
+                        print_hit(h)
+                return
+            elif args.platform == "wiki-zh":
+                # 仅中文 wiki 搜索
+                core.set_platform_enabled(mcmod=False, modrinth=False, wiki=False, wiki_zh=True)
+                try:
+                    results = core.search_all(args.keyword, max_per_source=args.max,
+                                              timeout=args.timeout, content_type=content_type,
+                                              fuse=True)
+                except Exception:
+                    results = {"results": []}
+                if args.json:
+                    _json({"results": results.get("results", []), "platform": "wiki-zh", "returned": len(results.get("results", []))})
+                else:
+                    if not results.get("results"):
+                        print(f"minecraft.wiki/zh 无 [{args.keyword}] 相关结果")
+                        sys.exit(1)
+                    for h in results["results"]:
+                        print_hit(h)
+                return
 
         # 默认：多平台并行搜索
         results = core.search_all(args.keyword, max_per_source=args.max,
@@ -1222,8 +1257,12 @@ def main():
             if "modrinth.com" in name:
                 slug = _extract_slug_from_url(name)
                 try:
-                    info = core.fetch_mod_info(slug, no_limit=args.full)
+                    # --detail 和 --full 都获取完整信息（no_limit=True）
+                    info = core.fetch_mod_info(slug, no_limit=True)
                     if info:
+                        # --detail 不返回 changelogs，--full 返回 5 条
+                        if args.detail and not args.full and "changelogs" in info:
+                            del info["changelogs"]
                         if args.json:
                             _json(info)
                         else:
@@ -1244,17 +1283,27 @@ def main():
             if hit:
                 slug = hit.get("source_id") or hit.get("slug")
                 try:
-                    info = core.fetch_mod_info(slug, no_limit=args.full)
+                    # --detail 和 --full 都获取完整信息（no_limit=True）
+                    info = core.fetch_mod_info(slug, no_limit=True)
                     if info:
+                        # --detail 不返回 changelogs，--full 返回 5 条
+                        if args.detail and not args.full and "changelogs" in info:
+                            del info["changelogs"]
                         if args.json:
                             _json(info)
                         else:
                             _print_full_modrinth_info(info)
                     else:
-                        print(f"无法获取项目信息: {name}")
+                        if args.json:
+                            _json({"error": "NOT_FOUND", "message": f"无法获取项目信息: {name}"})
+                        else:
+                            print(f"无法获取项目信息: {name}")
                         sys.exit(1)
                 except Exception as e:
-                    print(f"获取失败: {e}")
+                    if args.json:
+                        _json({"error": "FETCH_FAILED", "message": str(e)})
+                    else:
+                        print(f"获取失败: {e}")
                     sys.exit(1)
             else:
                 print(f"未找到相关项目: {name}")
@@ -1275,7 +1324,10 @@ def main():
             if hit:
                 slug = hit.get("source_id") or hit.get("slug")
             else:
-                print(f"未找到相关项目: {name}")
+                if args.json:
+                    _json({"error": "NOT_FOUND", "message": f"未找到相关项目: {name}"})
+                else:
+                    print(f"未找到相关项目: {name}")
                 sys.exit(1)
                 return
 
@@ -1291,7 +1343,10 @@ def main():
             else:
                 print("无依赖")
         except Exception as e:
-            print(f"获取失败: {e}")
+            if args.json:
+                _json({"error": "FETCH_FAILED", "message": str(e)})
+            else:
+                print(f"获取失败: {e}")
             sys.exit(1)
 
     # 分发
