@@ -296,6 +296,7 @@ def main():
 
     s = sub.add_parser("search", help="多平台并行搜索（MC百科+Modrinth+minecraft.wiki+minecraft.wiki/zh）")
     s.add_argument("keyword", nargs="?", help="搜索关键词（作者搜索时忽略）")
+    s.add_argument("--json", action="store_true", help="以 JSON 格式输出")  # 允许放在子命令后
     s.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX, help=f"每平台最多结果（默认{_DEFAULT_MAX}）")
     s.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT, help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
     s.add_argument("--type", dest="content_type", default=None,
@@ -379,8 +380,8 @@ def main():
 
     args = parser.parse_args()
 
-    # 统一 --json 处理：全局标志传播到所有子命令
-    args.json = getattr(args, 'global_json', False)
+    # 统一 --json 处理：同时检查全局和子命令的 --json
+    args.json = getattr(args, 'global_json', False) or getattr(args, 'json', False)
 
     # 全局 --json 辅助函数
     def _json(obj):
