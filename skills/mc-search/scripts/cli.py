@@ -154,15 +154,15 @@ _PROJECT_TYPE_LABELS = {
     "mod": "模组",
     "modpack": "整合包",
     "resourcepack": "材质包",
-    "shader": "光影",
+    "shader": "光影包",
     "block": "方块",
     "item": "物品",
     "entity": "实体",
 }
 
 _SIDE_LABELS = {
-    "required": "必需安装",
-    "optional": "可选安装",
+    "required": "必需",
+    "optional": "可选",
     "unsupported": "不支持",
     "unknown": "未知",
 }
@@ -788,13 +788,11 @@ def main():
         if not html or len(html) < core._MIN_HTML_LEN:
             print(f"无法获取模组页面（ID: {class_id}）")
             sys.exit(1)
-            return
 
         # 检测 MC百科错误页面（重定向到 /error/）
         if '/error/' in html or 'Jump' in html and '/error/' in html:
             print(f"错误: 未找到 ID 为 {class_id} 的模组页面（MC百科返回错误页面）")
             sys.exit(1)
-            return
 
         info = core._parse_mcmod_result(html, _mcmod_class_url(class_id), "")
 
@@ -1383,8 +1381,7 @@ def main():
                 if args.json:
                     _json(deps)
                 else:
-                    print(f"依赖关系（共 {len(deps.get('deps', {}))} 个）：")
-                    print_deps(deps)
+                    print_deps(deps, slug)
             else:
                 print("无依赖")
         except Exception as e:
