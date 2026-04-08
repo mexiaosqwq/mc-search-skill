@@ -47,11 +47,11 @@ mc-search --json full <模组名>
 ```
 用户询问模组/游戏内容/整合包
 ├── 不知道具体哪个平台 → search（四平台并行）
-├── 想一键获取完整信息 → full（推荐，一次调用=搜索+详情+依赖+版本）
-├── 想看详细信息 → info / dep / full
+├── 想一键获取完整信息 → details --full（推荐，一次调用=搜索+详情+依赖+版本）
+├── 想看详细信息 → info / deps / details
 ├── 想查原版游戏内容 → wiki / read
-├── 想查整合包 → search --type modpack / full <整合包名>
-├── 想查光影包/材质包 → search --type shader|resourcepack / full <URL>
+├── 想查整合包 → search --type modpack / details <整合包名> --full
+├── 想查光影包/材质包 → search --type shader|resourcepack / details <URL> --full
 └── 想查作者作品 → search --author（MC百科）/ author（Modrinth）
 ```
 

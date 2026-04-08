@@ -168,8 +168,6 @@ skills/mc-search/
 - Data completeness enhanced (Modrinth fields)
 - Tests: 95/95 passing, 0 failures
 
-See [RELEASE-v4.5.md](skills/mc-search/RELEASE-v4.5.md) for details.
-
 ## License
 
 MIT License

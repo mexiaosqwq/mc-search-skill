@@ -168,9 +168,6 @@ skills/mc-search/
 - 数据完整性增强（Modrinth 字段）
 - 测试：95/95 通过，0 失败
 
-详见 [RELEASE-v4.5.md](skills/mc-search/RELEASE-v4.5.md)
-
-
 ## 许可证
 
 MIT License

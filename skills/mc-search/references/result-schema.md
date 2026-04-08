@@ -295,7 +295,7 @@ if result._truncated exists:
 
 ## Modrinth — `get_mod_info` 详情（完整元数据）
 
-通过 `get_mod_info(mod_id)` 或 `info -m`（即 `info --modrinth`）获取：
+通过 `fetch_mod_info(mod_id)` 或 `info -m`（即 `info --modrinth`）获取：
 
 | 字段 | 说明 |
 |------|------|

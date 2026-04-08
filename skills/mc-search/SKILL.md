@@ -1,6 +1,6 @@
 ---
 name: mc-search
-version: "4.5.6"
+version: "4.5.0"
 description: "Minecraft 内容搜索 - 模组/整合包/光影/材质包/wiki 四平台聚合"
 license: MIT
 context: open
@@ -58,7 +58,7 @@ Minecraft 内容搜索工具，支持四平台并行：
 mc-search --json search <关键词> [--type mod/item/modpack/shader/resourcepack]
 
 # 获取详情 - 知道名称时（推荐首选）
-mc-search --json full <模组名>
+mc-search --json details <模组名> --full
 
 # wiki 查询 - 原版游戏内容
 mc-search --json wiki <关键词>
@@ -138,7 +138,7 @@ mc-search --json wiki <关键词>
     "required_count": 1,
     "optional_count": 0
   },
-  "saved_files": ["/path/to/output/Create_mod_full.md"]
+  "saved_files": ["/path/to/output/Create_mod_full.md"]  // 仅在触发文件保存时存在
 }
 ```
 

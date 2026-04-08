@@ -23,7 +23,7 @@ mc-search search <关键词> [options]
 | `-t <秒数>` | 超时时间（默认12秒） |
 | `--json` | JSON 输出（Agent 解析首选） |
 
-> **注**：search 命令的所有平台默认超时时间为 12 秒（继承自全局默认值 `_DEFAULT_TIMEOUT = 12`）。
+> **注**：search 命令的所有平台默认超时时间为 12 秒。
 
 > **重要**：`--type` 选项影响所有平台的搜索范围：
 > - `mod`/`item`/`modpack`：MC百科 + Modrinth
@@ -49,11 +49,11 @@ mc-search mr <关键词> [options]
 
 | 选项 | 说明 |
 |------|------|
-| `-n <数量>` | 最多结果（默认5，即 `_DEFAULT_WIKI_MAX`） |
+| `-n <数量>` | 最多结果（默认5） |
 | `-t mod` | 项目类型：mod / shader / resourcepack（默认 mod） |
 | `--json` | JSON 输出 |
 
-> **注**：mr 命令的默认超时时间为 12 秒（继承自全局默认值 `_DEFAULT_TIMEOUT = 12`）。
+> **注**：mr 命令的默认超时时间为 12 秒。
 
 **示例**：
 ```bash
@@ -100,12 +100,16 @@ mc-search --json info 钻石剑 -r
 
 ---
 
-## 4. full — 一键获取完整信息（推荐）
+## 4. full — 一键获取完整信息
+
+> **⚠️ 已废弃**: 建议使用 `details --full` 代替，功能相同。
 
 **使用场景**：需要模组的全部信息，只需**一次调用**。无数据截断，返回完整信息。
 
 ```bash
 mc-search --json full <模组名或URL或slug> [options]
+# 推荐使用:
+mc-search --json details <模组名> --full
 ```
 
 | 选项 | 说明 |
@@ -155,10 +159,10 @@ mc-search author <用户名> [options]
 
 | 选项 | 说明 |
 |------|------|
-| `-n <数量>` | 最多结果（默认10，即 `_DEFAULT_AUTHOR_MAX`） |
+| `-n <数量>` | 最多结果（默认10） |
 | `--json` | JSON 输出 |
 
-> **注**：author 命令的默认超时时间为 12 秒（继承自全局默认值 `_DEFAULT_TIMEOUT = 12`）。
+> **注**：author 命令的默认超时时间为 12 秒。
 
 **示例**：
 ```bash
@@ -177,11 +181,11 @@ mc-search wiki <关键词> [options]
 
 | 选项 | 说明 |
 |------|------|
-| `-n <数量>` | 最多结果（默认5，即 `_DEFAULT_WIKI_MAX`） |
+| `-n <数量>` | 最多结果（默认5） |
 | `-r` | 搜索后直接读取第一个页面正文 |
 | `--json` | JSON 输出 |
 
-> **注**：wiki 命令的默认超时时间为 12 秒（继承自全局默认值 `_DEFAULT_TIMEOUT = 12`）。
+> **注**：wiki 命令的默认超时时间为 12 秒。
 
 **示例**：
 ```bash
@@ -201,10 +205,10 @@ mc-search read <url> [options]
 
 | 选项 | 说明 |
 |------|------|
-| `-p <段落数>` | 最多段落数（默认5，即 `_DEFAULT_PARAGRAPHS`） |
+| `-p <段落数>` | 最多段落数（默认20） |
 | `--json` | JSON 输出 |
 
-> **注**：read 命令的默认超时时间为 12 秒（继承自全局默认值 `_DEFAULT_TIMEOUT = 12`）。
+> **注**：read 命令的默认超时时间为 12 秒。
 
 **示例**：
 ```bash

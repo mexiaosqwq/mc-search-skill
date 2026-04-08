@@ -68,7 +68,7 @@ ls -lh ~/.cache/mc-search/
 rm -rf ~/.cache/mc-search/
 ```
 
-**缓存 TTL**：1 小时（搜索）、1 天（详情）
+**缓存 TTL**：1 小时（所有类型）
 
 **适用场景**：
 - 缓存中有正确结果，可立即响应
@@ -244,4 +244,3 @@ mc-search --json full sodium
 **A**: 缓存 TTL 为 1 小时，超过后自动失效。对于版本检查等实时性要求高的场景，建议：
 1. 不使用 `--cache`
 2. 直接使用 Modrinth API
-3. 使用 `update-check` 命令专门检查版本
