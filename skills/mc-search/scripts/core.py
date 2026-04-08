@@ -58,7 +58,6 @@ _MIN_SECTION_MARKER_DISTANCE = 200  # section marker 最小距离
 _MAX_SECTION_PARAGRAPHS = 100  # 每wiki章节最多段落数（支持长文章）
 _MIN_TABLE_CELL_LEN = 2     # table cell 最小长度
 _MAX_TABLE_ITEMS = 50        # table 最大 item 数（8->50，完整提取表格数据）
-_MAX_BODY_CHARS = 20000      # Modrinth 详情 body 字段最大截断长度（5000->20000，支持长描述模组）
 _MAX_VERSION_GROUPS = 5     # 版本组最多显示数
 _MAX_CHANGELOGS = 5         # 更新日志最多显示数
 _MAX_FETCH_WORKERS = 4      # 并行抓取最大线程数
@@ -123,14 +122,6 @@ _WIKI_SNIPPET_SKIP_KEYWORDS = [
 _WIKI_HEADING_SKIP_IDS = {
     "mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
     "p-personal-label", "p-navigation-label", "p-tb-label"
-}
-
-# 中文 Wiki 额外需要跳过的 heading ID（繁简中文页面特有）
-# - 参考资料/导航/视频/琐事: 中文页面底部区域
-# - p-interaction-label/p-print-label/p-toolbox-label: 中文侧边栏
-_WIKI_ZH_HEADING_SKIP_IDS = _WIKI_HEADING_SKIP_IDS | {
-    "参考资料", "导航", "视频", "琐事",
-    "p-interaction-label", "p-print-label", "p-toolbox-label"
 }
 
 # === MC百科搜索过滤器 ===

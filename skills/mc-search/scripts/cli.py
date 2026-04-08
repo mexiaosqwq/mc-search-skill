@@ -12,7 +12,6 @@ import os
 import re
 import sys
 import time
-import urllib.parse
 
 from . import core
 
