@@ -126,7 +126,6 @@ mod = fetch_mod_info("sodium-fabric")
 | `full` | [Deprecated] Full info | `mc-search --json full sodium` |
 | `wiki` | Search minecraft.wiki | `mc-search --json wiki enchanting` |
 | `read` | Read wiki page | `mc-search --json read <url>` |
-| `dep` | Modrinth dependencies | `mc-search --json dep sodium` |
 | `author` | Search by author | `mc-search --json author jellysquid_` |
 
 > **Note**: `--json` flag must come **before** the subcommand.

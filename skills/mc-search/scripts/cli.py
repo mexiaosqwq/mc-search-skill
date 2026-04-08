@@ -268,8 +268,6 @@ def main():
                     choices=["mod", "shader", "resourcepack"],
                     help="项目类型（默认 mod）")
 
-    dp = sub.add_parser("dep", help="查看 mod 依赖树（Modrinth）")
-    dp.add_argument("mod_id", help="Mod ID（slug 或 project id）")
 
     at = sub.add_parser("author", help="按作者搜索 Modrinth 项目（支持模糊匹配）")
     at.add_argument("username", help="作者用户名（Modrinth username）")
@@ -643,30 +641,6 @@ def main():
                 if url:
                     print(f"     → {url}")
                 print()
-
-    @_timed
-    def _cmd_dep():
-        # 验证空参数
-        if not args.mod_id or not args.mod_id.strip():
-            error_msg = {"error": "EMPTY_INPUT", "message": "Mod ID 不能为空"}
-            _print_error_or_json(error_msg, args.json)
-            sys.exit(1)
-
-        info = core.fetch_mod_info(args.mod_id)
-        if not info:
-            error_msg = {"error": "MOD_NOT_FOUND", "message": f"[{args.mod_id}] 未在 Modrinth 上找到该 mod"}
-            _print_error_or_json(error_msg, args.json)
-            sys.exit(1)
-        result = core.get_mod_dependencies(args.mod_id, project_id=info.get("id"))
-
-        if args.json:
-            _json(result)
-        elif result.get("error") == "API_ERROR":
-            print(f"[{args.mod_id}]（{info.get('name', args.mod_id)}）查询依赖时网络错误")
-        elif not result.get("deps"):
-            print(f"[{args.mod_id}]（{info.get('name', args.mod_id)}）无声明依赖")
-        else:
-            print_deps(result, info.get('name', args.mod_id))
 
     @_timed
     def _cmd_author():
@@ -1334,7 +1308,6 @@ def main():
         "wiki": _cmd_wiki,
         "read": _cmd_read,
         "mr": _cmd_mr,
-        "dep": _cmd_dep,
         "deps": _cmd_deps,
         "author": _cmd_author,
         "info": _cmd_info,

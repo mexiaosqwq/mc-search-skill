@@ -126,7 +126,6 @@ mod = fetch_mod_info("sodium-fabric")
 | `full` | [已废弃] 完整信息 | `mc-search --json full sodium` |
 | `wiki` | 搜索 minecraft.wiki | `mc-search --json wiki 附魔` |
 | `read` | 读取 Wiki 页面 | `mc-search --json read <url>` |
-| `dep` | Modrinth 依赖关系 | `mc-search --json dep sodium` |
 | `author` | 按作者搜索 | `mc-search --json author jellysquid_` |
 
 > **注意**：`--json` 标志必须放在子命令**之前**。

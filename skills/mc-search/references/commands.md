@@ -130,26 +130,7 @@ mc-search --json full https://modrinth.com/mod/sodium
 
 ---
 
-## 5. dep — Modrinth 依赖树
-
-**使用场景**：想知道一个 mod 需要哪些前置。
-
-```bash
-mc-search dep <mod_slug或project_id> [options]
-```
-
-| 选项 | 说明 |
-|------|------|
-| `--json` | JSON 输出 |
-
-**示例**：
-```bash
-mc-search --json dep sodium
-```
-
----
-
-## 6. author — Modrinth 作者搜索
+## 5. author — Modrinth 作者搜索
 
 **使用场景**：想知道某作者在 Modrinth 上发布了哪些作品。
 
@@ -167,6 +148,30 @@ mc-search author <用户名> [options]
 **示例**：
 ```bash
 mc-search --json author jellysquid_
+```
+
+---
+
+## 6. deps — 查看模组依赖关系
+
+**使用场景**：想知道一个 mod 需要哪些前置依赖。
+
+```bash
+mc-search deps <名称或URL> [options]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--json` | JSON 输出 |
+
+**参数格式**：
+- 模组名称：`mc-search deps sodium`（自动搜索匹配）
+- Modrinth URL：`mc-search deps https://modrinth.com/mod/sodium`
+
+**示例**：
+```bash
+mc-search --json deps sodium
+mc-search --json deps 机械动力
 ```
 
 ---
