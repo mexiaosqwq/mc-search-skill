@@ -89,7 +89,7 @@ mc-search --json info <模组名或URL或ID> [options]
 - MC百科 URL：`mc-search info https://www.mcmod.cn/class/23352.html`
 - 纯数字 ID：`mc-search info 23352`
 
-> **注意**：info 命令不支持 Modrinth URL。如需查询 Modrinth 模组详情，请使用 `full` 命令。
+> **注意**：info 命令不支持 Modrinth URL。如需查询 Modrinth 模组详情，请使用 `details --full`。
 
 **示例**：
 ```bash

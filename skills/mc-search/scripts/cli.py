@@ -91,21 +91,6 @@ _DISPLAY_MR_INFO_SNIPPET_MAX = 100  # info -m 命令 MR snippet 最大字符数
 _MATCH_THRESHOLD_EXACT = 200    # Modrinth 精确匹配分数
 _MATCH_THRESHOLD_FUZZY = 150    # Modrinth 模糊匹配分数
 
-# 匹配分数阈值
-_MATCH_SCORE_SUBSTRING = 50     # 子串匹配分数
-_MATCH_SCORE_PREFIX = 30        # 前缀匹配分数
-_MATCH_SCORE_MINIMUM_ACCEPTABLE = 50  # 最低可接受分数
-
-# 显示截断值
-_DISPLAY_MAX_VER_GROUP = 8      # 版本组最多显示数
-_DISPLAY_MAX_GALLERY = 10       # 图库最多显示数
-_DISPLAY_MAX_SCREENSHOTS = 3    # 截图最多显示数
-_DISPLAY_MAX_SECTIONS = 5       # wiki 章节最多显示数
-_DISPLAY_MAX_CHANGELOGS = 2     # 更新日志最多显示数
-_DISPLAY_MAX_PREVIEW_PARAS = 5  # 预览段落最多显示数
-_DISPLAY_MAX_RECIPE_IMAGES = 4  # 合成表图片最多显示数
-_DISPLAY_MAX_VERSIONS = 8       # 支持版本最多显示数
-
 # 保存阈值
 _SAVE_BODY_LENGTH_THRESHOLD = 3000    # Modrinth body 保存文件阈值
 _SAVE_DESC_LENGTH_THRESHOLD = 5000    # MC百科简介保存文件阈值
@@ -137,10 +122,6 @@ _MODRINTH_PREVIEW_MAX_PARAS = 10      # 预览最多段落数
 _MCMDOD_DESC_PREVIEW_LEN = 1500       # 预览最大字符数
 _MCMDOD_DESC_PREVIEW_SENTENCE_MIN = 1000  # 预览句子截断最小位置
 _MCMDOD_DESC_PREVIEW_MAX_PARAS = 5    # 预览最多段落数
-
-# 平台标识常量
-_PLATFORM_MCMOD = "mcmod"
-_PLATFORM_MODRINTH = "modrinth"
 
 
 def _print_error_or_json(error_msg: dict, is_json: bool):

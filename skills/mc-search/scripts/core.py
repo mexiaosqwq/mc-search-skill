@@ -149,17 +149,11 @@ _MCMOD_MODPACK_FILTERS = [
 ]
 
 # === 项目类型常量 ===
-# 所有支持的项目类型
-_CONTENT_TYPES = {"mod", "item", "modpack", "shader", "resourcepack", "entity", "biome", "dimension"}
-
 # 文本类内容类型（MC百科 + Modrinth 都支持）
 _TEXT_CONTENT_TYPES = {"mod", "item", "modpack"}
 
 # 视觉类内容类型（仅 Modrinth 支持）
 _VISUAL_CONTENT_TYPES = {"shader", "resourcepack"}
-
-# Wiki 专属类型
-_WIKI_ONLY_TYPES = {"entity", "biome", "dimension"}
 
 # === Modrinth 项目类型 URL 映射 ===
 _MODRINTH_TYPE_URL_MAP = {
