@@ -124,6 +124,12 @@ _WIKI_HEADING_SKIP_IDS = {
     "p-personal-label", "p-navigation-label", "p-tb-label"
 }
 
+# 中文 Wiki 额外跳过的 heading ID
+_WIKI_ZH_HEADING_SKIP_IDS = _WIKI_HEADING_SKIP_IDS | {
+    "参考资料", "导航", "视频", "琐事",
+    "p-interaction-label", "p-print-label", "p-toolbox-label"
+}
+
 # === MC百科搜索过滤器 ===
 _MCMOD_FILTER_MOD = "0"             # 模组搜索
 _MCMOD_FILTER_ITEM = "3"            # 物品搜索
@@ -2575,12 +2581,7 @@ def read_wiki_zh(url: str, max_paragraphs: int = -1, include_infobox: bool = Tru
     result = _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("历史", "编辑", "History of", "v ", "[edit"),
-        heading_skip_ids={
-            "mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
-            "参考资料", "导航", "视频", "琐事",
-            "p-personal-label", "p-navigation-label", "p-tb-label",
-            "p-interaction-label", "p-print-label", "p-toolbox-label"
-        },
+        heading_skip_ids=_WIKI_ZH_HEADING_SKIP_IDS,
         source="minecraft.wiki/zh",
     )
 
