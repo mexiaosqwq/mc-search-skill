@@ -22,14 +22,18 @@ mc-search 是一个为 **Claude Code** 设计的 Minecraft 内容搜索 Skill，
 
 ## 安装到 Claude Code
 
-将本项目放入 Claude Code 的 `skills` 目录：
+将 `skills/mc-search` 目录复制到 Claude Code 的 `skills` 目录：
 
 ```bash
-# 方式 1：克隆到 skills 目录
-git clone https://github.com/mexiaosqwq/mc-search-skill.git ~/ClaudeCode/skills/mc-search
+# 方式 1：克隆后安装
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+cp -r mc-search-skill/skills/mc-search ~/ClaudeCode/skills/
 
-# 方式 2：复制现有目录
-cp -r /path/to/mc-search-skill ~/ClaudeCode/skills/mc-search
+# 方式 2：直接从仓库复制
+cd ~/ClaudeCode/skills
+git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
+cp -r temp/skills/mc-search .
+rm -rf temp
 ```
 
 ## 主要功能
@@ -121,12 +125,16 @@ mc-search --json wiki <关键词或 URL> [选项]
 
 ```
 mc-search-skill/
-├── SKILL.md          # Claude Code Skill 定义
-├── scripts/
-│   ├── core.py       # 核心搜索逻辑
-│   └── cli.py        # CLI 入口
-├── references/       # 详细文档
-└── pyproject.toml    # Python 包配置
+├── SKILL.md                    # Skill 定义（根目录）
+├── skills/
+│   └── mc-search/              # Skill 目录（放入 Claude Code）
+│       ├── SKILL.md            # Claude Code Skill 定义
+│       ├── pyproject.toml      # Python 包配置
+│       ├── scripts/
+│       │   ├── core.py         # 核心搜索逻辑
+│       │   └── cli.py          # CLI 入口
+│       └── references/         # 详细文档
+└── README.md
 ```
 
 ## 许可证

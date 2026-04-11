@@ -22,14 +22,18 @@ Supports searching for mods, modpacks, shaders, resourcepacks, items, entities, 
 
 ## Install to Claude Code
 
-Place this project in Claude Code's `skills` directory:
+Place the `skills/mc-search` directory in Claude Code's `skills` directory:
 
 ```bash
-# Method 1: Clone to skills directory
-git clone https://github.com/mexiaosqwq/mc-search-skill.git ~/ClaudeCode/skills/mc-search
+# Method 1: Clone and install
+git clone https://github.com/mexiaosqwq/mc-search-skill.git
+cp -r mc-search-skill/skills/mc-search ~/ClaudeCode/skills/
 
-# Method 2: Copy existing directory
-cp -r /path/to/mc-search-skill ~/ClaudeCode/skills/mc-search
+# Method 2: Clone directly to skills
+cd ~/ClaudeCode/skills
+git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
+cp -r temp/skills/mc-search .
+rm -rf temp
 ```
 
 ## Features
@@ -121,12 +125,16 @@ mc-search --json wiki <keyword or URL> [options]
 
 ```
 mc-search-skill/
-├── SKILL.md          # Claude Code Skill definition
-├── scripts/
-│   ├── core.py       # Core search logic
-│   └── cli.py        # CLI entry
-├── references/       # Detailed documentation
-└── pyproject.toml    # Python package config
+├── SKILL.md                    # Skill definition (root)
+├── skills/
+│   └── mc-search/              # Skill directory (for Claude Code)
+│       ├── SKILL.md            # Claude Code Skill definition
+│       ├── pyproject.toml      # Python package config
+│       ├── scripts/
+│       │   ├── core.py         # Core search logic
+│       │   └── cli.py          # CLI entry
+│       └── references/         # Detailed documentation
+└── README.md
 ```
 
 ## License
