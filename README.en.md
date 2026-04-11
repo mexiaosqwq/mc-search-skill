@@ -27,10 +27,10 @@ Place the `skills/mc-search` directory in Claude Code's `skills` directory:
 ```bash
 # Method 1: Clone and install
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cp -r mc-search-skill/skills/mc-search ~/ClaudeCode/skills/
+cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
 
 # Method 2: Clone directly to skills
-cd ~/ClaudeCode/skills
+cd ~/.claude/skills
 git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
 cp -r temp/skills/mc-search .
 rm -rf temp

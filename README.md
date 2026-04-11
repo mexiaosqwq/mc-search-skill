@@ -27,10 +27,10 @@ mc-search 是一个为 **Claude Code** 设计的 Minecraft 内容搜索 Skill，
 ```bash
 # 方式 1：克隆后安装
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cp -r mc-search-skill/skills/mc-search ~/ClaudeCode/skills/
+cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
 
 # 方式 2：直接从仓库复制
-cd ~/ClaudeCode/skills
+cd ~/.claude/skills
 git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
 cp -r temp/skills/mc-search .
 rm -rf temp
