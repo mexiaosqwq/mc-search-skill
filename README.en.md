@@ -5,13 +5,13 @@ Minecraft content aggregation search tool with four-platform parallel search.
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
-[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](skills/mc-search/SKILL.md)
+[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](SKILL.md)
 
 [中文文档 →](README.md)
 
 ## Project Overview
 
-mc-search is a Minecraft content search tool designed for AI Agents, capable of searching four platforms in parallel:
+mc-search is a Minecraft content search **Skill for Claude Code**, capable of searching four platforms in parallel:
 
 - **MC 百科** (mcmod.cn) — Chinese mods/items/modpacks
 - **Modrinth** — English mods/shaders/resourcepacks/modpacks
@@ -19,6 +19,18 @@ mc-search is a Minecraft content search tool designed for AI Agents, capable of 
 - **minecraft.wiki/zh** — Vanilla game wiki (Chinese)
 
 Supports searching for mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions, and other game content.
+
+## Install to Claude Code
+
+Place this project in Claude Code's `skills` directory:
+
+```bash
+# Method 1: Clone to skills directory
+git clone https://github.com/mexiaosqwq/mc-search-skill.git ~/ClaudeCode/skills/mc-search
+
+# Method 2: Copy existing directory
+cp -r /path/to/mc-search-skill ~/ClaudeCode/skills/mc-search
+```
 
 ## Features
 
@@ -29,15 +41,22 @@ Supports searching for mods, modpacks, shaders, resourcepacks, items, entities, 
 - **Recipe Query**: Item crafting recipe lookup
 - **Local Cache**: Optional caching mechanism to reduce network requests
 
-## Quick Start
+## Quick Usage
+
+**Claude Code will automatically detect and invoke this skill** when users ask about:
+
+```
+"搜索机械动力"
+"钠模组信息"
+"BSL 光影怎么样"
+"wiki 附魔台"
+"RLCraft 整合包"
+```
+
+### Manual Testing
 
 ```bash
-# Install
-git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cd mc-search-skill/skills/mc-search
-pip install -e .
-
-# Usage
+cd ~/ClaudeCode/skills/mc-search
 mc-search --json search sodium
 mc-search --json show sodium --full
 mc-search --json wiki enchanting
@@ -97,18 +116,6 @@ mc-search --json wiki <keyword or URL> [options]
 | `--no-mr` | Disable Modrinth |
 | `--no-wiki` | Disable English wiki |
 | `--no-wiki-zh` | Disable Chinese wiki |
-
-## Python API
-
-```python
-from scripts.core import search_all, fetch_mod_info
-
-# Multi-platform search
-result = search_all("sodium", fuse=True)
-
-# Get mod details
-mod = fetch_mod_info("sodium-fabric")
-```
 
 ## Project Structure
 
