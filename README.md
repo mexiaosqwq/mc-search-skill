@@ -9,6 +9,16 @@ Minecraft 内容聚合搜索工具，支持四平台并行搜索。
 
 [English Documentation →](README.en.md)
 
+## 这是什么？
+
+mc-search 是一个 Minecraft 内容聚合搜索工具，可以并行搜索四个平台：
+- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包
+- **Modrinth** — 英文 mod/光影/材质包/整合包
+- **minecraft.wiki** — 原版游戏内容 wiki（英文）
+- **minecraft.wiki/zh** — 原版游戏内容 wiki（中文）
+
+支持搜索模组、整合包、光影包、材质包、物品、实体、生物群系、维度等内容类型。
+
 ## 功能
 
 - **四平台搜索**: MC 百科、Modrinth、minecraft.wiki (英文)、minecraft.wiki/zh (中文)

@@ -9,6 +9,16 @@ Minecraft content aggregation search tool with four-platform parallel search.
 
 [中文文档 →](README.md)
 
+## What is this?
+
+mc-search is a Minecraft content aggregation search tool that can search four platforms in parallel:
+- **MC 百科** (mcmod.cn) — Chinese mods/items/modpacks
+- **Modrinth** — English mods/shaders/resourcepacks/modpacks
+- **minecraft.wiki** — Vanilla game wiki (English)
+- **minecraft.wiki/zh** — Vanilla game wiki (Chinese)
+
+Supports searching for mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions, and more.
+
 ## Features
 
 - **Four Platforms**: MC 百科，Modrinth, minecraft.wiki (English), minecraft.wiki/zh (Chinese)
