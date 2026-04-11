@@ -361,7 +361,8 @@ if result._truncated exists:
 
 **平台优先级**：
 - entity/biome/block/mechanic/dimension → `minecraft.wiki` > `minecraft.wiki/zh` > `mcmod.cn` > `modrinth`
-- mod/item → `mcmod.cn` > `modrinth` > `minecraft.wiki` > `minecraft.wiki/zh`
+- mod/item/modpack → `mcmod.cn` > `modrinth`（仅这两个平台）
+- shader/resourcepack → `modrinth`（仅 Modrinth 平台）
 
 ---
 

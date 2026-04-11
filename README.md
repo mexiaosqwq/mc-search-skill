@@ -29,7 +29,7 @@
 
 ### 方法1：克隆即用（推荐）
 
-```bash
+```bashbash
 # 克隆仓库
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
 cd mc-search-skill/skills/mc-search
@@ -39,7 +39,7 @@ pip install -e .
 ```
 
 安装后，在任何地方都可以使用：
-```bash
+```bashbash
 mc-search --json search 钠
 ```
 
@@ -47,7 +47,7 @@ mc-search --json search 钠
 
 如果你想让 Claude Code 自动使用此 Skill：
 
-```bash
+```bashbash
 # 1. 克隆或下载仓库
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
 
@@ -63,30 +63,32 @@ pip install -e .
 
 ### 独立 CLI 使用
 
-```bash
+```bashbash
 # 搜索模组
 mc-search --json search 钠
 
+# 搜光影包（快捷标志）
+mc-search --json search BSL --shader
+
+# 搜整合包
+mc-search --json search 科技 --modpack
+
 # 获取完整信息（推荐）
-mc-search --json details sodium --full
+mc-search --json show 钠 --full
 
-# 获取模组详情
-mc-search --json details sodium
+# 快捷依赖查询
+mc-search --json show sodium --deps
 
-# 搜索 Wiki
-mc-search --json wiki 钻石剑
+# Wiki 搜索
+mc-search --json wiki 附魔台
 
-# 按类型搜索
-mc-search --json search BSL --type shader
-mc-search --json search RLCraft --type modpack
-
-# 快速查看依赖
-mc-search --json deps sodium
+# Wiki 读取页面
+mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword
 ```
 
 ### Python API
 
-```python
+```bashpython
 from scripts.core import search_all, fetch_mod_info  # 注意：是 fetch_mod_info
 
 # 多平台搜索
@@ -107,26 +109,54 @@ mod = fetch_mod_info("sodium-fabric")
 | `modpack` | MC百科 + Modrinth | 整合包 |
 | `shader` | Modrinth | 光影包 |
 | `resourcepack` | Modrinth | 材质包/资源包 |
-| `entity` | minecraft.wiki | 实体/生物 |
-| `biome` | minecraft.wiki | 生物群系 |
-| `dimension` | minecraft.wiki | 维度 |
+| `entity` | minecraft.wiki | 实体/生物（仅 wiki 命令） |
+| `biome` | minecraft.wiki | 生物群系（仅 wiki 命令） |
+| `dimension` | minecraft.wiki | 维度（仅 wiki 命令） |
 
 ---
 
-## 常用命令
+## 三个命令
 
-| 命令 | 说明 | 示例 |
-|------|------|------|
-| `search` | 多平台搜索 | `mc-search --json search 钠` |
-| `search --platform` | 指定平台搜索 | `mc-search --json search sodium --platform modrinth` |
-| `details` | 获取模组详情 | `mc-search --json details sodium` |
-| `details --full` | 完整信息（含依赖+版本） | `mc-search --json details sodium --full` |
-| `deps` | 快速查看依赖 | `mc-search --json deps sodium` |
-| `info` | MC百科详情 | `mc-search --json info 钠` |
-| `full` | [已废弃] 完整信息 | `mc-search --json full sodium` |
-| `wiki` | 搜索 minecraft.wiki | `mc-search --json wiki 附魔` |
-| `read` | 读取 Wiki 页面 | `mc-search --json read <url>` |
-| `author` | 按作者搜索 | `mc-search --json author jellysquid_` |
+### search — 多平台搜索
+
+```bashbash
+mc-search --json search <关键词> [选项]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--shader` | 快捷：搜光影包（仅 Modrinth） |
+| `--modpack` | 快捷：搜整合包 |
+| `--resourcepack` | 快捷：搜材质包（仅 Modrinth） |
+| `--type` | 完整类型：mod/item/shader/resourcepack/modpack |
+| `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh |
+| `--author` | 按作者搜索（双平台） |
+| `-n` | 每平台最多结果 |
+
+### show — 查看详情/依赖/合成表
+
+```bashbash
+mc-search --json show <名称/URL/ID> [选项]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--full` | 双平台完整信息（MC百科+Modrinth+依赖+版本） |
+| `--deps` | 快捷：仅依赖关系 |
+| `--recipe` | 合成表（仅 item） |
+| `-T/-a/-d/-v/-g/-c/-s/-S` | 字段过滤 |
+
+### wiki — 原版 Wiki 搜索与阅读
+
+```bashbash
+mc-search --json wiki <关键词或URL> [选项]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `-r` | 搜索后读取第一个结果正文 |
+| `-n` | 最多结果 |
+| `-p` | 段落数（URL读取时生效） |
 
 > **注意**：`--json` 标志必须放在子命令**之前**。
 
@@ -138,7 +168,7 @@ mod = fetch_mod_info("sodium-fabric")
 |------|------|
 | `--json` | JSON 格式输出（推荐） |
 | `-o, --output` | 输出到文件 |
-| `--cache` | 启用本地缓存（TTL 1小时） |
+| `--cache` | 启用本地缓存（TTL 1 小时，需显式添加此参数） |
 | `--no-mcmod` | 禁用 MC百科 |
 | `--no-mr` | 禁用 Modrinth |
 | `--no-wiki` | 禁用 minecraft.wiki（英文） |
@@ -153,19 +183,20 @@ skills/mc-search/
 ├── SKILL.md          # Claude Code Skill 定义（用户指南）
 ├── scripts/
 │   ├── core.py       # 核心搜索逻辑
-│   └── cli.py        # CLI 入口
+│   └── cli.py        # CLI 入口（3命令扁平结构）
 ├── references/       # 详细文档
 └── pyproject.toml    # Python 包配置
 ```
 
 ---
 
-## v4.5.0 改进
+## v5.0.0 改进
 
-- Clean Code 重构（15 个问题修复）
-- 硬编码清理（类型常量提取）
-- 数据完整性增强（Modrinth 字段）
-- 测试：95/95 通过，0 失败
+- 命令合并：8 命令 → 3 扁平命令（search/show/wiki）
+- 快捷标志：`--shader`/`--modpack`/`--resourcepack`
+- MC百科失败自动回退 Modrinth
+- Wiki 搜索修复（不再误过滤原版内容）
+- 统一错误处理
 
 ## 许可证
 

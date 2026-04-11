@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+**最近修复** (2026/04/11): 文档一致性审查 P1 问题已全部修复
+- 删除已废弃的 `dep` 命令文档，统一使用 `show --deps`
+- 修正平台优先级描述（mod/item 仅使用 MC 百科和 Modrinth）
+- 补充 `--full` 返回字段说明（mcmod/modrinth 可能为 null）
+- 明确字段过滤选项生效条件（仅 MC 百科路径）
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 # mc-search 项目指南
@@ -17,7 +23,7 @@ Minecraft 聚合搜索工具，供 AI Agent 调用。
 **支持类型：**
 - mod（模组）、item（物品）、modpack（整合包）
 - shader（光影包）、resourcepack（材质包/资源包）
-- entity（实体）、biome（生物群系）、dimension（维度）
+- entity（实体）、biome（生物群系）、dimension（维度）— 仅 wiki 命令
 
 ---
 
@@ -34,8 +40,8 @@ Minecraft 聚合搜索工具，供 AI Agent 调用。
 
 ```bash
 mc-search --json search <关键词>
-mc-search --json info <模组名>
-mc-search --json full <模组名>
+mc-search --json show <模组名> --full
+mc-search --json wiki <关键词>
 ```
 
 > **重要**：全局选项（`--json`、`--cache`、平台开关）必须放在子命令 **之前**。
@@ -47,66 +53,58 @@ mc-search --json full <模组名>
 ```
 用户询问模组/游戏内容/整合包
 ├── 不知道具体哪个平台 → search（四平台并行）
-├── 想一键获取完整信息 → details --full（推荐，一次调用=搜索+详情+依赖+版本）
-├── 想看详细信息 → info / deps / details
-├── 想查原版游戏内容 → wiki / read
-├── 想查整合包 → search --type modpack / details <整合包名> --full
-├── 想查光影包/材质包 → search --type shader|resourcepack / details <URL> --full
-└── 想查作者作品 → search --author（MC百科）/ author（Modrinth）
+├── 想一键获取完整信息 → show --full（推荐，一次调用=MC百科+Modrinth+依赖+版本）
+├── 想看详细信息 → show（默认MC百科，失败回退Modrinth）
+├── 只看依赖 → show --deps
+├── 想查原版游戏内容 → wiki
+├── 想查光影包 → search --shader
+├── 想查整合包 → search --modpack
+├── 想查材质包 → search --resourcepack
+└── 想查作者作品 → search --author
 ```
 
 ---
 
-## 常用命令
+## 三个命令
 
-### 搜索
+### search — 多平台搜索
 
 ```bash
 mc-search --json search 钠              # 四平台并行
 mc-search --json search 钻石剑 --type item  # 物品搜索
-mc-search --json search 科技 --type modpack  # 整合包搜索（MC百科 + Modrinth）
-mc-search --json search BSL --type shader  # 光影包（仅 Modrinth）
-mc-search --json search Faithful --type resourcepack  # 材质包（仅 Modrinth）
-mc-search --json search --author Notch  # MC百科作者
+mc-search --json search BSL --shader     # 光影包（仅 Modrinth）
+mc-search --json search 科技 --modpack   # 整合包（MC百科 + Modrinth）
+mc-search --json search Faithful --resourcepack  # 材质包（仅 Modrinth）
+mc-search --json search 钠 --platform mcmod  # 仅 MC百科
+mc-search --json search --author jellysquid_  # 双平台作者搜索
 ```
 
-**说明**：
-- 整合包搜索（`--type modpack`）仅在 **MC百科** 和 **Modrinth** 两个平台进行
-- 光影包（`--type shader`）和材质包（`--type resourcepack`）**仅 Modrinth** 支持
-- minecraft.wiki 不支持整合包/光影包/材质包搜索
-- 整合包返回字段包含 `is_official`（是否为 MC百科官方收录）
-
-### 详情
+### show — 查看详情/依赖/合成表
 
 ```bash
-mc-search --json details sodium             # 模组详情（推荐）
-mc-search --json details sodium --full      # 完整信息（含依赖+版本+changelogs）
-mc-search --json info 钠                    # MC百科详情（旧命令，仍可用）
-mc-search --json dep sodium                 # Modrinth 依赖树
-mc-search --json deps sodium                # 依赖关系（快捷命令）
+mc-search --json show 钠 --full          # 双平台完整信息（推荐）
+mc-search --json show 钠                 # MC百科详情（失败回退Modrinth）
+mc-search --json show sodium --deps      # 快捷依赖
+mc-search --json show 钻石剑 --recipe    # 合成表
+mc-search --json show https://www.mcmod.cn/class/2785.html --full  # MC百科 URL
+mc-search --json show https://modrinth.com/mod/sodium --full       # Modrinth URL
+mc-search --json show 2785 --full        # MC百科 ID
 ```
 
-### 核心代码模块
-
-- **cli.py** - CLI 入口和命令处理（`_cmd_search`, `_cmd_info`, `_cmd_full`, `_cmd_wiki`, `_cmd_read`, `_cmd_dep`, `_cmd_author`）
-- **core.py** - 核心搜索逻辑和 API 调用（`search_mcmod`, `search_modrinth`, `search_wiki`, `get_mod_info`, `get_mod_dependencies`, `read_wiki`, `_curl`, `_parse_mcmod_result`）
-
-### 一键全量（推荐）
+### wiki — 原版 Wiki 搜索与阅读
 
 ```bash
-mc-search --json details sodium --full   # 一次获取模组全部信息（推荐）
-mc-search --json full 钠                 # [已废弃] 仍可用，建议使用 details --full
-mc-search --json full https://modrinth.com/shader/bsl  # 光影包
-mc-search --json full https://modrinth.com/resourcepack/faithful  # 材质包
-mc-search --json full https://modrinth.com/modpack/rl-craft  # 整合包
+mc-search --json wiki 附魔台             # Wiki 搜索
+mc-search --json wiki 附魔台 -r          # 搜索并读取正文
+mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword  # 直接读取页面
 ```
 
-### Wiki
+---
 
-```bash
-mc-search --json wiki 附魔台            # Wiki 搜索
-mc-search --json read https://minecraft.wiki/w/Diamond_Sword  # 读取正文
-```
+## 核心代码模块
+
+- **cli.py** - CLI 入口（3命令扁平结构：`_cmd_search`, `_cmd_show`, `_cmd_wiki`）
+- **core.py** - 核心搜索逻辑和 API 调用（`search_mcmod`, `search_modrinth`, `search_wiki`, `fetch_mod_info`, `get_mod_dependencies`, `read_wiki`, `curl`, `_parse_mcmod_result`）
 
 ---
 
@@ -141,7 +139,7 @@ mc-search-skill/
     ├── pyproject.toml             # Python 包配置（入口：mc-search = scripts.cli:main）
     ├── scripts/
     │   ├── __init__.py
-    │   ├── cli.py                 # CLI 入口和命令处理
+    │   ├── cli.py                 # CLI 入口（3命令扁平结构）
     │   └── core.py                # 核心搜索逻辑和 API 调用
     └── references/
         ├── result-schema.md       # 返回字段说明
@@ -167,7 +165,7 @@ mod = fetch_mod_info("sodium-fabric")
 
 1. **返回格式**：`--json` 模式返回 `list[dict]`，字段见 `references/result-schema.md`
 2. **错误处理**：平台调用失败返回空列表，不抛出异常
-3. **网络请求**：统一通过 `core._curl()` 发出
+3. **网络请求**：统一通过 `core.curl()` 发出
 4. **依赖**：仅使用 Python 标准库 + curl，无外部依赖
 5. **数据处理**：MC百科使用 HTML 解析，Modrinth 使用 REST API
 
@@ -178,7 +176,8 @@ mod = fetch_mod_info("sodium-fabric")
 ```bash
 cd skills/mc-search
 pip install -e .
-mc-search search 钠
 mc-search --json search 钠
+mc-search --json show 钠 --full
+mc-search --json wiki 附魔台
 mc-search --help
 ```

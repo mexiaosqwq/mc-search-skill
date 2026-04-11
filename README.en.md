@@ -16,7 +16,7 @@
 **mc-search** is a **Claude Code Skill** that enables AI agents to search Minecraft content across four platforms simultaneously.
 
 **Supported Platforms**:
-- **MC百科** (mcmod.cn) — Chinese mod database
+- **MC 百科 (mcmod.cn)** — Chinese mod database
 - **Modrinth** — Modern mod platform
 - **minecraft.wiki** — Game wiki (English)
 - **minecraft.wiki/zh** — Game wiki (Chinese)
@@ -67,21 +67,23 @@ pip install -e .
 # Search mods
 mc-search --json search sodium
 
+# Search shaders (shortcut flag)
+mc-search --json search BSL --shader
+
+# Search modpacks
+mc-search --json search tech --modpack
+
 # Get full info (recommended)
-mc-search --json details sodium --full
-
-# Get mod details
-mc-search --json details sodium
-
-# Search wiki
-mc-search --json wiki diamond sword
-
-# Search by type
-mc-search --json search BSL --type shader
-mc-search --json search RLCraft --type modpack
+mc-search --json show sodium --full
 
 # Quick dependencies
-mc-search --json deps sodium
+mc-search --json show sodium --deps
+
+# Wiki search
+mc-search --json wiki enchanting
+
+# Wiki read page
+mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword
 ```
 
 ### Python API
@@ -113,20 +115,48 @@ mod = fetch_mod_info("sodium-fabric")
 
 ---
 
-## Commands
+## Three Commands
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `search` | Multi-platform search | `mc-search --json search sodium` |
-| `search --platform` | Search specific platform | `mc-search --json search sodium --platform modrinth` |
-| `details` | Get mod details | `mc-search --json details sodium` |
-| `details --full` | Full info (deps+versions) | `mc-search --json details sodium --full` |
-| `deps` | Quick dependencies | `mc-search --json deps sodium` |
-| `info` | MC百科 details | `mc-search --json info 钠` |
-| `full` | [Deprecated] Full info | `mc-search --json full sodium` |
-| `wiki` | Search minecraft.wiki | `mc-search --json wiki enchanting` |
-| `read` | Read wiki page | `mc-search --json read <url>` |
-| `author` | Search by author | `mc-search --json author jellysquid_` |
+### search — Multi-platform search
+
+```bash
+mc-search --json search <keyword> [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--shader` | Shortcut: search shaders (Modrinth only) |
+| `--modpack` | Shortcut: search modpacks |
+| `--resourcepack` | Shortcut: search resource packs (Modrinth only) |
+| `--type` | Full type: mod/item/shader/resourcepack/modpack |
+| `--platform` | Platform: all/mcmod/modrinth/wiki/wiki-zh |
+| `--author` | Search by author (dual platform) |
+| `-n` | Max results per platform |
+
+### show — View details/deps/recipes
+
+```bash
+mc-search --json show <name/URL/ID> [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--full` | Full dual-platform info (MC百科+Modrinth+deps+versions) |
+| `--deps` | Shortcut: dependencies only |
+| `--recipe` | Show recipe (item only) |
+| `-T/-a/-d/-v/-g/-c/-s/-S` | Field filters |
+
+### wiki — Vanilla Wiki search & read
+
+```bash
+mc-search --json wiki <keyword or URL> [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-r` | Read first result after search |
+| `-n` | Max results |
+| `-p` | Max paragraphs (for URL reading) |
 
 > **Note**: `--json` flag must come **before** the subcommand.
 
@@ -153,19 +183,20 @@ skills/mc-search/
 ├── SKILL.md          # Claude Code Skill definition (user guide)
 ├── scripts/
 │   ├── core.py       # Core search logic
-│   └── cli.py        # CLI entry point
+│   └── cli.py        # CLI entry (3-command flat structure)
 ├── references/       # Detailed documentation
 └── pyproject.toml    # Python package config
 ```
 
 ---
 
-## v4.5.0 Improvements
+## v5.0.0 Improvements
 
-- Clean Code refactoring (15 issues fixed)
-- Hardcoded constants extracted
-- Data completeness enhanced (Modrinth fields)
-- Tests: 95/95 passing, 0 failures
+- Command merge: 8 commands → 3 flat commands (search/show/wiki)
+- Shortcut flags: `--shader`/`--modpack`/`--resourcepack`
+- MC百科 fallback to Modrinth on failure
+- Wiki search fix (no longer filters out vanilla content)
+- Unified error handling
 
 ## License
 

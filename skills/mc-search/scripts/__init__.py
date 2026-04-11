@@ -6,7 +6,7 @@ from .core import (
     search_modrinth,
     search_wiki,
     search_wiki_zh,
-    search_author,
+    search_modrinth_author,
     search_mcmod_author,
     # 详情
     read_wiki,
@@ -17,4 +17,10 @@ from .core import (
     # 配置
     set_cache,
     set_platform_enabled,
+    # 公共工具（原下划线前缀已移除）
+    SearchError,
+    clean_html_text,
+    curl,
+    MIN_HTML_LEN,
+    MIN_HTML_LEN_ITEM,
 )

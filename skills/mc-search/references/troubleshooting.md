@@ -68,7 +68,7 @@ ls -lh ~/.cache/mc-search/
 rm -rf ~/.cache/mc-search/
 ```
 
-**缓存 TTL**：1 小时（所有类型）
+**缓存 TTL**：1 小时（所有类型，需 `--cache` 参数启用）
 
 **适用场景**：
 - 缓存中有正确结果，可立即响应
@@ -116,7 +116,7 @@ curl -s -H "User-Agent: mc-search/0.4.0" "https://minecraft.wiki/api.php?action=
 
 **建议**：
 - 模组相关 → 用 `search` 或 `full`（走 MC百科/Modrinth）
-- 原版内容 → 用 `wiki`
+- 原版内容 → 用 `wiki`（minecraft.wiki 只收录原版游戏内容，如方块、物品、机制等）
 
 ## MC百科 class ID 解析失败
 
@@ -143,8 +143,8 @@ curl -s -H "User-Agent: mc-search/0.4.0" "https://minecraft.wiki/api.php?action=
 | 操作 | 预期耗时 | 说明 |
 |------|----------|------|
 | 搜索（四平台并行） | 2-5 秒 | 取决于最慢平台 |
-| 详情查询（full） | 3-8 秒 | 需多次 API 请求 |
-| 依赖查询（dep） | 1-3 秒 | 单次 API 请求 |
+| 详情查询（show --full） | 3-8 秒 | 需多次 API 请求 |
+| 依赖查询（show --deps） | 1-3 秒 | 单次 API 请求 |
 | Wiki 搜索 | 1-3 秒 | MediaWiki API |
 
 **优化建议**：
@@ -244,3 +244,12 @@ mc-search --json full sodium
 **A**: 缓存 TTL 为 1 小时，超过后自动失效。对于版本检查等实时性要求高的场景，建议：
 1. 不使用 `--cache`
 2. 直接使用 Modrinth API
+
+### Q6: 如何按作者搜索模组？
+
+**A**: 使用 `--author` 选项，支持 MC 百科和 Modrinth 双平台搜索：
+```bash
+mc-search --json search --author jellysquid_
+```
+
+返回结果包含该作者在两个平台发布的所有模组。

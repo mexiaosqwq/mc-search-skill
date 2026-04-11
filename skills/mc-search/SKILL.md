@@ -1,6 +1,6 @@
 ---
 name: mc-search
-version: "4.5.0"
+version: "5.0.0"
 description: "Minecraft 内容搜索 - 模组/整合包/光影/材质包/wiki 四平台聚合"
 license: MIT
 context: open
@@ -51,34 +51,121 @@ Minecraft 内容搜索工具，支持四平台并行：
 - "下界合金怎么获得"
 - "村民交易列表"
 
-## 快速命令
+## 三个命令
+
+### 1. `search` — 多平台搜索
 
 ```bash
-# 模糊搜索 - 不确定具体名称时
-mc-search --json search <关键词> [--type mod/item/modpack/shader/resourcepack]
+mc-search --json search <关键词> [选项]
+```
 
-# 获取详情 - 知道名称时（推荐首选）
-mc-search --json details <模组名> --full
+| 选项 | 说明 | 默认 |
+|------|------|------|
+| `--shader` | 快捷：搜光影包（仅 Modrinth） | - |
+| `--modpack` | 快捷：搜整合包（MC百科+Modrinth） | - |
+| `--resourcepack` | 快捷：搜材质包（仅 Modrinth） | - |
+| `--type` | 完整类型：mod/item/shader/resourcepack/modpack | mod |
+| `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh | all |
+| `--author` | 按作者搜索（MC百科+Modrinth双平台） | - |
+| `--cache` | 启用本地缓存（TTL 1 小时） | - |
+| `-n` | 每平台最多结果 | 3 |
 
-# wiki 查询 - 原版游戏内容
-mc-search --json wiki <关键词>
+**快捷标志等价关系**：
+- `--shader` = `--type shader` + 自动限定仅 Modrinth
+- `--modpack` = `--type modpack`
+- `--resourcepack` = `--type resourcepack` + 自动限定仅 Modrinth
+
+**示例**：
+```bash
+mc-search --json search 钠                      # 四平台并行
+mc-search --json search BSL --shader             # 光影包（仅 Modrinth）
+mc-search --json search 科技 --modpack           # 整合包
+mc-search --json search Faithful --resourcepack  # 材质包（仅 Modrinth）
+mc-search --json search 钠 --platform mcmod      # 仅 MC百科
+mc-search --json search 钻石剑 --type item   # 物品搜索
+mc-search --json search --author jellysquid_     # 双平台作者搜索
+```
+
+### 2. `show` — 查看详情/依赖/合成表
+
+```bash
+mc-search --json show <名称/URL/ID> [选项]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--full` | 双平台完整信息（MC百科+Modrinth+依赖+版本） |
+| `--deps` | 快捷：仅依赖关系（走 Modrinth 快速路径） |
+| `--recipe` | 合成表（仅 item） |
+| `--skip-dep` | 跳过依赖查询（加速，仅 --full） |
+| `--skip-mr` | 跳过 Modrinth 查询（加速，仅 --full） |
+| `-T` | 仅名称/别名（仅 MC 百科路径生效） |
+| `-a` | 仅作者（仅 MC 百科路径生效） |
+| `-d` | 仅前置/联动（仅 MC 百科路径生效） |
+| `-v` | 仅版本（仅 MC 百科路径生效） |
+| `-g` | 仅截图（仅 MC 百科路径生效） |
+| `-c` | 仅分类/标签（仅 MC 百科路径生效） |
+| `-s` | 仅来源链接（仅 MC 百科路径生效） |
+| `-S` | 仅状态/开源属性（仅 MC 百科路径生效） |
+
+**默认行为（无 --full）**：
+- MC百科 URL/ID/中文名 → 查 MC百科，失败回退 Modrinth
+- Modrinth URL/slug → 查 Modrinth
+
+**`--deps` 快捷路径**：
+- 不爬全页，直接搜 Modrinth slug → 获取依赖
+- 和旧 `deps` 命令一样快
+
+**示例**：
+```bash
+mc-search --json show 钠                        # MC百科详情
+mc-search --json show sodium                    # Modrinth详情（自动回退）
+mc-search --json show 钠 --full                 # 双平台完整信息
+mc-search --json show https://www.mcmod.cn/class/2785.html --full
+mc-search --json show https://modrinth.com/mod/sodium --full
+mc-search --json show 2785 --full               # MC百科 ID
+mc-search --json show 钠 --deps                 # 快捷依赖
+mc-search --json show 钻石剑 --recipe           # 合成表
+```
+
+### 3. `wiki` — 原版 Wiki 搜索与阅读
+
+```bash
+mc-search --json wiki <关键词或URL> [选项]
+```
+
+| 选项 | 说明 | 默认 |
+|------|------|------|
+| `-r` | 搜索后读取第一个结果正文 | - |
+| `-n` | 最多结果 | 5 |
+| `-p` | 段落数（URL读取时生效） | 20 |
+
+**智能检测**：
+- 参数以 `http` 开头 → 直接读取 wiki 页面
+- 否则 → 搜索 wiki
+
+**示例**：
+```bash
+mc-search --json wiki 附魔台                    # 搜索 wiki
+mc-search --json wiki 附魔台 -r                 # 搜索并读取正文
+mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword  # 直接读取
+mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword -p 8
 ```
 
 ## 决策表
 
 | 用户需求 | 命令 | 示例 |
 |----------|------|------|
-| 知道名称，要详情 | `details` | `mc-search --json details create` |
+| 知道名称，要详情 | `show --full` | `mc-search --json show create --full` |
 | 不确定名称，模糊搜 | `search` | `mc-search --json search 钠` |
+| 搜光影包 | `search --shader` | `mc-search --json search BSL --shader` |
+| 搜整合包 | `search --modpack` | `mc-search --json search 科技 --modpack` |
+| 搜材质包 | `search --resourcepack` | `mc-search --json search Faithful --resourcepack` |
 | 按平台搜索 | `search --platform` | `mc-search --json search sodium --platform modrinth` |
-| 按类型过滤 | `search --type` | `mc-search --json search BSL --type shader` |
-| 获取完整信息 | `details --full` | `mc-search --json details sodium --full` |
-| 只看依赖 | `deps` | `mc-search --json deps sodium` |
+| 只看依赖 | `show --deps` | `mc-search --json show sodium --deps` |
 | 查 wiki | `wiki` | `mc-search --json wiki 下界合金` |
-| MC百科作者 | `search --author` | `mc-search --json search --author Notch` |
-| Modrinth作者 | `author` | `mc-search --json author Notch` |
-
-**注意**: `full` 命令已标记为[已废弃]，请改用 `details --full`。
+| 读取 wiki 页面 | `wiki <url>` | `mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword` |
+| 按作者搜索 | `search --author` | `mc-search --json search --author jellysquid_` |
 
 ## 返回数据结构
 
@@ -103,7 +190,7 @@ mc-search --json wiki <关键词>
 }
 ```
 
-### details 命令（JSON 对象，替代 full）
+### show --full 命令（JSON 对象，双平台全量输出）
 
 ```json
 {
@@ -138,9 +225,11 @@ mc-search --json wiki <关键词>
     "required_count": 1,
     "optional_count": 0
   },
-  "saved_files": ["/path/to/output/Create_mod_full.md"]  // 仅在触发文件保存时存在
+  "saved_files": ["/path/to/output/Create_mod_full.md"]
 }
 ```
+
+> **注意**：`mcmod` 和 `modrinth` 字段可能为 `null`（当对应平台查询失败时）。`saved_files` 仅在触发文件保存时存在。
 
 ### 关键字段说明
 
@@ -148,6 +237,7 @@ mc-search --json wiki <关键词>
 |------|------|
 | `name` / `name_en` / `name_zh` | 中英文名称 |
 | `source` | 数据来源平台 |
+| `_sources` | 融合来源平台列表（仅融合模式下存在） |
 | `type` | 项目类型 (mod/item/modpack/shader/resourcepack) |
 | `status` | 模组状态 (活跃/半弃坑/弃坑) |
 | `client_side` / `server_side` | 客户端/服务端需求 (required/optional/unsupported) |
@@ -175,48 +265,15 @@ mc-search --json wiki <关键词>
 
 AI 可直接读取或上传这些文件。
 
+## 环境变量
+
+- `MC_SEARCH_OUTPUT_DIR`：自定义输出目录（默认：`output/`）
+
 ## 依赖显示规则
 
 - **前置模组（必需依赖）**：优先显示 Modrinth 数据
 - **联动模组**：使用 MC百科 数据
 - 如果都没有：显示"无"
-
-## 实用示例
-
-### 1. 搜索模组
-```bash
-mc-search --json search 机械动力
-```
-
-### 2. 获取完整信息
-```bash
-mc-search --json full Create
-```
-
-### 3. 按类型搜索
-
-```bash
-mc-search --json search BSL --type shader           # 光影包
-mc-search --json search Faithful --type resourcepack # 材质包
-mc-search --json search RLCraft --type modpack       # 整合包
-```
-
-### 4. wiki 查询（原版内容）
-
-```bash
-mc-search --json wiki 下界合金
-mc-search --json wiki "Villager Trading"  # 英文
-```
-
-**wiki 搜索特点**：
-- 只搜索 minecraft.wiki（中英双站）
-- 返回游戏机制、合成表等原版内容
-- 不适用于模组内容
-
-### 5. 依赖查询
-```bash
-mc-search --json dep sodium
-```
 
 ## 注意事项
 
@@ -261,7 +318,6 @@ mc-search --json dep sodium
 ### wiki 内容
 - **搜索范围**: minecraft.wiki (中英)
 - **返回**: 游戏机制、合成表、生物信息
-- **不适用**: --type 参数
 
 ## 错误处理
 
