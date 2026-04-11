@@ -22,14 +22,14 @@ _OUTPUT_DIR = os.environ.get(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
 )
 
-# CLI 默认值
+# CLI 默认值（网络请求和显示配置）
 _DEFAULT_MAX = 3
 _DEFAULT_TIMEOUT = 12
 _DEFAULT_WIKI_MAX = 5
 _DEFAULT_PARAGRAPHS = 20
 _EXACT_SEARCH_MAX = 5
 
-# 显示截断
+# 显示截断配置（控制输出长度）
 _DISPLAY_WIKI_PARAGRAPHS = -1
 _DISPLAY_WIKI_SNIPPET_MAX = 150
 _DISPLAY_WIKI_MAX_RESULTS = 10
@@ -48,11 +48,11 @@ _DISPLAY_MAX_SEARCH_SECTIONS = 5
 _DISPLAY_URL_TRUNCATE = 80
 _DISPLAY_MAX_RECIPE_IMAGES = 4
 
-# 保存阈值
+# 文件保存阈值（超过此长度自动保存）
 _SAVE_BODY_LENGTH_THRESHOLD = 3000
 _SAVE_DESC_LENGTH_THRESHOLD = 5000
 
-# Modrinth 正文预览
+# Modrinth 正文预览配置
 _MODRINTH_PREVIEW_LEN = 2000
 _MODRINTH_PREVIEW_SENTENCE_MIN = 1500
 _MODRINTH_PREVIEW_MAX_PARAS = 10
@@ -62,11 +62,11 @@ _MCMOD_DESC_PREVIEW_LEN = 1500
 _MCMOD_DESC_PREVIEW_SENTENCE_MIN = 1000
 _MCMOD_DESC_PREVIEW_MAX_PARAS = 5
 
-# Modrinth URL 正则
+# Modrinth URL 正则表达式
 _MODRINTH_URL_RE = re.compile(r"https://modrinth\.com/(mod|shader|resourcepack|modpack)/([^/?]+)")
 _MODRINTH_SLUG_RE = re.compile(r"/(?:mod|shader|resourcepack|modpack)/([^/?#]+)")
 
-# 映射
+# 文本映射表（平台状态翻译）
 _SOURCE_TYPE_LABELS = {"open_source": "开源", "closed_source": "闭源"}
 _SIDE_LABELS = {"required": "必需", "optional": "可选", "unsupported": "不支持", "unknown": "未知"}
 _PROJECT_TYPE_LABELS = {
@@ -74,7 +74,7 @@ _PROJECT_TYPE_LABELS = {
     "shader": "光影包", "block": "方块", "item": "物品", "entity": "实体",
 }
 
-# 搜索平台配置：(mcmod, modrinth, wiki, wiki_zh)
+# 搜索平台开关配置：(mcmod, modrinth, wiki, wiki_zh)
 _PLATFORM_FLAGS = {
     "all":      (True,  True,  True,  True),
     "mcmod":    (True,  False, False, False),
@@ -85,14 +85,33 @@ _PLATFORM_FLAGS = {
 
 
 def _find_sentence_boundary(text: str) -> int:
+    """
+    查找文本中最后一个句子边界位置。
+    
+    Args:
+        text: 输入文本
+        
+    Returns:
+        最后一个句子边界（。！？。.\n）的位置索引
+    """
     """查找文本中最后一个句子边界位置。"""
     return max(text.rfind('。'), text.rfind('！'), text.rfind('？'),
                text.rfind('.'), text.rfind('\n'))
 
 
-# info 字段输出配置：(flag_attr, label, formatter)
+# info 字段输出配置：(属性名，显示标签，格式化函数)
 # formatter 接收 info dict，返回要 print 的行列表，或 None 跳过
-def _fmt_title(info):
+# formatter 接收 info dict，返回要 print 的行列表，或 None 跳过
+def _fmt_title(info: dict) -> list:
+    """
+    格式化名称字段输出。
+    
+    Args:
+        info: 模组信息字典
+    
+    Returns:
+        要打印的行列表
+    """
     lines = [f"  名称：{info.get('name_zh', '')}"]
     name_en = info.get("name_en", "")
     if name_en:
@@ -101,7 +120,16 @@ def _fmt_title(info):
     lines.append(f"  链接：{info.get('url', '')}")
     return lines
 
-def _fmt_status(info):
+def _fmt_status(info: dict) -> list | None:
+    """
+    格式化状态/开源属性字段输出。
+    
+    Args:
+        info: 模组信息字典
+    
+    Returns:
+        要打印的行列表，或 None 跳过
+    """
     lines = []
     st = info.get("status")
     stype = info.get("source_type")
@@ -111,12 +139,32 @@ def _fmt_status(info):
         lines.append(f"  开源属性：{_SOURCE_TYPE_LABELS.get(stype, stype)}")
     return lines or None
 
-def _fmt_author(info):
+def _fmt_author(info: dict) -> list | None:
+    """
+    格式化作者字段输出。
+    
+    Args:
+        info: 模组信息字典
+    
+    Returns:
+        要打印的行列表，或 None 跳过
+    """
     a = info.get("author")
     return [f"  作者：{a}"] if a else None
 
-def _fmt_desc(info, *, standalone=True):
-    """描述仅在 standalone（全字段）模式时输出（不可单独过滤）。"""
+def _fmt_desc(info: dict, *, standalone: bool = True) -> list | None:
+    """
+    格式化简介字段输出（仅在 standalone 模式时输出）。
+
+    描述仅在 standalone（全字段）模式时输出（不可单独过滤）。
+
+    Args:
+        info: 模组信息字典
+        standalone: 是否全字段模式
+
+    Returns:
+        要打印的行列表，或 None 跳过
+    """
     if not standalone:
         return None
     desc = info.get("description", "")

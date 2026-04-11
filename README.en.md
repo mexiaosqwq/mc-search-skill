@@ -9,24 +9,25 @@ Minecraft content aggregation search tool with four-platform parallel search.
 
 [中文文档 →](README.md)
 
-## What is this?
+## Project Overview
 
-mc-search is a Minecraft content aggregation search tool that can search four platforms in parallel:
+mc-search is a Minecraft content search tool designed for AI Agents, capable of searching four platforms in parallel:
+
 - **MC 百科** (mcmod.cn) — Chinese mods/items/modpacks
 - **Modrinth** — English mods/shaders/resourcepacks/modpacks
 - **minecraft.wiki** — Vanilla game wiki (English)
 - **minecraft.wiki/zh** — Vanilla game wiki (Chinese)
 
-Supports searching for mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions, and more.
+Supports searching for mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions, and other game content.
 
 ## Features
 
-- **Four Platforms**: MC 百科，Modrinth, minecraft.wiki (English), minecraft.wiki/zh (Chinese)
+- **Four Platforms**: MC 百科，Modrinth, minecraft.wiki (English/Chinese)
 - **Multiple Types**: mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions
-- **Smart Fusion**: Cross-platform results auto-sorted and merged
+- **Result Fusion**: Cross-platform results auto-sorted and merged
 - **Dependency Query**: Automatic mod dependency retrieval
-- **Recipe Query**: Item crafting table lookup
-- **Local Cache**: Optional caching to reduce network requests
+- **Recipe Query**: Item crafting recipe lookup
+- **Local Cache**: Optional caching mechanism to reduce network requests
 
 ## Quick Start
 
@@ -83,13 +84,13 @@ mc-search --json wiki <keyword or URL> [options]
 |--------|-------------|
 | `-r` | Read first result after search |
 | `-n` | Max results |
-| `-p` | Paragraphs |
+| `-p` | Paragraphs to read |
 
 ## Global Options
 
 | Option | Description |
 |--------|-------------|
-| `--json` | JSON format output |
+| `--json` | JSON format output (recommended) |
 | `-o, --output` | Output to file |
 | `--cache` | Enable local cache (TTL 1 hour) |
 | `--no-mcmod` | Disable MC 百科 |
@@ -126,6 +127,8 @@ mc-search-skill/
 MIT License
 
 ## Acknowledgments
+
+Thanks to the following platforms for providing data support:
 
 - [MC 百科](https://www.mcmod.cn/)
 - [Modrinth](https://modrinth.com/)

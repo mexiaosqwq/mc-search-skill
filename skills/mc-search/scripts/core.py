@@ -1,43 +1,14 @@
 #!/usr/bin/env python3
-"""
-mc-search 核心搜索模块
-统一接口：四平台并行搜索 + 统一结果格式 + 智能路由
-"""
+"""mc-search 核心搜索模块：四平台并行搜索 + 统一结果格式 + 智能路由"""
 
-import base64
-import concurrent.futures
-import hashlib
-import html as html_module
-import json
-import os
-import re
-import subprocess
-import time
-import urllib.parse
+import base64, concurrent.futures, hashlib, html as html_module, json, os, re, subprocess, time, urllib.parse
 from pathlib import Path
 
-
-# 错误类型（用于区分网络/解析/无结果）
 
 class SearchError(Exception):
     """搜索过程中的可区分错误。"""
     pass
 
-
-
-# 统一结果 Schema
-# {
-#   "name": str,        # 名称（最优先显示）
-#   "name_en": str,     # 英文名
-#   "name_zh": str,     # 中文名
-#   "url": str,         # 主链接
-#   "source": str,      # 来源平台
-#   "source_id": str,   # 来源平台内的ID（如 class/23352）
-#   "type": str,        # mod | item | block | entity | mechanic
-#   "snippet": str,     # 摘要/描述
-#   "sections": list,  # 章节/分类（wiki用）
-#   "content": list,    # 正文段落（read用）
-# }
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -46,108 +17,111 @@ HTTP_HEADERS = {
 }
 
 
-# 解析常量
+# URL 解析工具
+def _extract_url_id(url: str, prefix: str) -> str | None:
+    """从 URL 提取 ID。/class/2785.html -> 2785"""
+    m = re.search(rf'{re.escape(prefix)}(\d+)', url)
+    return m.group(1) if m else None
 
-MIN_HTML_LEN = 1000        # HTML 内容最小长度阈值（class/mod 页面）
-MIN_HTML_LEN_ITEM = 500    # HTML 内容最小长度阈值（item/recipe 页面）
-_MIN_PARAGRAPH_LEN = 20     # 正文段落最小长度
-_MIN_SHORT_TEXT_LEN = 35    # 短文本判定阈值（用于判断是否为 item 名）
-_MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性 <li> 最小长度
-_MIN_DESCRIPTION_LINE_LEN = 10   # 描述行最小长度
+def _extract_url_slug(url: str, prefix: str) -> str | None:
+    """从 URL 提取 slug。/mod/sodium -> sodium"""
+    m = re.search(rf'{re.escape(prefix)}([^/\s"<>\)]+)', url)
+    return m.group(1) if m else None
+
+def _build_absolute_url(base: str, path: str) -> str:
+    """构建绝对 URL"""
+    return path if path.startswith('http') else base.rstrip('/') + '/' + path.lstrip('/')
+
+def _extract_title(html: str) -> str:
+    """从 HTML 提取标题"""
+    m = re.search(r"<title>([^<]+)</title>", html)
+    return m.group(1).strip() if m else ""
+
+
+# 常量定义
+MIN_HTML_LEN = 1000        # class/mod 页面最小 HTML 长度
+MIN_HTML_LEN_ITEM = 500    # item/recipe 页面最小 HTML 长度
+_MIN_PARAGRAPH_LEN = 20    # 正文段落最小长度
+_MIN_SHORT_TEXT_LEN = 35   # 短文本判定阈值
+_MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性<li>最小长度
+_MIN_DESCRIPTION_LINE_LEN = 10  # 描述行最小长度
 _MIN_SECTION_MARKER_DISTANCE = 200  # section marker 最小距离
-_MAX_SECTION_PARAGRAPHS = 100  # 每wiki章节最多段落数（支持长文章）
-_MIN_TABLE_CELL_LEN = 2     # table cell 最小长度
-_MAX_TABLE_ITEMS = 50        # table 最大 item 数（8->50，完整提取表格数据）
-_MAX_VERSION_GROUPS = 5     # 版本组最多显示数
-_MAX_CHANGELOGS = 5         # 更新日志最多显示数
-_MAX_FETCH_WORKERS = 4      # 并行抓取最大线程数
-_MAX_SCREENSHOTS = 20        # 模组截图最多显示数（6->20，支持热门模组）
-_MAX_GALLERY = 10           # Modrinth 图库最多显示数
-_MAX_TAG_SECTION_LEN = 500  # 标签区域提取长度
-_EXTERNAL_LINK_EXCLUDE_DOMAINS = [  # 排除的外部链接域名（非官方网站）
-    "curseforge", "modrinth", "github", "discord", "wikipedia", "mcbbs", "jenkins", "archive"
-]
-_MAX_TAG_TEXT_LEN = 20  # 标签文本最大长度，过滤过长的非标签内容
-_MAX_SEARCH_SEGMENT = 2000  # 搜索片段提取长度
-_MAX_DESCRIPTION_SEGMENT = 70000  # HTML 提取范围（用于 find section markers，最终输出由 _MAX_SEARCH_DESC_CHARS 限制）
-_MAX_SEARCH_DESC_CHARS = 500      # search 命令描述最大显示字符数（200->500，平衡信息量和 token）
-_MAX_AUTHOR_SECTION = 50000  # 作者页面区域提取长度（15000->50000，支持高产作者）
-_MAX_INFO_TABLE_SECTION = 2000  # 信息表格区域提取长度
+_MAX_SECTION_PARAGRAPHS = 100  # 每 wiki 章节最多段落数
+_MIN_TABLE_CELL_LEN = 2
+_MAX_TABLE_ITEMS = 50
+_MAX_VERSION_GROUPS = 5
+_MAX_CHANGELOGS = 5
+_MAX_FETCH_WORKERS = 4
+_MAX_SCREENSHOTS = 20
+_MAX_GALLERY = 10
+_MAX_TAG_SECTION_LEN = 500
+_EXTERNAL_LINK_EXCLUDE_DOMAINS = ["curseforge", "modrinth", "github", "discord", "wikipedia", "mcbbs", "jenkins", "archive"]
+_MAX_TAG_TEXT_LEN = 20
+_MAX_SEARCH_SEGMENT = 2000
+_MAX_DESCRIPTION_SEGMENT = 70000
+_MAX_SEARCH_DESC_CHARS = 500      # search 命令描述最大字符数
+_MAX_AUTHOR_SECTION = 50000
+_MAX_INFO_TABLE_SECTION = 2000
 _MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
-_MAX_VERSIONS_FETCH = 200    # 获取版本详情时最多拉取的版本数（50->200，支持长期维护模组）
-_DEFAULT_RESULTS_PER_PLATFORM = 15  # 每平台默认结果数（所有类型统一）
-_WIKI_SNIPPET_SEGMENT_LEN = 5000    # Wiki snippet 提取片段长度
-_WIKI_FALLBACK_SEGMENT_LEN = 20000  # Wiki fallback 大片段提取长度
-_WIKI_FULL_SCAN_LEN = 60000        # Wiki snippet 全页扫描长度（英文 wiki infobox 可达 30000+ 字符）
-_WIKI_FIRST_TABLE_SEGMENT_LEN = 10000  # Wiki 首个信息表格提取长度
-_MIN_SNIPPET_LINE_LEN = 30          # Wiki snippet 段落最小有效长度（过滤 infobox 标签如 "Bedrock Edition"）
-_MIN_CJK_SEGMENT_LEN = 8           # Wiki CJK 片段最小有效长度
-_MAX_CJK_FALLBACK_SEGMENTS = 3     # Wiki CJK fallback 最多提取片段数
-_MAX_WIKI_SECTIONS = 20            # Wiki 搜索结果中最多显示的章节标题数
-_MAX_TABLES_PER_SECTION = 10  # Wiki 每章节最多提取表格数（3->10，支持多表格章节）
-_MAX_MCMOD_AUTHORS = 10       # MC百科作者最多显示数
-_KNOWN_LOADERS = {"fabric", "forge", "neoforge", "quilt"}  # 已知的模组加载器
-_MAX_WIKI_INTRO_PARAGRAPHS = 3  # Wiki 引言最多段落数
-_MAX_INLINE_TABLE_ITEMS = 6   # Wiki 行内表格项最多显示数
+_MAX_VERSIONS_FETCH = 200
+_DEFAULT_RESULTS_PER_PLATFORM = 15
+_WIKI_SNIPPET_SEGMENT_LEN = 5000
+_WIKI_FALLBACK_SEGMENT_LEN = 20000
+_WIKI_FULL_SCAN_LEN = 60000       # 英文 wiki infobox 可达 30000+ 字符
+_WIKI_FIRST_TABLE_SEGMENT_LEN = 10000
+_MIN_SNIPPET_LINE_LEN = 30
+_MIN_CJK_SEGMENT_LEN = 8
+_MAX_CJK_FALLBACK_SEGMENTS = 3
+_MAX_WIKI_SECTIONS = 20
+_MAX_TABLES_PER_SECTION = 10
+_MAX_MCMOD_AUTHORS = 10
+_KNOWN_LOADERS = {"fabric", "forge", "neoforge", "quilt"}
+_MAX_WIKI_INTRO_PARAGRAPHS = 3
+_MAX_INLINE_TABLE_ITEMS = 6
 
-# === 搜索相关性评分常量 ===
-# 名称匹配基础分数
-_SCORE_EXACT_MATCH_BASE = 100           # 精确匹配基础分
-_SCORE_EXACT_MATCH_MAX_BONUS = 20       # 短名称最大奖励分（名称越短奖励越高）
-_SCORE_EXACT_MATCH_BONUS_FACTOR = 2     # 长度惩罚因子：bonus = 20 - len*2
+# 搜索评分常量
+_SCORE_EXACT_MATCH_BASE = 100
+_SCORE_EXACT_MATCH_MAX_BONUS = 20
+_SCORE_EXACT_MATCH_BONUS_FACTOR = 2
+_SCORE_PREFIX_BASE = 60
+_SCORE_PREFIX_MAX_BONUS = 15
+_SCORE_PREFIX_BONUS_FACTOR = 2
+_SCORE_CONTAINS_BASE = 30
+_SCORE_CONTAINS_MAX_POS_BONUS = 10
+_SCORE_CONTAINED_IN_QUERY = 20
+_SCORE_MIN_LENGTH_FOR_CONTAINED = 2
+_SCORE_SNIPPET_BONUS = 5
+_SCORE_WIKI_ITEM_BONUS = 5
+_SCORE_SECONDARY_PENALTY = 10
+_SCORE_SECONDARY_MIN = 10
+_SCORE_MULTI_PLATFORM_BONUS = 10
 
-_SCORE_PREFIX_BASE = 60                 # 前缀匹配基础分（如 "sod" 匹配 "Sodium"）
-_SCORE_PREFIX_MAX_BONUS = 15            # 前缀短词最大奖励分
-_SCORE_PREFIX_BONUS_FACTOR = 2          # 前缀长度惩罚因子
-
-_SCORE_CONTAINS_BASE = 30               # 包含匹配基础分（查询词在名称中）
-_SCORE_CONTAINS_MAX_POS_BONUS = 10      # 位置奖励最大值（越靠前分数越高）
-
-_SCORE_CONTAINED_IN_QUERY = 20          # 名称被包含在查询中（如 "mc" 搜 "minecraft"）
-_SCORE_MIN_LENGTH_FOR_CONTAINED = 2     # 最小长度，避免单个字符匹配
-
-# 额外加分项
-_SCORE_SNIPPET_BONUS = 5                # Snippet 包含查询词加分
-_SCORE_WIKI_ITEM_BONUS = 5              # Wiki item 类型来源加分（vanilla 物品权威）
-_SCORE_SECONDARY_PENALTY = 10           # 次字段匹配扣分（英文名匹配扣分）
-_SCORE_SECONDARY_MIN = 10               # 次字段匹配最低分
-_SCORE_MULTI_PLATFORM_BONUS = 10        # 多平台命中每额外平台加分
-
-# === Wiki Snippet 过滤关键词常量 ===
-# 需要跳过的 Wiki 消歧义/信息框垃圾关键词（英文）
-# - disambiguation: 消歧义页面标记
-# - see / may refer to: 消歧义常用语
-# - attack damage/durability/rarity tier 等: 信息框属性标签（非描述性文本）
+# Wiki 过滤关键词
 _WIKI_SNIPPET_SKIP_KEYWORDS = [
     'disambiguation', 'may refer to',
-    '本條目介紹的是', '本条目介绍的是',  # 中文 wiki 消歧义
+    '本條目介紹的是', '本条目介绍的是',
     '關於其他用法', '关于其他用法',
     '消歧義', '消歧义',
-    '請在加入後', '请在加入后',          # 中文 wiki 维护模板
+    '請在加入後', '请在加入后',
     '具體要求', '具体要求',
 ]
 
-# === Wiki Heading 跳过 ID 常量 ===
-# 英文 Wiki 需要跳过的非内容 heading ID
-# - mw-toc-heading: 目录 heading
-# - References/Navigation/Videos/Trivia: 页面底部导航区域
-# - p-*-label: MediaWiki 侧边栏/工具箱 heading
+# Wiki Heading 跳过 ID
 _WIKI_HEADING_SKIP_IDS = {
     "mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
     "p-personal-label", "p-navigation-label", "p-tb-label"
 }
-
-# 中文 Wiki 额外跳过的 heading ID
 _WIKI_ZH_HEADING_SKIP_IDS = _WIKI_HEADING_SKIP_IDS | {
     "参考资料", "参考", "导航", "视频", "琐事",
     "p-interaction-label", "p-print-label", "p-toolbox-label"
 }
 
-# === MC百科搜索过滤器 ===
-_MCMOD_FILTER_MOD = "0"             # 模组搜索
-_MCMOD_FILTER_ITEM = "3"            # 物品搜索
-_MCMOD_FILTER_MODPACK_ZH = "2"      # 整合包搜索（中文关键词效果最佳）
-_MCMOD_FILTER_MODPACK_ALT = "20"    # 另一种整合包过滤
+# MC 百科搜索过滤器
+_MCMOD_FILTER_MOD = "0"
+_MCMOD_FILTER_ITEM = "3"
+_MCMOD_FILTER_MODPACK_ZH = "2"
+_MCMOD_FILTER_MODPACK_ALT = "20"
+_MCMOD_FILTER_MODPACK_OLD = "10"
 _MCMOD_FILTER_MODPACK_OLD = "10"    # 旧版整合包过滤（较少结果）
 
 # MC百科整合包多 filter 策略（按优先级）

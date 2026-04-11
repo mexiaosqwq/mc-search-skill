@@ -9,24 +9,25 @@ Minecraft 内容聚合搜索工具，支持四平台并行搜索。
 
 [English Documentation →](README.en.md)
 
-## 这是什么？
+## 项目简介
 
-mc-search 是一个 Minecraft 内容聚合搜索工具，可以并行搜索四个平台：
+mc-search 是一个为 AI Agent 设计的 Minecraft 内容搜索工具，可以并行搜索四个平台：
+
 - **MC 百科** (mcmod.cn) — 中文模组/物品/整合包
 - **Modrinth** — 英文 mod/光影/材质包/整合包
 - **minecraft.wiki** — 原版游戏内容 wiki（英文）
 - **minecraft.wiki/zh** — 原版游戏内容 wiki（中文）
 
-支持搜索模组、整合包、光影包、材质包、物品、实体、生物群系、维度等内容类型。
+支持搜索模组、整合包、光影包、材质包、物品，以及实体、生物群系、维度等游戏内容。
 
-## 功能
+## 主要功能
 
-- **四平台搜索**: MC 百科、Modrinth、minecraft.wiki (英文)、minecraft.wiki/zh (中文)
-- **多类型支持**: 模组、整合包、光影包、材质包、物品、实体、生物群系、维度
-- **智能融合**: 跨平台结果自动排序和融合
-- **依赖查询**: 自动获取模组依赖关系
-- **合成表查询**: 物品合成表查询
-- **本地缓存**: 可选缓存机制，减少网络请求
+- **四平台搜索**：MC 百科、Modrinth、minecraft.wiki（英文/中文）
+- **多类型支持**：模组、整合包、光影包、材质包、物品、实体、生物群系、维度
+- **结果融合**：跨平台结果自动排序和合并
+- **依赖查询**：自动获取模组依赖关系
+- **合成表查询**：物品合成配方查询
+- **本地缓存**：可选缓存机制，减少网络请求
 
 ## 快速开始
 
@@ -42,7 +43,7 @@ mc-search --json show 钠 --full
 mc-search --json wiki 附魔台
 ```
 
-## 命令
+## 命令说明
 
 ### search — 多平台搜索
 
@@ -58,7 +59,7 @@ mc-search --json search <关键词> [选项]
 | `--type` | 内容类型：mod/item/shader/resourcepack/modpack |
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh |
 | `--author` | 按作者搜索（双平台） |
-| `-n` | 每平台最多结果 |
+| `-n` | 每平台最多结果数 |
 
 ### show — 查看详情/依赖/合成表
 
@@ -82,14 +83,14 @@ mc-search --json wiki <关键词或 URL> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-r` | 搜索后读取正文 |
-| `-n` | 最多结果 |
-| `-p` | 段落数 |
+| `-n` | 最多结果数 |
+| `-p` | 读取段落数 |
 
 ## 全局选项
 
 | 选项 | 说明 |
 |------|------|
-| `--json` | JSON 格式输出 |
+| `--json` | JSON 格式输出（推荐） |
 | `-o, --output` | 输出到文件 |
 | `--cache` | 启用本地缓存（TTL 1 小时） |
 | `--no-mcmod` | 禁用 MC 百科 |
@@ -126,6 +127,8 @@ mc-search-skill/
 MIT License
 
 ## 致谢
+
+感谢以下平台提供的数据支持：
 
 - [MC 百科](https://www.mcmod.cn/)
 - [Modrinth](https://modrinth.com/)
