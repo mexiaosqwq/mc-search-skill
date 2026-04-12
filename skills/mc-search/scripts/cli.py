@@ -731,6 +731,8 @@ def main():
     parser.add_argument("--json", action="store_true", dest="global_json",
                         help="以 JSON 格式输出（推荐）")
     parser.add_argument("--cache", action="store_true", help="启用本地缓存（TTL 1小时）")
+    parser.add_argument("--screenshots", type=int, default=0,
+                        help="返回截图数量（默认 0，即不返回）")
     parser.add_argument("--no-mcmod", dest="no_mcmod", action="store_true", help="禁用 MC百科")
     parser.add_argument("--no-mr", dest="no_mr", action="store_true", help="禁用 Modrinth")
     parser.add_argument("--no-wiki", dest="no_wiki", action="store_true", help="禁用 minecraft.wiki")
@@ -804,6 +806,7 @@ def main():
     # 全局设置
     if args.cache:
         core.set_cache(True)
+    core.set_screenshot_limit(args.screenshots)
     core.set_platform_enabled(
         mcmod=not args.no_mcmod,
         modrinth=not args.no_mr,

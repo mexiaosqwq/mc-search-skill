@@ -20,10 +20,39 @@ triggers:
 # mc-search
 
 Minecraft 内容搜索工具，支持四平台并行：
-- **MC百科** (mcmod.cn) - 中文模组/整合包
+- **MC 百科** (mcmod.cn) - 中文模组/整合包
 - **Modrinth** - 英文 mod/光影/材质/整合包
 - **minecraft.wiki** - 原版游戏内容（英文）
 - **minecraft.wiki/zh** - 原版游戏内容（中文）
+
+## 快速参考
+
+### 最常用命令
+
+```bash
+# 搜索模组/物品/整合包
+mc-search --json search <关键词>
+
+# 查看模组详情（双平台）
+mc-search --json show <模组名> --full
+
+# 查看依赖关系
+mc-search --json show <模组名> --deps
+
+# 搜索原版游戏内容
+mc-search --json wiki <关键词>
+```
+
+### 场景速查
+
+| 场景 | 命令 |
+|------|------|
+| 快速搜索 | `mc-search --json search 钠` |
+| 查看详情 | `mc-search --json show 钠 --full` |
+| 只看依赖 | `mc-search --json show 钠 --deps` |
+| 搜光影包 | `mc-search --json search BSL --shader` |
+| 搜整合包 | `mc-search --json search 科技 --modpack` |
+| 查 wiki | `mc-search --json wiki 附魔台` |
 
 ## 何时使用
 
@@ -68,6 +97,7 @@ mc-search --json search <关键词> [选项]
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh | all |
 | `--author` | 按作者搜索（MC百科+Modrinth双平台） | - |
 | `--cache` | 启用本地缓存（TTL 1 小时） | - |
+| `--screenshots <num>` | 返回截图数量（默认 0，即不返回） | 0 |
 | `-n` | 每平台最多结果 | 3 |
 
 **快捷标志等价关系**：
@@ -77,13 +107,27 @@ mc-search --json search <关键词> [选项]
 
 **示例**：
 ```bash
-mc-search --json search 钠                      # 四平台并行
-mc-search --json search BSL --shader             # 光影包（仅 Modrinth）
-mc-search --json search 科技 --modpack           # 整合包
-mc-search --json search Faithful --resourcepack  # 材质包（仅 Modrinth）
-mc-search --json search 钠 --platform mcmod      # 仅 MC百科
-mc-search --json search 钻石剑 --type item   # 物品搜索
-mc-search --json search --author jellysquid_     # 双平台作者搜索
+# 基础搜索
+mc-search --json search 钠                      # 四平台并行搜索
+mc-search --json search 机械动力                # 中文模组搜索
+mc-search --json search Create                  # 英文模组搜索
+
+# 按类型搜索
+mc-search --json search 钻石剑 --type item      # 物品搜索
+mc-search --json search 科技 --modpack          # 整合包搜索
+mc-search --json search BSL --shader            # 光影包（仅 Modrinth）
+mc-search --json search Faithful --resourcepack # 材质包（仅 Modrinth）
+
+# 按平台限定
+mc-search --json search 钠 --platform mcmod     # 仅 MC 百科
+mc-search --json search sodium --platform modrinth  # 仅 Modrinth
+mc-search --json search 附魔台 --platform wiki  # 仅英文 wiki
+mc-search --json search 附魔台 --platform wiki-zh  # 仅中文 wiki
+
+# 特殊搜索
+mc-search --json search --author jellysquid_    # 按作者搜索（双平台）
+mc-search --json search 钠 -n 5                 # 每平台 5 个结果
+mc-search --json search 钠 --no-mr              # 禁用 Modrinth
 ```
 
 ### 2. `show` — 查看详情/依赖/合成表
@@ -118,14 +162,30 @@ mc-search --json show <名称/URL/ID> [选项]
 
 **示例**：
 ```bash
-mc-search --json show 钠                        # MC百科详情
-mc-search --json show sodium                    # Modrinth详情（自动回退）
+# 基础查询
+mc-search --json show 钠                        # MC 百科详情
+mc-search --json show sodium                    # Modrinth 详情（自动回退）
+mc-search --json show 机械动力                  # 中文模组
+
+# 双平台完整信息
 mc-search --json show 钠 --full                 # 双平台完整信息
+mc-search --json show Create --full             # 英文模组双平台
+mc-search --json show 2785 --full               # 用 MC 百科 ID 查询
+
+# URL 查询
 mc-search --json show https://www.mcmod.cn/class/2785.html --full
 mc-search --json show https://modrinth.com/mod/sodium --full
-mc-search --json show 2785 --full               # MC百科 ID
-mc-search --json show 钠 --deps                 # 快捷依赖
+
+# 快捷查询
+mc-search --json show 钠 --deps                 # 仅依赖关系
+mc-search --json show 机械动力 --deps           # 依赖查询
 mc-search --json show 钻石剑 --recipe           # 合成表
+
+# 字段过滤（精简输出）
+mc-search --json show 钠 -a                     # 仅作者
+mc-search --json show 钠 -v                     # 仅版本
+mc-search --json show 钠 -c                     # 仅分类/标签
+mc-search --json show 钠 -T -a                  # 仅名称 + 作者
 ```
 
 ### 3. `wiki` — 原版 Wiki 搜索与阅读
@@ -146,10 +206,21 @@ mc-search --json wiki <关键词或URL> [选项]
 
 **示例**：
 ```bash
+# 基础搜索
 mc-search --json wiki 附魔台                    # 搜索 wiki
-mc-search --json wiki 附魔台 -r                 # 搜索并读取正文
-mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword  # 直接读取
-mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword -p 8
+mc-search --json wiki 下界合金                  # 原版物品搜索
+mc-search --json wiki 村民交易                  # 游戏机制搜索
+
+# 搜索并读取正文
+mc-search --json wiki 附魔台 -r                 # 搜索并读取第一个结果
+mc-search --json wiki 下界合金 -r               # 搜索并读取
+
+# 直接读取页面
+mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword  # 英文页面
+mc-search --json wiki https://minecraft.wiki/w/钻石剑 -p 10   # 中文页面，10 段落
+
+# 限定结果数量
+mc-search --json wiki 合成 -n 3                 # 最多 3 个结果
 ```
 
 ## 决策表
@@ -161,11 +232,19 @@ mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword -p 8
 | 搜光影包 | `search --shader` | `mc-search --json search BSL --shader` |
 | 搜整合包 | `search --modpack` | `mc-search --json search 科技 --modpack` |
 | 搜材质包 | `search --resourcepack` | `mc-search --json search Faithful --resourcepack` |
+| 搜物品 | `search --type item` | `mc-search --json search 钻石剑 --type item` |
 | 按平台搜索 | `search --platform` | `mc-search --json search sodium --platform modrinth` |
+| 仅 MC 百科 | `search --platform mcmod` | `mc-search --json search 钠 --platform mcmod` |
+| 仅 Modrinth | `search --platform modrinth` | `mc-search --json search sodium --platform modrinth` |
+| 禁用某平台 | `--no-mr` / `--no-mcmod` | `mc-search --json search 钠 --no-mr` |
 | 只看依赖 | `show --deps` | `mc-search --json show sodium --deps` |
 | 查 wiki | `wiki` | `mc-search --json wiki 下界合金` |
 | 读取 wiki 页面 | `wiki <url>` | `mc-search --json wiki https://minecraft.wiki/w/Diamond_Sword` |
 | 按作者搜索 | `search --author` | `mc-search --json search --author jellysquid_` |
+| 精简结果 | `-n <num>` | `mc-search --json search 钠 -n 1` |
+| 查看作者信息 | `show -a` | `mc-search --json show 钠 -a` |
+| 查看版本信息 | `show -v` | `mc-search --json show 钠 -v` |
+| 查看合成表 | `show --recipe` | `mc-search --json show 钻石剑 --recipe` |
 
 ## 返回数据结构
 
@@ -277,17 +356,24 @@ AI 可直接读取或上传这些文件。
 
 ## 注意事项
 
-1. **`--json` 位置**：必须放在子命令**之前**
+1. **`--json` 位置**：放在子命令之前或之后都可以
    ```bash
-   mc-search --json search 钠   # ✓
-   mc-search search --json 钠   # ✗
+   mc-search --json search 钠   # 两种写法都可以
+   mc-search search --json 钠   
    ```
 
 2. **类型过滤**：支持 `mod`/`item`/`modpack`/`shader`/`resourcepack`
 
+
 3. **网络稳定性**：四平台并行，单个失败不影响其他结果
 
-4. **缓存**：可使用 `--cache` 启用本地缓存（TTL 1小时）
+4. **缓存**：可使用 `--cache` 启用本地缓存（TTL 1 小时）
+
+5. **截图控制**：默认不返回截图（节省带宽），可使用 `--screenshots <num>` 调整
+   ```bash
+   mc-search --json search 钠 --screenshots 3   # 返回 3 张截图
+   mc-search --json show 钠 --full --screenshots 5   # full 模式也受控制
+   ```
 
 ## 平台特性
 

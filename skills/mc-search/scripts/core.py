@@ -52,8 +52,8 @@ _MAX_TABLE_ITEMS = 50
 _MAX_VERSION_GROUPS = 5
 _MAX_CHANGELOGS = 5
 _MAX_FETCH_WORKERS = 4
-_MAX_SCREENSHOTS = 20
-_MAX_GALLERY = 10
+_MAX_SCREENSHOTS = 0        # 默认不返回截图（可配置）
+_MAX_GALLERY = 0            # 默认不返回画廊（可配置）
 _MAX_TAG_SECTION_LEN = 500
 _EXTERNAL_LINK_EXCLUDE_DOMAINS = ["curseforge", "modrinth", "github", "discord", "wikipedia", "mcbbs", "jenkins", "archive"]
 _MAX_TAG_TEXT_LEN = 20
@@ -244,6 +244,12 @@ def set_cache(enabled: bool, ttl: int = 3600):
     _cache_enabled = enabled
     _cache_ttl = ttl
 
+
+def set_screenshot_limit(limit: int):
+    """设置截图返回数量限制。默认 0（不返回），可调整为任意正整数。"""
+    global _MAX_SCREENSHOTS, _MAX_GALLERY
+    _MAX_SCREENSHOTS = limit
+    _MAX_GALLERY = limit
 
 
 # 平台开关
