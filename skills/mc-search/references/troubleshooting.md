@@ -197,59 +197,36 @@ for name in names:
 
 ## 常见问题 FAQ
 
-### Q1: 为什么 "Spawn" 模组有时排第 1，有时排后面？
+### Q1: 为什么搜索结果不准确？
 
-**A**: 取决于使用的命令：
-- `search` 命令：使用智能排序，"Spawn"（精确匹配）排第 1
-- `full` 命令：先用原始关键词直搜 Modrinth，精确匹配 slug 时排第 1
+**A**: Modrinth/MC百科 API 使用热度排序（下载量、关注度）。建议：
+- 使用精确模组名或 slug
+- 使用 `show --full` 精确匹配
 
-**如果仍然遇到问题**：
-1. 使用更具体的关键词（如 "Spawn mod" 而非 "spawn"）
-2. 直接使用 Modrinth slug：`full spawn-mod`
-3. 使用 MC百科 class URL：`info https://www.mcmod.cn/class/14900.html`
+### Q2: 如何查看完整版本历史？
 
-### Q2: 为什么小众模组排名靠后？
-
-**A**: 因为 Modrinth/MC百科 的 API 使用热度排序（下载量、关注度等）。工具的排序逻辑已在改善：
-- 精确匹配优先（第 0 层）
-- 前缀匹配次之（第 1 层）
-- 包含匹配再次之（第 2 层）
-
-但仍无法完全克服热度因素。**建议**：使用精确模组名或 slug。
-
-### Q3: 如何查看模组的完整版本历史？
-
-**A**: 使用 `full` 命令，它会获取 Modrinth 的完整版本列表：
+**A**: 使用 `show --full` 命令：
 ```bash
-mc-search --json full sodium
+mc-search --json show sodium --full
 ```
 
-返回的 `version_groups` 字段包含所有版本分组。
+### Q3: 如何判断数据是否完整？
 
-### Q4: 如何判断返回数据是否完整？
+**A**: 检查 `_truncated` 字段，详见 [result-schema.md](result-schema.md#_truncated-元数据字段)。
 
-**A**: 检查 `_truncated` 字段：
-```json
-{
-  "_truncated": {
-    "version_groups": {"returned": 5, "total": 62}
-  }
-}
-```
+### Q4: 缓存会导致数据过时吗？
 
-如有 `_truncated`，表示数据不完整。可使用 `full` 命令获取完整数据（仅 Modrinth 部分）。
+**A**: 缓存 TTL 1 小时，超过后自动失效。实时性要求高的场景不建议使用 `--cache`。
 
-### Q5: 缓存是否会导致数据过时？
+### Q5: 如何按作者搜索？
 
-**A**: 缓存 TTL 为 1 小时，超过后自动失效。对于版本检查等实时性要求高的场景，建议：
-1. 不使用 `--cache`
-2. 直接使用 Modrinth API
-
-### Q6: 如何按作者搜索模组？
-
-**A**: 使用 `--author` 选项，支持 MC 百科和 Modrinth 双平台搜索：
+**A**: 使用 `--author` 选项：
 ```bash
 mc-search --json search --author jellysquid_
 ```
 
-返回结果包含该作者在两个平台发布的所有模组。
+---
+
+## 详细错误码参考
+
+完整的错误码定义和解决方案，请查看 **[errors.md](errors.md)**。

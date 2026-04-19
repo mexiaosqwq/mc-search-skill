@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """mc-search 核心搜索模块：四平台并行搜索 + 统一结果格式 + 智能路由"""
 
-import base64, concurrent.futures, hashlib, html as html_module, json, os, re, subprocess, time, urllib.parse
+import base64, concurrent.futures, hashlib, html as html_module, json, logging, os, re, time, urllib.parse, urllib.request
 from pathlib import Path
+
+# 配置日志
+logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class SearchError(Exception):
@@ -233,7 +237,8 @@ def _cache_get(cache_type: str, key: str) -> dict | None:
             return None
         with open(p, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        logger.debug(f"Cache read failed: {e}")
         return None
 
 
@@ -247,8 +252,8 @@ def _cache_set(cache_type: str, key: str, data: dict):
         p = d / f"{key}.json"
         with open(p, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
-    except Exception:
-        pass
+    except OSError as e:
+        logger.debug(f"Cache write failed: {e}")
 
 
 def set_cache(enabled: bool, ttl: int = 3600):
@@ -283,17 +288,26 @@ def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool =
 
 def curl(url: str, timeout: int = 10) -> str:
     """发起HTTP请求，返回HTML内容（失败返回空字符串）。"""
-    r = subprocess.run(
-        ["curl", "-s", "-L",
-         "-H", f"User-Agent: {HTTP_HEADERS['User-Agent']}",
-         "-H", f"Accept: {HTTP_HEADERS['Accept']}",
-         "-H", f"Accept-Language: {HTTP_HEADERS['Accept-Language']}",
-         "--max-time", str(timeout), url],
-        capture_output=True, timeout=timeout + 5,
-    )
-    if r.returncode != 0:
-        return ""  # 静默失败，由调用方通过长度检查处理
-    return r.stdout.decode("utf-8", errors="replace")
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": HTTP_HEADERS["User-Agent"],
+                "Accept": HTTP_HEADERS["Accept"],
+                "Accept-Language": HTTP_HEADERS["Accept-Language"],
+            }
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        logger.warning(f"HTTP {e.code} for {url}: {e.reason}")
+        return ""
+    except urllib.error.URLError as e:
+        logger.warning(f"URL error for {url}: {e.reason}")
+        return ""
+    except Exception as e:
+        logger.warning(f"Request failed for {url}: {e}")
+        return ""
 
 
 def _fetch_json(url: str, default=None) -> dict | list | None:
@@ -303,9 +317,9 @@ def _fetch_json(url: str, default=None) -> dict | list | None:
         if not raw:
             return default if default is not None else {}
         return json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON parse failed for {url}: {e}")
         return default if default is not None else {}
-
 
 
 # 物品/方块解析（MC百科 /item/ 页面）
@@ -892,7 +906,8 @@ def _extract_mcmod_external_links(html: str) -> dict:
                 encoded += "=" * padding
             decoded = base64.b64decode(encoded).decode("utf-8")
             return decoded
-        except Exception:
+        except (ValueError, UnicodeDecodeError) as e:
+            logger.debug(f"Link decode failed: {e}")
             return ""
 
     # 收集所有解码后的链接
@@ -1137,12 +1152,14 @@ def _parallel_fetch_with_fallback(items: list, fetch_func: callable, max_workers
         results = []
         try:
             results = list(ex.map(fetch_func, items))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Parallel fetch failed: {e}, falling back to sequential")
             # 回退到逐个抓取，跳过失败项
             for item in items:
                 try:
                     results.append(fetch_func(item))
-                except Exception:
+                except (SearchError, OSError) as e:
+                    logger.warning(f"Fetch failed for item: {e}")
                     continue
 
     if filter_none:
@@ -2116,8 +2133,8 @@ def _wiki_api_search(
                 sections=[],
                 title_field=title_field,
             ))
-    except Exception:
-        pass
+    except (json.JSONDecodeError, KeyError, AttributeError) as e:
+        logger.warning(f"Wiki search parse failed for {keyword}: {e}")
     return results
 
 
@@ -2666,7 +2683,8 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
             valid_types = ("mod", "item", "modpack")
             ct = content_type if content_type in valid_types else "mod"
             return search_mcmod(keyword, per_source, content_type=ct)
-        except Exception:
+        except (SearchError, OSError) as e:
+            logger.warning(f"MC百科搜索失败: {e}")
             return []
 
     def _wrap_mr():
@@ -2674,19 +2692,22 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
             # Modrinth 支持所有类型
             mr_type = content_type if content_type in (_TEXT_CONTENT_TYPES | _VISUAL_CONTENT_TYPES) else "mod"
             return search_modrinth(keyword, per_source, project_type=mr_type)
-        except Exception:
+        except (SearchError, OSError) as e:
+            logger.warning(f"Modrinth搜索失败: {e}")
             return {"results": [], "total": 0, "returned": 0}
 
     def _wrap_wiki():
         try:
             return search_wiki(keyword, per_source)
-        except Exception:
+        except (SearchError, OSError) as e:
+            logger.warning(f"Wiki搜索失败: {e}")
             return []
 
     def _wrap_wiki_zh():
         try:
             return search_wiki_zh(keyword, per_source)
-        except Exception:
+        except (SearchError, OSError) as e:
+            logger.warning(f"中文Wiki搜索失败: {e}")
             return []
 
     workers = []
@@ -2713,7 +2734,8 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
             key = futures_map[future]
             try:
                 raw = future.result(timeout=timeout)
-            except Exception:
+            except (TimeoutError, OSError, SearchError) as e:
+                logger.warning(f"平台 {key} 获取结果失败: {e}")
                 raw = [] if key != "modrinth" else {"results": [], "total": 0, "returned": 0}
 
             if key == "modrinth" and isinstance(raw, dict):

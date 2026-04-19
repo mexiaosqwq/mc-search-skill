@@ -170,7 +170,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 
 ## `_truncated` 元数据字段（可选）
 
-当返回数据被截断时，`_truncated` 字段描述截断情况。AI Agent 可据此判断是否需要调用 `full` 命令获取完整数据。
+当返回数据被截断时，`_truncated` 字段描述截断情况。
 
 ### 结构
 
@@ -195,40 +195,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 | Modrinth | `version_groups` | 5 组 | 版本分组 |
 | Modrinth | `changelogs` | 5 条 | 更新日志 |
 
-### 使用示例
-
-**普通搜索（有截断）**：
-```json
-{
-  "name": "sodium",
-  "version_groups": [["0.6.0", {...}, ...]],
-  "_truncated": {
-    "version_groups": {"returned": 5, "total": 62},
-    "changelogs": {"returned": 5, "total": 144}
-  }
-}
-```
-
-**`full` 命令（无截断）**：
-```json
-{
-  "name": "sodium",
-  "version_groups": [["0.6.0", {...}], ["0.5.0", {...}], ...]
-  // Modrinth 数据无 _truncated 字段，完整返回
-  // MC百科 screenshots 仍有默认限制（6张）
-}
-```
-
-> **注意**：`full` 命令仅 Modrinth 数据无截断，MC百科截图仍有默认限制。
-
-### AI Agent 决策逻辑
-
-```
-if result._truncated exists:
-    # 数据不完整，告知用户或调用 full 命令
-    truncated_fields = list(result._truncated.keys())
-    # 可提示：部分数据已截断，如需完整信息请使用 full 命令
-```
+> **注意**：`show --full` 命令仅 Modrinth 数据无截断，MC百科截图仍有默认限制。
 
 ---
 

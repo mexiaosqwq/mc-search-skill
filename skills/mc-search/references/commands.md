@@ -42,22 +42,12 @@ mc-search --json search <关键词> [选项]
 
 **`--type` 对平台的影响**：
 - `mod`/`item`/`modpack`：MC百科 + Modrinth
-- `shader`/`resourcepack`：仅 Modrinth
-- 搜索结果中也包含 minecraft.wiki 的相关内容（如果有关联）
+- `shader`/`resourcepack`：仅 Modrinth（自动限定）
+- 搜索结果也可能包含 minecraft.wiki 相关内容
 
 **`--author` 双平台搜索**：
 - 同时查询 MC百科 和 Modrinth
 - 返回格式：`{"mcmod": [...], "modrinth": [...], "mcmod_count": N, "modrinth_count": N}`
-
-**示例**：
-```bash
-mc-search --json search 钠                      # 四平台并行
-mc-search --json search BSL --shader             # 光影包（仅 Modrinth）
-mc-search --json search 科技 --modpack           # 整合包
-mc-search --json search Faithful --resourcepack  # 材质包（仅 Modrinth）
-mc-search --json search 钠 --platform mcmod      # 仅 MC百科
-mc-search --json search --author jellysquid_     # 双平台作者搜索
-```
 
 ---
 

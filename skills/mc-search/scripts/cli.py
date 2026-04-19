@@ -845,13 +845,15 @@ def main():
             # MC百科
             try:
                 mcmod_hits = core.search_mcmod_author(author, max_mods=args.max)
-            except Exception:
-                pass
+            except (core.SearchError, OSError) as e:
+
+                core.logger.warning(f"MC百科作者搜索失败: {e}")
             # Modrinth
             try:
                 mr_hits = core.search_modrinth_author(author, max_results=args.max)
-            except Exception:
-                pass
+            except (core.SearchError, OSError) as e:
+
+                core.logger.warning(f"Modrinth作者搜索失败: {e}")
 
             if args.json:
                 _json({"mcmod": mcmod_hits, "modrinth": mr_hits,
