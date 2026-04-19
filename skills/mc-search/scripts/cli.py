@@ -1010,8 +1010,8 @@ def main():
             try:
                 result["dependencies"] = core.get_mod_dependencies(
                     mr_info.get("slug", ""), project_id=mr_info.get("id"))
-            except Exception:
-                pass
+            except (core.SearchError, OSError) as e:
+                core.logger.warning(f"获取依赖失败: {e}")
 
         _output_full_result(result, args.json)
 
@@ -1032,8 +1032,8 @@ def main():
                     else:
                         _print_full_modrinth_info(info, saved_files=saved_files)
                     return
-            except Exception:
-                pass
+            except (core.SearchError, OSError) as e:
+                core.logger.warning(f"获取 Modrinth 信息失败 ({slug}): {e}")
             _print_error(f"无法获取 Modrinth 项目信息: {slug}", "NOT_FOUND", args.json)
             sys.exit(1)
 
