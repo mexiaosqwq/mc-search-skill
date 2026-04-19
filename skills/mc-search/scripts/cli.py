@@ -247,16 +247,6 @@ def _fmt_source(info, *, standalone=True):
     lines.append(f"  Class ID：{sid}")
     return lines
 
-_INFO_FIELDS = [
-    ("title",    "仅名称/别名", _fmt_title),
-    ("status",   "仅状态/开源属性", _fmt_status),
-    ("author",   "仅作者",        _fmt_author),
-    ("deps",     "仅前置/联动",    _fmt_deps),
-    ("versions", "仅版本",        _fmt_versions),
-    ("cats",     "仅分类/标签",    _fmt_cats),
-    ("gallery",  "仅截图/封面",    _fmt_gallery),
-    ("source",   "仅来源链接",     _fmt_source),
-]
 
 
 _MAX_SAFE_FILENAME_LEN = 50
@@ -777,16 +767,7 @@ def main():
                     help="跳过依赖查询（仅 --full）")
     show_parser.add_argument("--skip-mr", dest="skip_mr", action="store_true",
                     help="跳过 Modrinth（仅 --full）")
-    # 字段过滤（MC百科路径生效）
-    show_parser.add_argument("-T", "--title", action="store_true", help="仅名称/别名")
-    show_parser.add_argument("-a", "--author", action="store_true", help="仅作者")
-    show_parser.add_argument("-d", "--deps-field", action="store_true", help="仅前置/联动")
-    show_parser.add_argument("-v", "--versions", action="store_true", help="仅版本")
-    show_parser.add_argument("-g", "--gallery", action="store_true", help="仅截图/封面")
-    show_parser.add_argument("-c", "--cats", action="store_true", help="仅分类/标签")
-    show_parser.add_argument("-s", "--source", action="store_true", help="仅来源链接")
-    show_parser.add_argument("-S", "--status", action="store_true", help="仅状态/开源属性")
-
+    
     # ── wiki ──
     wiki_parser = sub.add_parser("wiki", help="原版 Wiki 搜索与阅读")
     wiki_parser.add_argument("keyword", help="搜索关键词 或 wiki 页面 URL")
