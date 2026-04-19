@@ -77,7 +77,15 @@ _MAX_TABLES_PER_SECTION = 10
 _MAX_MCMOD_AUTHORS = 10
 _KNOWN_LOADERS = {"fabric", "forge", "neoforge", "quilt"}
 _MAX_WIKI_INTRO_PARAGRAPHS = 3
-_MAX_INLINE_TABLE_ITEMS = 6
+
+
+def _truncate_screenshots(screenshots: list, max_count: int) -> tuple[list, dict | None]:
+    """截断截图列表并返回截断元信息。返回 (limited_list, truncated_meta_or_None)。"""
+    limited = screenshots[:max_count]
+    total = len(screenshots)
+    meta = {"screenshots": {"returned": max_count, "total": total}} if total > max_count else None
+    return limited, meta
+
 
 # 搜索评分常量
 _SCORE_EXACT_MATCH_BASE = 100
@@ -121,8 +129,13 @@ _MCMOD_FILTER_MOD = "0"
 _MCMOD_FILTER_ITEM = "3"
 _MCMOD_FILTER_MODPACK_ZH = "2"
 _MCMOD_FILTER_MODPACK_ALT = "20"
-_MCMOD_FILTER_MODPACK_OLD = "10"
 _MCMOD_FILTER_MODPACK_OLD = "10"    # 旧版整合包过滤（较少结果）
+
+# MC百科描述过滤 — 公共跳过前缀（item 和 class 页面共用）
+_MCMOD_COMMON_SKIP_PREFIXES = (
+    "MC百科的目标是", "MC百科(mcmod.cn)的目标",
+    "提供Minecraft(我的世界)MOD(模组)物品资料介绍",
+)
 
 # MC百科整合包多 filter 策略（按优先级）
 _MCMOD_MODPACK_FILTERS = [
@@ -355,9 +368,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
                     text = re.sub(r"<[^>]+>", "", segment)
                     text = html_module.unescape(text)
                     text = re.sub(r"[ \t\r]+", " ", text).strip()
-                    skip_prefixes = [
-                        "MC百科的目标是", "MC百科(mcmod.cn)的目标",
-                        "提供Minecraft(我的世界)MOD(模组)物品资料介绍",
+                    skip_prefixes = list(_MCMOD_COMMON_SKIP_PREFIXES) + [
                         "暂无简介，欢迎协助完善",
                         "MCmod does not have a description with this game data yet",
                         "This page still working because",
@@ -379,8 +390,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
                     break
 
     # 截图截断信息
-    screenshots_total = len(screenshots)
-    screenshots_limited = screenshots[:_MAX_SCREENSHOTS]
+    screenshots_limited, screenshots_meta = _truncate_screenshots(screenshots, _MAX_SCREENSHOTS)
 
     result = {
         "name": name_zh or raw_title or name,
@@ -402,8 +412,8 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
     }
 
     # 截断元信息
-    if screenshots_total > _MAX_SCREENSHOTS:
-        result["_truncated"] = {"screenshots": {"returned": _MAX_SCREENSHOTS, "total": screenshots_total}}
+    if screenshots_meta:
+        result["_truncated"] = screenshots_meta
 
     return result
 
@@ -561,8 +571,7 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
     is_official_modpack = bool(re.search(r'/modpack/\d+\.html', url))
 
     # 截图截断信息
-    screenshots_total = len(screenshots)
-    screenshots_limited = screenshots[:_MAX_SCREENSHOTS]
+    screenshots_limited, screenshots_meta = _truncate_screenshots(screenshots, _MAX_SCREENSHOTS)
 
     result = {
         "name": name_zh or name,
@@ -585,8 +594,8 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
     }
 
     # 截断元信息
-    if screenshots_total > _MAX_SCREENSHOTS:
-        result["_truncated"] = {"screenshots": {"returned": _MAX_SCREENSHOTS, "total": screenshots_total}}
+    if screenshots_meta:
+        result["_truncated"] = screenshots_meta
 
     return result
 
@@ -648,9 +657,7 @@ def _extract_mcmod_description(html: str) -> str:
     while prev != text:
         prev = text
         text = re.sub(prefix_pat, "", text).strip()
-    skip_fragments = [
-        "MC百科的目标是", "MC百科(mcmod.cn)的目标",
-        "提供Minecraft(我的世界)MOD(模组)物品资料介绍",
+    skip_fragments = list(_MCMOD_COMMON_SKIP_PREFIXES) + [
         "关于百科", "百科帮助", "开发日志", "捐赠百科",
         "联系百科", "意见反馈", "©Copyright MC百科",
         "mcmod.cn | ", "鄂ICP备", "鄂公网安备",
@@ -1048,7 +1055,7 @@ def _extract_mcmod_content_list(html: str, class_id: str) -> dict:
     return result
 
 
-def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
+def parse_mcmod_result(html: str, url: str, name: str) -> dict:
     """从 MC百科 class 页面解析。name 来自搜索页，html 仅用于提取扩展字段。"""
     m = re.search(r"<title>([^<]+)</title>", html)
     raw_title = re.sub(r"\s*-\s*MC百科\|.*", "", m.group(1)).strip() if m else name
@@ -1088,8 +1095,7 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     is_vanilla = bool(re.search(r"/class/1\.html", url))
 
     # 截图截断信息
-    screenshots_total = len(screenshots)
-    screenshots_limited = screenshots[:_MAX_SCREENSHOTS]
+    screenshots_limited, screenshots_meta = _truncate_screenshots(screenshots, _MAX_SCREENSHOTS)
 
     result = {
         "name": name_zh or raw_title or name,
@@ -1118,8 +1124,8 @@ def _parse_mcmod_result(html: str, url: str, name: str) -> dict:
     }
 
     # 截断元信息
-    if screenshots_total > _MAX_SCREENSHOTS:
-        result["_truncated"] = {"screenshots": {"returned": _MAX_SCREENSHOTS, "total": screenshots_total}}
+    if screenshots_meta:
+        result["_truncated"] = screenshots_meta
 
     return result
 
@@ -1241,7 +1247,7 @@ def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str
             return _parse_mcmod_item_result(page_html, raw_url, name)
         elif content_type == "modpack":
             return _parse_mcmod_modpack_result(page_html, raw_url, name)
-        return _parse_mcmod_result(page_html, raw_url, name)
+        return parse_mcmod_result(page_html, raw_url, name)
 
     results = _parallel_fetch_with_fallback(
         limited_pairs, _fetch_one,
@@ -1348,7 +1354,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
         full_url = f"https://www.mcmod.cn{url}"
         page = curl(full_url)
         if page and len(page) >= MIN_HTML_LEN:
-            return _parse_mcmod_result(page, full_url, name)
+            return parse_mcmod_result(page, full_url, name)
         return None
 
     limited_mods = unique_mods[:max_mods]
@@ -1720,7 +1726,7 @@ def _format_modrinth_versions(project_id: str, no_limit: bool) -> dict:
     # changelog处理 - 根据 no_limit 标志区分数量
     # no_limit=True (full命令): 取前5个
     # no_limit=False (普通命令): 取前3个
-    changelog_limit = 5 if no_limit else 3
+    changelog_limit = _MAX_CHANGELOGS if no_limit else 3
     changelogs = []
     for v in versions[:changelog_limit]:
         cl = v.get("changelog", "").strip()

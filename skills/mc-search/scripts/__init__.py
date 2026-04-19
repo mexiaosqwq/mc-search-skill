@@ -23,4 +23,6 @@ from .core import (
     curl,
     MIN_HTML_LEN,
     MIN_HTML_LEN_ITEM,
+    # 解析函数（公开接口）
+    parse_mcmod_result,
 )

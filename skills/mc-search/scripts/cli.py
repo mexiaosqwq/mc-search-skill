@@ -30,7 +30,6 @@ _DEFAULT_PARAGRAPHS = 20
 _EXACT_SEARCH_MAX = 5
 
 # 显示截断配置（控制输出长度）
-_DISPLAY_WIKI_PARAGRAPHS = -1
 _DISPLAY_WIKI_SNIPPET_MAX = 150
 _DISPLAY_WIKI_MAX_RESULTS = 10
 _DISPLAY_WIKI_MAX_SECTIONS = 5
@@ -85,22 +84,34 @@ _PLATFORM_FLAGS = {
 
 
 def _find_sentence_boundary(text: str) -> int:
-    """
-    查找文本中最后一个句子边界位置。
-    
-    Args:
-        text: 输入文本
-        
-    Returns:
-        最后一个句子边界（。！？。.\n）的位置索引
-    """
-    """查找文本中最后一个句子边界位置。"""
+    """查找文本中最后一个句子边界位置。返回位置索引。"""
     return max(text.rfind('。'), text.rfind('！'), text.rfind('？'),
                text.rfind('.'), text.rfind('\n'))
 
 
+def _truncate_to_sentence(text: str, max_len: int, min_boundary: int = 0,
+                          add_ellipsis: bool = False) -> str:
+    """截取文本到 max_len，优先在句子边界处截断。
+
+    Args:
+        text: 原始文本
+        max_len: 最大截取长度
+        min_boundary: boundary 位置需超过此值才使用边界截断
+        add_ellipsis: True 时，若 boundary 在 min_boundary 之下但仍 > 0，
+                      则在边界截断处添加 '...'
+    """
+    if len(text) <= max_len:
+        return text
+    truncated = text[:max_len]
+    boundary = _find_sentence_boundary(truncated)
+    if boundary > min_boundary:
+        return truncated[:boundary + 1]
+    if add_ellipsis and boundary > 0:
+        return truncated[:boundary + 1] + '...'
+    return truncated
+
+
 # info 字段输出配置：(属性名，显示标签，格式化函数)
-# formatter 接收 info dict，返回要 print 的行列表，或 None 跳过
 # formatter 接收 info dict，返回要 print 的行列表，或 None 跳过
 def _fmt_title(info: dict) -> list:
     """
@@ -131,10 +142,10 @@ def _fmt_status(info: dict) -> list | None:
         要打印的行列表，或 None 跳过
     """
     lines = []
-    st = info.get("status")
+    status_val = info.get("status")
     stype = info.get("source_type")
-    if st:
-        lines.append(f"  状态：{st}")
+    if status_val:
+        lines.append(f"  状态：{status_val}")
     if stype:
         lines.append(f"  开源属性：{_SOURCE_TYPE_LABELS.get(stype, stype)}")
     return lines or None
@@ -149,8 +160,8 @@ def _fmt_author(info: dict) -> list | None:
     Returns:
         要打印的行列表，或 None 跳过
     """
-    a = info.get("author")
-    return [f"  作者：{a}"] if a else None
+    author_val = info.get("author")
+    return [f"  作者：{author_val}"] if author_val else None
 
 def _fmt_desc(info: dict, *, standalone: bool = True) -> list | None:
     """
@@ -175,10 +186,7 @@ def _fmt_desc(info: dict, *, standalone: bool = True) -> list | None:
         return None
     lines = ["\n  简介："]
     if len(clean) > _DISPLAY_INFO_DESC_MAX:
-        truncated = clean[:_DISPLAY_INFO_DESC_MAX]
-        last = _find_sentence_boundary(truncated)
-        if last > _DISPLAY_INFO_DESC_TRUNCATE:
-            truncated = truncated[:last + 1]
+        truncated = _truncate_to_sentence(clean, _DISPLAY_INFO_DESC_MAX, _DISPLAY_INFO_DESC_TRUNCATE)
         lines.append(f"    {truncated}")
         lines.append(f"    ...（还有 {len(clean) - len(truncated)} 字符，完整内容请查看网页）")
     else:
@@ -194,12 +202,12 @@ def _fmt_deps(info):
     integ = rel.get("integrates", [])
     if reqs:
         lines.append(f"  前置Mod（{len(reqs)}）：")
-        for r in reqs:
-            lines.append(f"    - {r['name_zh']} ({r['name_en']})  {r['url']}")
+        for dep_entry in reqs:
+            lines.append(f"    - {dep_entry['name_zh']} ({dep_entry['name_en']})  {dep_entry['url']}")
     if integ:
         lines.append(f"  联动Mod（{len(integ)}）：")
-        for r in integ:
-            lines.append(f"    - {r['name_zh']} ({r['name_en']})  {r['url']}")
+        for dep_entry in integ:
+            lines.append(f"    - {dep_entry['name_zh']} ({dep_entry['name_en']})  {dep_entry['url']}")
     return lines or ["  依赖：无（暂无关联模组）"]
 
 def _fmt_versions(info):
@@ -251,10 +259,12 @@ _INFO_FIELDS = [
 ]
 
 
+_MAX_SAFE_FILENAME_LEN = 50
+
 # ── 辅助函数 ──────────────────────────────────────────
 
 def _save_full_description(project_name: str, content: str, content_type: str = "mod") -> str:
-    safe_name = re.sub(r'[^a-zA-Z0-9_\-\u4e00-\u9fff]', '_', project_name)[:50]
+    safe_name = re.sub(r'[^a-zA-Z0-9_\-\u4e00-\u9fff]', '_', project_name)[:_MAX_SAFE_FILENAME_LEN]
     filename = f"{safe_name}_{content_type}_full.md"
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
     filepath = os.path.join(_OUTPUT_DIR, filename)
@@ -363,12 +373,12 @@ def _print_hit(hit: dict):
             if mod_name: print(f"     来自: {mod_name}")
         else:
             cats = hit.get("categories", [])
-            st = hit.get("status")
+            status_val = hit.get("status")
             source_type = hit.get("source_type")
             author = hit.get("author")
             meta = []
             if cats: meta.append(f"分类: {' | '.join(cats)}")
-            if st: meta.append(f"状态: {st}")
+            if status_val: meta.append(f"状态: {status_val}")
             if source_type: meta.append(_SOURCE_TYPE_LABELS.get(source_type, source_type))
             for m in meta:
                 print(f"     {m}")
@@ -452,12 +462,8 @@ def _print_mr_body(mr: dict, saved_files: list = None):
         if saved_files is not None:
             saved_files.append(filepath)
         print(f"\n  【详细说明】")
-        preview = clean_body[:min(_MODRINTH_PREVIEW_LEN, body_len)]
-        last_period = _find_sentence_boundary(preview)
-        if last_period > _MODRINTH_PREVIEW_SENTENCE_MIN:
-            preview = preview[:last_period + 1]
-        elif last_period > 0:
-            preview = preview[:last_period + 1] + '...'
+        preview = _truncate_to_sentence(clean_body, min(_MODRINTH_PREVIEW_LEN, body_len),
+                                        _MODRINTH_PREVIEW_SENTENCE_MIN, add_ellipsis=True)
         for p in preview.split('\n')[:_MODRINTH_PREVIEW_MAX_PARAS]:
             if p.strip(): print(f"    {p.strip()}")
         print(f"\n  💾 完整描述已保存到文件:")
@@ -475,24 +481,24 @@ def _print_mr_body(mr: dict, saved_files: list = None):
 
 def _print_mr_versions(mr: dict):
     """打印 Modrinth 版本信息 + 更新日志。"""
-    vg = mr.get("version_groups", [])
-    if vg:
-        print(f"\n  版本信息 (展示前{min(_DISPLAY_MAX_VERSIONS, len(vg))}个，共{len(vg)}个):")
-        for vname, vinfo in vg[:_DISPLAY_MAX_VERSIONS]:
+    version_groups = mr.get("version_groups", [])
+    if version_groups:
+        print(f"\n  版本信息 (展示前{min(_DISPLAY_MAX_VERSIONS, len(version_groups))}个，共{len(version_groups)}个):")
+        for vname, vinfo in version_groups[:_DISPLAY_MAX_VERSIONS]:
             gvs = ', '.join(vinfo.get('game_versions', [])[:3])
             lds = ', '.join(vinfo.get('loaders', []))
             print(f"    • {vname}")
             print(f"      Minecraft: {gvs}")
             print(f"      加载器: {lds}")
-        if len(vg) > _DISPLAY_MAX_VERSIONS:
-            print(f"    ... 还有 {len(vg) - _DISPLAY_MAX_VERSIONS} 个版本")
+        if len(version_groups) > _DISPLAY_MAX_VERSIONS:
+            print(f"    ... 还有 {len(version_groups) - _DISPLAY_MAX_VERSIONS} 个版本")
 
     changelogs = mr.get('changelogs', [])
     if changelogs:
         print(f"\n  最近更新:")
-        for cl in changelogs:
-            print(f"    • v{cl.get('version', '?')} ({cl.get('date', '?')})")
-            log_text = cl.get('changelog', '')
+        for changelog_entry in changelogs:
+            print(f"    • v{changelog_entry.get('version', '?')} ({changelog_entry.get('date', '?')})")
+            log_text = changelog_entry.get('changelog', '')
             if log_text:
                 log_clean = re.sub(r'[-*]', '', log_text).strip()[:_DISPLAY_CHANGELOG_MAX]
                 if log_clean: print(f"      {log_clean}")
@@ -561,20 +567,15 @@ def _print_full_mcmod_info(mc: dict, full_desc: bool = False, saved_files: list 
                 print(f"       {filepath}")
                 print(f"       （共 {desc_len} 字符）")
                 print(f"\n    【简要摘要】")
-                preview = clean_desc[:_MCMOD_DESC_PREVIEW_LEN]
-                last_period = _find_sentence_boundary(preview)
-                if last_period > _MCMOD_DESC_PREVIEW_SENTENCE_MIN:
-                    preview = preview[:last_period + 1]
+                preview = _truncate_to_sentence(clean_desc, _MCMOD_DESC_PREVIEW_LEN,
+                                                _MCMOD_DESC_PREVIEW_SENTENCE_MIN)
                 for p in preview.split('\n')[:_MCMOD_DESC_PREVIEW_MAX_PARAS]:
                     if p.strip(): print(f"    {p.strip()}")
             elif full_desc or desc_len <= _DISPLAY_INFO_DESC_MAX:
                 for p in clean_desc.split('\n'):
                     if p.strip(): print(f"    {p.strip()}")
             else:
-                truncated = clean_desc[:_DISPLAY_INFO_DESC_MAX]
-                last_period = _find_sentence_boundary(truncated)
-                if last_period > _DISPLAY_INFO_DESC_TRUNCATE:
-                    truncated = truncated[:last_period + 1]
+                truncated = _truncate_to_sentence(clean_desc, _DISPLAY_INFO_DESC_MAX, _DISPLAY_INFO_DESC_TRUNCATE)
                 print(f"    {truncated}")
                 print(f"    ...（还有 {desc_len - len(truncated)} 字符，完整内容请查看网页）")
 
@@ -646,7 +647,7 @@ def _fetch_mcmod_info(class_id: str, mcmod_name: str) -> tuple[dict, list, str]:
             return None, [], "FETCH_FAILED"
         if '/error/' in html:
             return None, [], "NOT_FOUND"
-        parsed = core._parse_mcmod_result(html, url, "")
+        parsed = core.parse_mcmod_result(html, url, "")
         if _is_captcha(parsed):
             return None, [], "CAPTCHA"
         return parsed, [], None
@@ -668,7 +669,7 @@ def _fetch_mcmod_info(class_id: str, mcmod_name: str) -> tuple[dict, list, str]:
     html = core.curl(_mcmod_class_url(cid_match.group(1)))
     if not html or len(html) < core.MIN_HTML_LEN:
         return None, hits, "FETCH_FAILED"
-    parsed = core._parse_mcmod_result(html, first["url"], first.get("name", ""))
+    parsed = core.parse_mcmod_result(html, first["url"], first.get("name", ""))
     if _is_captcha(parsed):
         return None, hits, "CAPTCHA"
     return parsed, hits, None
@@ -1156,9 +1157,9 @@ def main():
 
         # 提示（仅 standalone）
         if standalone:
-            a = info.get("author")
-            if a and not args.deps:
-                print(f"\n  💡 同作者其他作品：search --author {a.replace(' ', '_')}")
+            author_val = info.get("author")
+            if author_val and not args.deps:
+                print(f"\n  💡 同作者其他作品：search --author {author_val.replace(' ', '_')}")
             if info.get("has_recipe"):
                 print(f"\n  💡 该物品有合成表：show {name} --recipe")
 
@@ -1216,9 +1217,9 @@ def main():
         if args.read and hits:
             source = hits[0].get("source", "")
             if source == "minecraft.wiki/zh":
-                content = core.read_wiki_zh(hits[0]["url"], max_paragraphs=_DISPLAY_WIKI_PARAGRAPHS)
+                content = core.read_wiki_zh(hits[0]["url"], max_paragraphs=-1)
             else:
-                content = core.read_wiki(hits[0]["url"], max_paragraphs=_DISPLAY_WIKI_PARAGRAPHS)
+                content = core.read_wiki(hits[0]["url"], max_paragraphs=-1)
         else:
             content = None
 
