@@ -60,12 +60,12 @@ def _extract_title(html: str) -> str:
 
 
 # 常量定义
-MIN_HTML_LEN = 1000        # class/mod 页面最小 HTML 长度
-MIN_HTML_LEN_ITEM = 500    # item/recipe 页面最小 HTML 长度
-_MIN_PARAGRAPH_LEN = 20    # 正文段落最小长度
-_MIN_SHORT_TEXT_LEN = 35   # 短文本判定阈值
-_MIN_DESCRIPTIVE_LI_LEN = 50  # 描述性<li>最小长度
-_MIN_DESCRIPTION_LINE_LEN = 10  # 描述行最小长度
+MIN_HTML_LEN = 1000         # 来源: 正常页面3-8KB，错误页<500B；核心检测阈值
+MIN_HTML_LEN_ITEM = 500     # 来源: 物品页无侧边栏，结构更紧凑
+_MIN_PARAGRAPH_LEN = 20     # 来源: wiki解析，过滤导航/广告短文本
+_MIN_SHORT_TEXT_LEN = 35    # 来源: 低于此长度视为无意义内容
+_MIN_DESCRIPTIVE_LI_LEN = 50  # 来源: 列表项需有足够描述性内容
+_MIN_DESCRIPTION_LINE_LEN = 10  # 来源: 描述文字单行最小长度
 _MIN_SECTION_MARKER_DISTANCE = 200  # section marker 最小距离
 _MAX_SECTION_PARAGRAPHS = 100  # 每 wiki 章节最多段落数
 _MIN_TABLE_CELL_LEN = 2
