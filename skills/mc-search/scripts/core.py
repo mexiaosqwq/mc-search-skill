@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
 """mc-search 核心搜索模块：四平台并行搜索 + 统一结果格式 + 智能路由"""
 
-import base64, concurrent.futures, hashlib, html as html_module, json, logging, os, re, time, urllib.parse, urllib.request
+# ── 标准库导入 ─────────────────────────────────────────
+import base64
+import hashlib
+import html as html_module  # 别名：与 html变量名区分
+import json
+import logging
+import os
+import re
+import time
+import urllib.parse
+import urllib.request
+from concurrent import futures as futures_module  # ThreadPoolExecutor
 from enum import IntEnum
 from pathlib import Path
+
+# 注：本项目无第三方依赖（纯标准库实现）
 
 # 配置日志
 logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
@@ -1176,7 +1189,7 @@ def parse_mcmod_result(html: str, url: str, name: str) -> dict:
 def _parallel_fetch_with_fallback(items: list, fetch_func: callable, max_workers: int,
                                    filter_none: bool = True) -> list:
     """并行抓取带降级。返回结果列表（可选过滤None）。"""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+    with futures_module.ThreadPoolExecutor(max_workers=max_workers) as ex:
         results = []
         try:
             results = list(ex.map(fetch_func, items))
@@ -2740,7 +2753,7 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
 
     workers = []
     futures_map = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_FETCH_WORKERS) as ex:
+    with futures_module.ThreadPoolExecutor(max_workers=_MAX_FETCH_WORKERS) as ex:
         if pe.get("mcmod.cn", False):
             f = ex.submit(_wrap_mcmod)
             futures_map[f] = "mcmod.cn"
@@ -2758,7 +2771,7 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
             futures_map[f] = "minecraft.wiki/zh"
             workers.append(f)
 
-        for future in concurrent.futures.as_completed(workers):
+        for future in futures_module.as_completed(workers):
             key = futures_map[future]
             try:
                 raw = future.result(timeout=timeout)
