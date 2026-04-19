@@ -17,8 +17,13 @@ from .core import (
     # 配置
     set_cache,
     set_platform_enabled,
-    # 公共工具（原下划线前缀已移除）
+    # 异常类
     SearchError,
+    NetworkError,
+    ParseError,
+    PlatformError,
+    CacheError,
+    # 公共工具（原下划线前缀已移除）
     clean_html_text,
     curl,
     MIN_HTML_LEN,

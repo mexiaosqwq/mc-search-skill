@@ -2,6 +2,7 @@
 """mc-search 核心搜索模块：四平台并行搜索 + 统一结果格式 + 智能路由"""
 
 import base64, concurrent.futures, hashlib, html as html_module, json, logging, os, re, time, urllib.parse, urllib.request
+from enum import IntEnum
 from pathlib import Path
 
 # 配置日志
@@ -10,7 +11,23 @@ logger = logging.getLogger(__name__)
 
 
 class SearchError(Exception):
-    """搜索过程中的可区分错误。"""
+    """搜索过程中的可区分错误基类。"""
+    pass
+
+class NetworkError(SearchError):
+    """网络请求相关错误（超时、连接失败等）。"""
+    pass
+
+class ParseError(SearchError):
+    """HTML/JSON 解析错误。"""
+    pass
+
+class PlatformError(SearchError):
+    """特定平台返回异常或不可用。"""
+    pass
+
+class CacheError(SearchError):
+    """缓存读写错误。"""
     pass
 
 
@@ -91,22 +108,33 @@ def _truncate_screenshots(screenshots: list, max_count: int) -> tuple[list, dict
     return limited, meta
 
 
-# 搜索评分常量
-_SCORE_EXACT_MATCH_BASE = 100
-_SCORE_EXACT_MATCH_MAX_BONUS = 20
-_SCORE_EXACT_MATCH_BONUS_FACTOR = 2
-_SCORE_PREFIX_BASE = 60
-_SCORE_PREFIX_MAX_BONUS = 15
-_SCORE_PREFIX_BONUS_FACTOR = 2
-_SCORE_CONTAINS_BASE = 30
-_SCORE_CONTAINS_MAX_POS_BONUS = 10
-_SCORE_CONTAINED_IN_QUERY = 20
-_SCORE_MIN_LENGTH_FOR_CONTAINED = 2
-_SCORE_SNIPPET_BONUS = 5
-_SCORE_WIKI_ITEM_BONUS = 5
-_SCORE_SECONDARY_PENALTY = 10
-_SCORE_SECONDARY_MIN = 10
-_SCORE_MULTI_PLATFORM_BONUS = 10
+# 搜索评分常量 - 使用枚举类组织
+class MatchScore(IntEnum):
+    """搜索结果匹配度评分权重"""
+    # 精确匹配
+    EXACT_MATCH_BASE = 100
+    EXACT_MATCH_MAX_BONUS = 20
+    EXACT_MATCH_BONUS_FACTOR = 2
+
+    # 前缀匹配
+    PREFIX_BASE = 60
+    PREFIX_MAX_BONUS = 15
+    PREFIX_BONUS_FACTOR = 2
+
+    # 包含匹配
+    CONTAINS_BASE = 30
+    CONTAINS_MAX_POS_BONUS = 10
+    CONTAINED_IN_QUERY = 20
+
+    # 辅助规则
+    MIN_LENGTH_FOR_CONTAINED = 2
+    SECONDARY_PENALTY = 10
+    SECONDARY_MIN = 10
+
+    # 特殊加分
+    SNIPPET_BONUS = 5
+    WIKI_ITEM_BONUS = 5
+    MULTI_PLATFORM_BONUS = 10
 
 # Wiki 过滤关键词
 _WIKI_SNIPPET_SKIP_KEYWORDS = [
@@ -287,7 +315,7 @@ def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool =
 
 
 def curl(url: str, timeout: int = 10) -> str:
-    """发起HTTP请求，返回HTML内容（失败返回空字符串）。"""
+    """发起HTTP请求，返回HTML内容（失败返回空字符串）。-"""
     try:
         req = urllib.request.Request(
             url,
@@ -305,8 +333,8 @@ def curl(url: str, timeout: int = 10) -> str:
     except urllib.error.URLError as e:
         logger.warning(f"URL error for {url}: {e.reason}")
         return ""
-    except Exception as e:
-        logger.warning(f"Request failed for {url}: {e}")
+    except TimeoutError as e:
+        logger.warning(f"Request timeout for {url}")
         return ""
 
 
@@ -2775,23 +2803,23 @@ def _calc_name_score(name_lc: str, query_lc: str) -> int:
 
     # 1. 精确匹配
     if name_lc == query_lc:
-        bonus = max(0, _SCORE_EXACT_MATCH_MAX_BONUS - len(name_lc) * _SCORE_EXACT_MATCH_BONUS_FACTOR)
-        return _SCORE_EXACT_MATCH_BASE + bonus
+        bonus = max(0, MatchScore.EXACT_MATCH_MAX_BONUS - len(name_lc) * MatchScore.EXACT_MATCH_BONUS_FACTOR)
+        return MatchScore.EXACT_MATCH_BASE + bonus
 
     # 2. 前缀匹配
     if name_lc.startswith(query_lc):
-        bonus = max(0, _SCORE_PREFIX_MAX_BONUS - len(query_lc) * _SCORE_PREFIX_BONUS_FACTOR)
-        return _SCORE_PREFIX_BASE + bonus
+        bonus = max(0, MatchScore.PREFIX_MAX_BONUS - len(query_lc) * MatchScore.PREFIX_BONUS_FACTOR)
+        return MatchScore.PREFIX_BASE + bonus
 
     # 3. 包含查询词
     pos = name_lc.find(query_lc)
     if pos >= 0:
-        pos_bonus = max(0, _SCORE_CONTAINS_MAX_POS_BONUS - pos)
-        return _SCORE_CONTAINS_BASE + pos_bonus
+        pos_bonus = max(0, MatchScore.CONTAINS_MAX_POS_BONUS - pos)
+        return MatchScore.CONTAINS_BASE + pos_bonus
 
     # 4. 名称被包含
-    if len(name_lc) >= _SCORE_MIN_LENGTH_FOR_CONTAINED and name_lc in query_lc:
-        return _SCORE_CONTAINED_IN_QUERY
+    if len(name_lc) >= MatchScore.MIN_LENGTH_FOR_CONTAINED and name_lc in query_lc:
+        return MatchScore.CONTAINED_IN_QUERY
 
     return 0
 
@@ -2815,7 +2843,7 @@ def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
 
     # 直接命中的 wiki 页面（通过 go=Go 跳转），给予高基础分
     if hit.get("_direct_match"):
-        return _SCORE_EXACT_MATCH_BASE
+        return MatchScore.EXACT_MATCH_BASE
 
     name_zh = (hit.get("name_zh") or "").lower()
     name_en = (hit.get("name_en") or "").lower()
@@ -2834,17 +2862,17 @@ def _score_relevance(query: str, hit: dict, content_type: str = "mod") -> float:
     if score == 0 and secondary:
         score = _calc_name_score(secondary, q)
         if score > 0:
-            score = max(score - _SCORE_SECONDARY_PENALTY, _SCORE_SECONDARY_MIN)
+            score = max(score - MatchScore.SECONDARY_PENALTY, MatchScore.SECONDARY_MIN)
 
     # 3. Snippet 加分
     snippet = (hit.get("snippet") or "").lower()
     if snippet and q in snippet:
-        score += _SCORE_SNIPPET_BONUS
+        score += MatchScore.SNIPPET_BONUS
 
     # 4. Wiki item 来源加分
     platform = hit.get("_platform", hit.get("source", ""))
     if content_type == "item" and platform in ("minecraft.wiki", "minecraft.wiki/zh"):
-        score += _SCORE_WIKI_ITEM_BONUS
+        score += MatchScore.WIKI_ITEM_BONUS
 
     return score
 
@@ -2928,7 +2956,7 @@ def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[
         # 多平台命中加权
         platform_count = len(name_platform_count.get(key, set()))
         if platform_count > 1:
-            entry["_score"] += (platform_count - 1) * _SCORE_MULTI_PLATFORM_BONUS
+            entry["_score"] += (platform_count - 1) * MatchScore.MULTI_PLATFORM_BONUS
 
         if key not in by_name:
             by_name[key] = entry
