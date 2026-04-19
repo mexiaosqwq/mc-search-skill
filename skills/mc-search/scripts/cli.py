@@ -614,10 +614,10 @@ def _search_modrinth_exact(keyword: str) -> dict | None:
                 slug = hit.get("source_id", "") or hit.get("slug", "")
                 if slug:
                     try: return core.fetch_mod_info(slug, no_limit=True)
-                    except Exception: pass
+                    except (core.SearchError, OSError): pass
         return direct_hits[0] if direct_hits else None
-    except Exception:
-        return None
+    except (core.SearchError, OSError) as e:
+        core.logger.debug(f"搜索失败: {e}"); return None
 
 
 def _is_captcha(info: dict) -> bool:
@@ -999,7 +999,7 @@ def main():
                     slug = mr_hit.get("source_id") or mr_hit.get("slug")
                     if slug:
                         try: mr_info = core.fetch_mod_info(slug, no_limit=True)
-                        except Exception: mr_info = None
+                        except (core.SearchError, OSError): mr_info = None
         result["modrinth"] = mr_info
 
         if not result["mcmod"] and not result["modrinth"]:
@@ -1060,8 +1060,8 @@ def main():
                             else:
                                 _print_full_modrinth_info(mr_info, saved_files=saved_files)
                             return
-                    except Exception:
-                        pass
+                    except (core.SearchError, OSError):
+                        pass  # 失败后输出错误信息
 
         # Modrinth 也失败（或已禁用），输出原始错误
         _print_error(err_msg, err_type, args.json)
