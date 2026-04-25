@@ -5,7 +5,7 @@ Minecraft content aggregation search tool with four-platform parallel search.
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
-[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](SKILL.md)
+[![Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange)](skills/mc-search/SKILL.md)
 
 [中文文档 →](README.md)
 
@@ -82,7 +82,7 @@ mc-search --json search <keyword> [options]
 | `--type` | Content type: mod/item/shader/resourcepack/modpack |
 | `--platform` | Platform: all/mcmod/modrinth/wiki/wiki-zh |
 | `--author` | Search by author (dual platform) |
-| `-n` | Max results per platform |
+| `-n <count>` | Max results per platform (default 15) |
 | `--timeout <sec>` | Timeout in seconds (default 12) |
 
 ### show — View details/deps/recipes
@@ -96,6 +96,8 @@ mc-search --json show <name/URL/ID> [options]
 | `--full` | Full dual-platform info |
 | `--deps` | Dependencies |
 | `--recipe` | Crafting recipe (items only) |
+| `--skip-dep` | Skip dependency lookup (speed up, only with `--full`) |
+| `--skip-mr` | Skip Modrinth query (speed up, only with `--full`) |
 
 ### wiki — Vanilla Wiki search & read
 
@@ -120,12 +122,12 @@ mc-search --json wiki <keyword or URL> [options]
 | `--no-mr` | Disable Modrinth |
 | `--no-wiki` | Disable English wiki |
 | `--no-wiki-zh` | Disable Chinese wiki |
+| `--screenshots <count>` | Screenshot count (show command only, default 0) |
 
 ## Project Structure
 
 ```
 mc-search-skill/
-├── SKILL.md                    # Skill definition (root)
 ├── skills/
 │   └── mc-search/              # Skill directory (for Claude Code)
 │       ├── SKILL.md            # Claude Code Skill definition

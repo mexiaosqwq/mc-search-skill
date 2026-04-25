@@ -11,6 +11,7 @@
 | `--no-wiki` | 禁用 minecraft.wiki（英文） |
 | `--no-wiki-zh` | 禁用 minecraft.wiki/zh（中文） |
 | `-o <file>` | 输出到文件 |
+| `--screenshots <数量>` | 截图数量（show 命令专用，默认 0） |
 
 > **重要**：全局选项必须放在子命令**之前**。
 
