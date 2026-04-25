@@ -41,7 +41,7 @@ mc-search --json search <关键词> [--shader|--modpack|--resourcepack] [--autho
 ### show — 查看详情
 
 ```bash
-mc-search --json show <名称/URL/ID> [--full|--deps|--recipe]
+mc-search --json show <名称/URL/ID> [--full|--deps|--recipe] [--skip-dep] [--skip-mr]
 ```
 
 ### wiki — 原版 Wiki

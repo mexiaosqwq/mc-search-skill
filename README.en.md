@@ -60,7 +60,7 @@ rm -rf temp
 ### Manual Testing
 
 ```bash
-cd ~/ClaudeCode/skills/mc-search
+cd ~/.claude/skills/mc-search
 mc-search --json search sodium
 mc-search --json show sodium --full
 mc-search --json wiki enchanting
@@ -83,6 +83,7 @@ mc-search --json search <keyword> [options]
 | `--platform` | Platform: all/mcmod/modrinth/wiki/wiki-zh |
 | `--author` | Search by author (dual platform) |
 | `-n` | Max results per platform |
+| `--timeout <sec>` | Timeout in seconds (default 12) |
 
 ### show — View details/deps/recipes
 
@@ -95,7 +96,6 @@ mc-search --json show <name/URL/ID> [options]
 | `--full` | Full dual-platform info |
 | `--deps` | Dependencies |
 | `--recipe` | Crafting recipe (items only) |
-| `-T/-a/-d/-v/-g/-c/-s/-S` | Field filters |
 
 ### wiki — Vanilla Wiki search & read
 

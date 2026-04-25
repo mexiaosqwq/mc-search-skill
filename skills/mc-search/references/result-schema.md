@@ -262,7 +262,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 
 ## Modrinth — `get_mod_info` 详情（完整元数据）
 
-通过 `fetch_mod_info(mod_id)` 或 `info -m`（即 `info --modrinth`）获取：
+通过 `fetch_mod_info(mod_id)` 或 `show` 命令的 Modrinth 路径获取：
 
 | 字段 | 说明 |
 |------|------|

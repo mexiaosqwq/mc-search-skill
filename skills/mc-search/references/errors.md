@@ -63,14 +63,14 @@ curl -s -I "https://minecraft.wiki/api.php" | head -1
 - 尝试英文关键词
 - 使用 `--platform` 限制搜索范围
 
-### 2. "MC 百科 响应过短"
+### 2. "MC百科 服务不可用（可能维护中）"
 
-**原因**: 被临时限流
+**原因**: MC百科 服务器限流或维护
 
 **解决**:
 - 等待 5-15 分钟
 - 使用 `--cache` 利用缓存
-- 改用 Modrinth 搜索
+- 改用 `--platform modrinth` 搜索
 
 ### 3. "Modrinth API 请求失败"
 

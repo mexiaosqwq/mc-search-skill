@@ -341,13 +341,23 @@ def curl(url: str, timeout: int = 10) -> str:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
-        logger.warning(f"HTTP {e.code} for {url}: {e.reason}")
+        # 检测 MC 百科运营异常状态码
+        if "mcmod.cn" in url and e.code in (403, 502, 503):
+            logger.error(f"MC百科 (mcmod.cn) 服务暂时不可用 (HTTP {e.code})，可能正在维护或遭受攻击。建议稍后重试或使用 --platform modrinth 仅搜索 Modrinth。")
+        else:
+            logger.warning(f"HTTP {e.code} for {url}: {e.reason}")
         return ""
     except urllib.error.URLError as e:
-        logger.warning(f"URL error for {url}: {e.reason}")
+        if "mcmod.cn" in url:
+            logger.error(f"无法连接到 MC百科 (mcmod.cn)：{e.reason}。建议检查网络或使用 --platform modrinth。")
+        else:
+            logger.warning(f"URL error for {url}: {e.reason}")
         return ""
     except TimeoutError as e:
-        logger.warning(f"Request timeout for {url}")
+        if "mcmod.cn" in url:
+            logger.warning(f"MC百科请求超时。建议稍后重试或使用 --platform modrinth 仅搜索 Modrinth。")
+        else:
+            logger.warning(f"Request timeout for {url}")
         return ""
 
 
@@ -1339,9 +1349,7 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     # 3. 执行搜索
     html = curl(urls[0])
     if not html:
-        raise SearchError(f"MC百科 网络请求失败（空响应）：{keyword}")
-    if len(html) < MIN_HTML_LEN:
-        raise SearchError(f"MC百科 响应过短（可能被封）：{keyword}")
+        raise SearchError(f"MC百科 (mcmod.cn) 当前无法访问，可能正在维护。建议使用 --platform modrinth 搜索 Modrinth 或稍后重试。")
 
     # 4. 解析结果
     all_pairs = _parse_mcmod_search_results(html, content_type, keyword)
@@ -2698,7 +2706,8 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     if not keyword or not keyword.strip():
         return {"results": [], "platform_stats": {}}
 
-    # 按 content_type 分级设置每平台结果数（用户指定优先）
+    # 默认值 3 是 sentinel 表示"使用平台默认结果数"
+    # 当 CLI 传递默认值(3)时替换为 _DEFAULT_RESULTS_PER_PLATFORM(15)
     per_source = max_per_source if max_per_source != 3 else _DEFAULT_RESULTS_PER_PLATFORM
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
     stats = {"mcmod.cn": {"total": 0, "returned": 0},

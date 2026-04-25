@@ -11,8 +11,7 @@
 │   └─ 检查平台过滤 → 是否使用了 --no-mcmod/--no-mr
 │
 ├─ 网络错误
-│   ├─curl: command not found → 安装 curl
-│   ├─ MC百科 响应过短 → 被限流，使用 --cache 或稍后重试
+│   ├─ MC百科 服务不可用 → 可能维护中，使用 --platform modrinth 或稍后重试
 │   └─ Modrinth API 错误 → 检查网络或稍后重试
 │
 └─ 解析错误
@@ -21,16 +20,6 @@
 ```
 
 ---
-
-## curl 不存在
-
-**症状**：`/bin/curl: No such file or directory` 或 `command not found: curl`
-
-**解决**：
-- **Windows**：安装 [curl for Windows](https://curl.se/windows/) 或使用 WSL
-- **Termux**：curl 通常已预装；如不存在则 `pkg install curl`
-- **Linux/macOS**：系统自带，无需安装
-- **验证安装**：运行 `curl --version`
 
 ## MC百科返回空结果
 
@@ -83,7 +72,7 @@ rm -rf ~/.cache/mc-search/
 
 1. **检查网络连接**：
    ```bash
-   curl -s -H "User-Agent: mc-search/0.4.0" "https://api.modrinth.com/v2/project/sodium" | python -m json.tool
+   curl -s -H "User-Agent: mc-search/5.1.0" "https://api.modrinth.com/v2/project/sodium" | python -m json.tool
    ```
 
 2. **检查限流状态**：
@@ -111,7 +100,7 @@ rm -rf ~/.cache/mc-search/
 
 **验证网络**：
 ```bash
-curl -s -H "User-Agent: mc-search/0.4.0" "https://minecraft.wiki/api.php?action=query&list=search&srsearch=Diamond&format=json" | head -c 300
+curl -s -H "User-Agent: mc-search/5.1.0" "https://minecraft.wiki/api.php?action=query&list=search&srsearch=Diamond&format=json" | head -c 300
 ```
 
 **建议**：
@@ -130,7 +119,7 @@ curl -s -H "User-Agent: mc-search/0.4.0" "https://minecraft.wiki/api.php?action=
 **解决方案**：
 1. 直接使用 MC百科 URL：
    ```bash
-   mc-search info https://www.mcmod.cn/class/18710.html
+   mc-search show https://www.mcmod.cn/class/18710.html
    ```
 2. 改用 Modrinth 搜索：
    ```bash

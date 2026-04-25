@@ -60,7 +60,7 @@ rm -rf temp
 ### 手动测试
 
 ```bash
-cd ~/ClaudeCode/skills/mc-search
+cd ~/.claude/skills/mc-search
 mc-search --json search 钠
 mc-search --json show 钠 --full
 mc-search --json wiki 附魔台
@@ -83,6 +83,7 @@ mc-search --json search <关键词> [选项]
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh |
 | `--author` | 按作者搜索（双平台） |
 | `-n` | 每平台最多结果数 |
+| `--timeout <秒>` | 超时时间（默认 12 秒） |
 
 ### show — 查看详情/依赖/合成表
 
@@ -95,7 +96,6 @@ mc-search --json show <名称/URL/ID> [选项]
 | `--full` | 双平台完整信息 |
 | `--deps` | 依赖关系 |
 | `--recipe` | 合成表（仅物品） |
-| `-T/-a/-d/-v/-g/-c/-s/-S` | 字段过滤 |
 
 ### wiki — 原版 Wiki 搜索与阅读
 

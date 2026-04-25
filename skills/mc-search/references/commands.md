@@ -32,7 +32,7 @@ mc-search --json search <关键词> [选项]
 | `--resourcepack` | 快捷：搜材质包（= `--type resourcepack`，仅 Modrinth） | - |
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh | all |
 | `--author` | 按作者搜索（MC百科+Modrinth 双平台） | - |
-| `-n <数量>` | 每平台最多结果（默认 3，wiki 命令默认 5） | 3 |
+| `-n <数量>` | 每平台最多结果（默认 3，未指定时使用各平台默认值如 15；wiki 命令默认 5） | 3 |
 | `--timeout <秒>` | 超时时间（默认 12 秒） | 12 |
 
 **快捷标志等价关系**：

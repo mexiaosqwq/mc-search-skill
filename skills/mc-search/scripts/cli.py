@@ -163,21 +163,16 @@ def _fmt_author(info: dict) -> list | None:
     author_val = info.get("author")
     return [f"  作者：{author_val}"] if author_val else None
 
-def _fmt_desc(info: dict, *, standalone: bool = True) -> list | None:
+def _fmt_desc(info: dict) -> list | None:
     """
-    格式化简介字段输出（仅在 standalone 模式时输出）。
-
-    描述仅在 standalone（全字段）模式时输出（不可单独过滤）。
+    格式化简介字段输出（字段过滤已移除，始终输出）。
 
     Args:
         info: 模组信息字典
-        standalone: 是否全字段模式
 
     Returns:
         要打印的行列表，或 None 跳过
     """
-    if not standalone:
-        return None
     desc = info.get("description", "")
     if not desc:
         return None
@@ -238,11 +233,9 @@ def _fmt_gallery(info):
             lines.append(f"    {s}")
     return lines or None
 
-def _fmt_source(info, *, standalone=True):
+def _fmt_source(info):
     lines = []
-    if not standalone:
-        lines.append(f"  平台：{info.get('source', 'mcmod.cn')}")
-        lines.append(f"  链接：{info.get('url', '')}")
+    # 平台和链接已由 _fmt_title 输出，此处只输出 Class ID
     sid = info.get("source_id", "")
     lines.append(f"  Class ID：{sid}")
     return lines
@@ -589,7 +582,7 @@ def _print_full_mcmod_info(mc: dict, full_desc: bool = False, saved_files: list 
         for member in author_team:
             roles_str = ', '.join(member.get('roles', []))
             print(f"    - {member.get('name', '?')}（{roles_str}）")
-        if len(author_team) == _DISPLAY_MAX_AUTHOR_TEAM:
+        if len(author_team) >= _DISPLAY_MAX_AUTHOR_TEAM:
             print(f"    （还有更多成员，仅显示前 {_DISPLAY_MAX_AUTHOR_TEAM} 人）")
     elif mc.get('author'):
         print(f"  作者: {mc['author']}")
@@ -750,7 +743,7 @@ def main():
     search_parser.add_argument("--author", dest="author_name", default=None,
                    help="按作者搜索（MC百科+Modrinth）")
     search_parser.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX,
-                   help=f"每平台最多结果（默认{_DEFAULT_MAX}）")
+                   help=f"每平台最多结果（默认15，不指定时按类型使用平台默认值）")
     search_parser.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
                    help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
 
@@ -1091,33 +1084,30 @@ def main():
         return info, None, None
 
     def _print_mcmod_show_info(info: dict, name: str):
-        """打印 MC百科 show 结果（字段过滤/描述/合成表/提示）。"""
+        """打印 MC百科 show 结果（完整信息/描述/合成表/提示）。"""
         if args.json:
             _json(info)
             return
 
-        # 判断是否全字段输出
-        standalone = not any((args.title, args.author, args.deps_field, args.versions,
-                            args.gallery, args.cats, args.source, args.status))
-
-        # 数据驱动输出
-        for attr, label, fmt in _INFO_FIELDS:
-            if standalone or getattr(args, attr, False):
-                if attr == "title":
-                    lines = fmt(info)
-                elif attr == "source":
-                    lines = fmt(info, standalone=standalone)
-                else:
-                    lines = fmt(info)
-                if lines:
-                    for line in lines:
-                        print(line)
-
-        # 描述（仅在 standalone 时输出）
-        desc_lines = _fmt_desc(info, standalone=standalone)
-        if desc_lines:
-            for line in desc_lines:
-                print(line)
+        # 字段过滤选项已在 Phase 3 移除，始终全量输出
+        for line in _fmt_title(info):
+            print(line)
+        for line in (_fmt_status(info) or []):
+            print(line)
+        for line in (_fmt_author(info) or []):
+            print(line)
+        for line in (_fmt_deps(info) or []):
+            print(line)
+        for line in _fmt_versions(info):
+            print(line)
+        for line in _fmt_cats(info):
+            print(line)
+        for line in (_fmt_gallery(info) or []):
+            print(line)
+        for line in _fmt_source(info):
+            print(line)
+        for line in (_fmt_desc(info) or []):
+            print(line)
 
         # --recipe
         if args.recipe:
@@ -1138,13 +1128,12 @@ def main():
                     if not imgs and not mats:
                         print(f"  合成表：无材料数据")
 
-        # 提示（仅 standalone）
-        if standalone:
-            author_val = info.get("author")
-            if author_val and not args.deps:
-                print(f"\n  💡 同作者其他作品：search --author {author_val.replace(' ', '_')}")
-            if info.get("has_recipe"):
-                print(f"\n  💡 该物品有合成表：show {name} --recipe")
+        # 提示（字段过滤已移除，始终输出）
+        author_val = info.get("author")
+        if author_val and not args.deps:
+            print(f"\n  💡 同作者其他作品：search --author {author_val.replace(' ', '_')}")
+        if info.get("has_recipe"):
+            print(f"\n  💡 该物品有合成表：show {name} --recipe")
 
     # ============================================================
     # wiki 命令
