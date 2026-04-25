@@ -1526,8 +1526,8 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
 
     results = []
     for hit in data.get("hits", []):
-        pt = hit.get("project_type", "")
-        if project_type and pt and pt != project_type:
+        proj_type = hit.get("project_type", "")
+        if project_type and proj_type and proj_type != project_type:
             continue
 
         slug = hit.get("slug", "")
@@ -1548,10 +1548,10 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "name": hit.get("title", ""),
             "name_en": hit.get("title", ""),
             "name_zh": "",
-            "url": _build_modrinth_url(slug, pt or project_type or "mod"),
+            "url": _build_modrinth_url(slug, proj_type or project_type or "mod"),
             "source": "modrinth",
             "source_id": slug,
-            "type": pt or project_type or "mod",
+            "type": proj_type or project_type or "mod",
             "snippet": hit.get("description", ""),
             "description": description,  # 完整描述
             "downloads": hit.get("downloads", 0),
@@ -1772,9 +1772,9 @@ def _format_modrinth_versions(project_id: str, no_limit: bool) -> dict:
         if not vn:
             continue
         stripped_ver = vn
-        for ld in known_loaders:
-            if stripped_ver.endswith(f"-{ld}"):
-                stripped_ver = stripped_ver[:-len(ld) - 1]
+        for loader in known_loaders:
+            if stripped_ver.endswith(f"-{loader}"):
+                stripped_ver = stripped_ver[:-len(loader) - 1]
                 break
         mod_ver = re.sub(r'^mc[\d\.]+-', '', stripped_ver) or stripped_ver
         if mod_ver not in seen_mod_vers:
@@ -2690,7 +2690,7 @@ def read_wiki_zh(url: str, max_paragraphs: int = -1, include_infobox: bool = Tru
     )
 
 
-def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
+def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 12,
                content_type: str = "mod", fuse: bool = False) -> dict:
     """
     四平台并行搜索，返回统一格式。
@@ -2706,9 +2706,8 @@ def search_all(keyword: str, max_per_source: int = 3, timeout: int = 12,
     if not keyword or not keyword.strip():
         return {"results": [], "platform_stats": {}}
 
-    # 默认值 3 是 sentinel 表示"使用平台默认结果数"
-    # 当 CLI 传递默认值(3)时替换为 _DEFAULT_RESULTS_PER_PLATFORM(15)
-    per_source = max_per_source if max_per_source != 3 else _DEFAULT_RESULTS_PER_PLATFORM
+    # 默认值 None 表示"使用平台默认结果数"（_DEFAULT_RESULTS_PER_PLATFORM=15）
+    per_source = max_per_source if max_per_source is not None else _DEFAULT_RESULTS_PER_PLATFORM
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
     stats = {"mcmod.cn": {"total": 0, "returned": 0},
              "modrinth": {"total": 0, "returned": 0},

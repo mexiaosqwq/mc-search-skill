@@ -23,7 +23,7 @@ _OUTPUT_DIR = os.environ.get(
 )
 
 # CLI 默认值（网络请求和显示配置）
-_DEFAULT_MAX = 3
+_DEFAULT_RESULTS_PER_PLATFORM = 15
 _DEFAULT_TIMEOUT = 12
 _DEFAULT_WIKI_MAX = 5
 _DEFAULT_PARAGRAPHS = 20
@@ -742,8 +742,8 @@ def main():
                    default="all", help="指定平台（默认 all）")
     search_parser.add_argument("--author", dest="author_name", default=None,
                    help="按作者搜索（MC百科+Modrinth）")
-    search_parser.add_argument("-n", "--max", type=int, default=_DEFAULT_MAX,
-                   help=f"每平台最多结果（默认15，不指定时按类型使用平台默认值）")
+    search_parser.add_argument("-n", "--max", type=int, default=None,
+                   help=f"每平台最多结果（默认{_DEFAULT_RESULTS_PER_PLATFORM}）")
     search_parser.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
                    help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
 
@@ -807,6 +807,7 @@ def main():
     # ============================================================
     @_timed(json_mode=args.json)
     def _cmd_search():
+        _effective_max = args.max if args.max is not None else _DEFAULT_RESULTS_PER_PLATFORM
         # ── 作者搜索：双平台并行 ──
         if args.author_name:
             author = args.author_name.strip()
@@ -818,13 +819,13 @@ def main():
             mr_hits = []
             # MC百科
             try:
-                mcmod_hits = core.search_mcmod_author(author, max_mods=args.max)
+                mcmod_hits = core.search_mcmod_author(author, max_mods=_effective_max)
             except (core.SearchError, OSError) as e:
 
                 core.logger.warning(f"MC百科作者搜索失败: {e}")
             # Modrinth
             try:
-                mr_hits = core.search_modrinth_author(author, max_results=args.max)
+                mr_hits = core.search_modrinth_author(author, max_results=_effective_max)
             except (core.SearchError, OSError) as e:
 
                 core.logger.warning(f"Modrinth作者搜索失败: {e}")
@@ -866,7 +867,7 @@ def main():
                 core.set_platform_enabled(*flags)
 
             if args.platform == "modrinth":
-                data = core.search_modrinth(args.keyword, max_results=args.max, project_type=content_type)
+                data = core.search_modrinth(args.keyword, max_results=_effective_max, project_type=content_type)
                 hits = data.get("results", [])
                 if args.json:
                     _json({"results": hits, "platform": "modrinth", "returned": len(hits)})
@@ -877,7 +878,7 @@ def main():
                     for hit in hits:
                         _print_hit(hit)
             else:
-                result = core.search_all(args.keyword, max_per_source=args.max,
+                result = core.search_all(args.keyword, max_per_source=_effective_max,
                                           timeout=args.timeout, content_type=content_type,
                                           fuse=True)
                 hits = result.get("results", [])
@@ -892,7 +893,7 @@ def main():
             return
 
         # ── 多平台并行搜索 ──
-        results = core.search_all(args.keyword, max_per_source=args.max,
+        results = core.search_all(args.keyword, max_per_source=_effective_max,
                                   timeout=args.timeout, content_type=content_type,
                                   fuse=True)
         if args.json:

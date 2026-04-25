@@ -32,7 +32,7 @@ mc-search --json search <关键词> [选项]
 | `--resourcepack` | 快捷：搜材质包（= `--type resourcepack`，仅 Modrinth） | - |
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh | all |
 | `--author` | 按作者搜索（MC百科+Modrinth 双平台） | - |
-| `-n <数量>` | 每平台最多结果（默认 3，未指定时使用各平台默认值如 15；wiki 命令默认 5） | 3 |
+| `-n <数量>` | 每平台最多结果（默认 15；wiki 命令默认 5） | 15 |
 | `--timeout <秒>` | 超时时间（默认 12 秒） | 12 |
 
 **快捷标志等价关系**：
@@ -79,7 +79,7 @@ mc-search --json show <名称/URL/ID> [选项]
 
 **`--deps` 快捷路径**：
 - 不爬全页，直接搜 Modrinth slug → 获取依赖
-- 和旧 `deps` 命令一样快
+- 和 `show --deps` 一样快
 
 **`--full` 返回数据**：
 - `mcmod`: MC百科完整详情
@@ -117,7 +117,7 @@ mc-search --json wiki <关键词或URL> [选项]
 | `--timeout <秒>` | 超时时间（默认12秒） | 12 |
 
 **智能检测**：
-- 参数以 `http` 开头 → 直接读取 wiki 页面（替代旧 `read` 命令）
+- 参数以 `http` 开头 → 直接读取 wiki 页面（替代 wiki `read` 模式）
 - 否则 → 搜索 wiki（仅搜索 minecraft.wiki 中英双站）
 
 **示例**：
