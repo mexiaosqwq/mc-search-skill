@@ -9,11 +9,18 @@ Minecraft 内容聚合搜索工具，支持四平台并行搜索。
 
 [English Documentation →](README.en.md)
 
+> **⚠️ MC百科 现状说明**
+>
+> MC百科 (mcmod.cn) 的详情页（`/class/*`、`/item/*`）当前受到 AIWAFCDN 防火墙保护。
+> **搜索功能正常**，可获取名称、描述、分类信息。
+> 详情页字段（作者、版本、截图、依赖关系、合成表）暂不可用，工具已自动回退到搜索页数据。
+> Modrinth 和 minecraft.wiki 不受影响，功能完整。
+
 ## 项目简介
 
 mc-search 是一个为 **Claude Code** 设计的 Minecraft 内容搜索 Skill，可以并行搜索四个平台：
 
-- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包
+- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包（⚠️ 详情页受限，搜索可正常使用）
 - **Modrinth** — 英文 mod/光影/材质包/整合包
 - **minecraft.wiki** — 原版游戏内容 wiki（英文）
 - **minecraft.wiki/zh** — 原版游戏内容 wiki（中文）
@@ -41,8 +48,7 @@ rm -rf temp
 - **四平台搜索**：MC 百科、Modrinth、minecraft.wiki（英文/中文）
 - **多类型支持**：模组、整合包、光影包、材质包、物品、实体、生物群系、维度
 - **结果融合**：跨平台结果自动排序和合并
-- **依赖查询**：自动获取模组依赖关系
-- **合成表查询**：物品合成配方查询
+- **Modrinth 依赖查询**：自动获取模组依赖关系（Modrinth 数据源，不受 MC百科限制影响）
 - **本地缓存**：可选缓存机制，减少网络请求
 
 ## 快速使用
@@ -62,7 +68,9 @@ rm -rf temp
 ```bash
 cd ~/.claude/skills/mc-search
 mc-search --json search 钠
-mc-search --json show 钠 --full
+mc-search --json show 钠
+mc-search --json show sodium --full    # Modrinth 完整信息
+mc-search --json show sodium --deps    # Modrinth 依赖查询
 mc-search --json wiki 附魔台
 ```
 
@@ -81,11 +89,11 @@ mc-search --json search <关键词> [选项]
 | `--resourcepack` | 材质包搜索（仅 Modrinth） |
 | `--type` | 内容类型：mod/item/shader/resourcepack/modpack |
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh |
-| `--author` | 按作者搜索（双平台） |
+| `--author` | 按作者搜索（Modrinth 可用；MC百科侧受防火墙限制可能失败） |
 | `-n <数量>` | 每平台最多结果数（默认 15） |
 | `--timeout <秒>` | 超时时间（默认 12 秒） |
 
-### show — 查看详情/依赖/合成表
+### show — 查看详情/依赖
 
 ```bash
 mc-search --json show <名称/URL/ID> [选项]
@@ -93,9 +101,8 @@ mc-search --json show <名称/URL/ID> [选项]
 
 | 选项 | 说明 |
 |------|------|
-| `--full` | 双平台完整信息 |
-| `--deps` | 依赖关系 |
-| `--recipe` | 合成表（仅物品） |
+| `--full` | 完整信息（Modrinth 侧返回完整数据，MC百科侧回退到基础信息） |
+| `--deps` | 依赖关系（走 Modrinth 数据源） |
 | `--skip-dep` | 跳过依赖查询（加速，仅 `--full`） |
 | `--skip-mr` | 跳过 Modrinth 查询（加速，仅 `--full`） |
 
@@ -122,7 +129,6 @@ mc-search --json wiki <关键词或 URL> [选项]
 | `--no-mr` | 禁用 Modrinth |
 | `--no-wiki` | 禁用英文 wiki |
 | `--no-wiki-zh` | 禁用中文 wiki |
-| `--screenshots <数量>` | 截图数量（show 命令专用，默认 0） |
 
 ## 项目结构
 

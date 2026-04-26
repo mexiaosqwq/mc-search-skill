@@ -11,7 +11,6 @@
 | `--no-wiki` | 禁用 minecraft.wiki（英文） |
 | `--no-wiki-zh` | 禁用 minecraft.wiki/zh（中文） |
 | `-o <file>` | 输出到文件 |
-| `--screenshots <数量>` | 截图数量（show 命令专用，默认 0） |
 
 > **重要**：全局选项必须放在子命令**之前**。
 
@@ -32,7 +31,7 @@ mc-search --json search <关键词> [选项]
 | `--modpack` | 快捷：搜整合包（= `--type modpack`） | - |
 | `--resourcepack` | 快捷：搜材质包（= `--type resourcepack`，仅 Modrinth） | - |
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh | all |
-| `--author` | 按作者搜索（MC百科+Modrinth 双平台） | - |
+| `--author` | 按作者搜索（Modrinth 可用；MC百科侧受防火墙限制可能失败） | - |
 | `-n <数量>` | 每平台最多结果（默认 15；wiki 命令默认 5） | 15 |
 | `--timeout <秒>` | 超时时间（默认 12 秒） | 12 |
 
@@ -52,9 +51,9 @@ mc-search --json search <关键词> [选项]
 
 ---
 
-## 2. show — 查看详情/依赖/合成表
+## 2. show — 查看详情/依赖
 
-**使用场景**：用户选中了一个项目，想看详细信息、依赖关系或合成表。
+**使用场景**：用户选中了一个项目，想看详细信息或依赖关系。
 
 ```bash
 mc-search --json show <名称/URL/ID> [选项]
@@ -62,9 +61,8 @@ mc-search --json show <名称/URL/ID> [选项]
 
 | 选项 | 说明 |
 |------|------|
-| `--full` | 双平台完整信息（MC百科+Modrinth+依赖+版本） |
-| `--deps` | 快捷：仅依赖关系（走 Modrinth 快速路径） |
-| `--recipe` | 显示合成表（仅 item 类型有效） |
+| `--full` | 完整信息（Modrinth 返回完整数据；MC百科详情页受限，回退到基础信息）|
+| `--deps` | 依赖关系（走 Modrinth 数据源） |
 | `--skip-dep` | 跳过依赖查询（加速，仅 --full） |
 | `--skip-mr` | 跳过 Modrinth 查询（加速，仅 --full） |
 
@@ -79,25 +77,23 @@ mc-search --json show <名称/URL/ID> [选项]
 - Modrinth URL/slug → 查 Modrinth
 
 **`--deps` 快捷路径**：
-- 不爬全页，直接搜 Modrinth slug → 获取依赖
-- 和 `show --deps` 一样快
+- 直接搜 Modrinth slug → 获取依赖
 
 **`--full` 返回数据**：
-- `mcmod`: MC百科完整详情
+- `mcmod`: MC百科基础信息（详情页受限时仅有搜索页数据）
 - `modrinth`: Modrinth 详情（完整数据，无截断）
 - `dependencies`: Modrinth 依赖树
 - `saved_files`: 自动保存的长描述文件路径
 
 **示例**：
 ```bash
-mc-search --json show 钠                        # MC百科详情
-mc-search --json show sodium                    # Modrinth详情（自动回退）
-mc-search --json show 钠 --full                 # 双平台完整信息
+mc-search --json show 钠                        # MC百科信息
+mc-search --json show sodium                    # Modrinth详情
+mc-search --json show 钠 --full                 # 双平台信息
 mc-search --json show https://www.mcmod.cn/class/2785.html --full
 mc-search --json show https://modrinth.com/mod/sodium --full
 mc-search --json show 2785 --full               # MC百科 ID
-mc-search --json show 钠 --deps                 # 快捷依赖
-mc-search --json show 钻石剑 --recipe           # 合成表
+mc-search --json show 钠 --deps                 # Modrinth 依赖
 ```
 
 ---

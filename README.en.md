@@ -9,11 +9,19 @@ Minecraft content aggregation search tool with four-platform parallel search.
 
 [中文文档 →](README.md)
 
+> **⚠️ MC百科 Status Note**
+>
+> MC百科 (mcmod.cn) detail pages (`/class/*`, `/item/*`) are currently protected by AIWAFCDN firewall.
+> **Search works normally** — names, descriptions, and categories are available.
+> Detail fields (author, versions, screenshots, dependencies, recipes) are currently unavailable;
+> the tool automatically falls back to search page data.
+> Modrinth and minecraft.wiki are unaffected and fully functional.
+
 ## Project Overview
 
 mc-search is a Minecraft content search **Skill for Claude Code**, capable of searching four platforms in parallel:
 
-- **MC 百科** (mcmod.cn) — Chinese mods/items/modpacks
+- **MC 百科** (mcmod.cn) — Chinese mods/items/modpacks (⚠️ detail pages limited, search works)
 - **Modrinth** — English mods/shaders/resourcepacks/modpacks
 - **minecraft.wiki** — Vanilla game wiki (English)
 - **minecraft.wiki/zh** — Vanilla game wiki (Chinese)
@@ -41,8 +49,7 @@ rm -rf temp
 - **Four Platforms**: MC 百科，Modrinth, minecraft.wiki (English/Chinese)
 - **Multiple Types**: mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions
 - **Result Fusion**: Cross-platform results auto-sorted and merged
-- **Dependency Query**: Automatic mod dependency retrieval
-- **Recipe Query**: Item crafting recipe lookup
+- **Modrinth Dependency Query**: Automatic mod dependency retrieval (Modrinth data source, unaffected by MC百科 limits)
 - **Local Cache**: Optional caching mechanism to reduce network requests
 
 ## Quick Usage
@@ -62,7 +69,9 @@ rm -rf temp
 ```bash
 cd ~/.claude/skills/mc-search
 mc-search --json search sodium
-mc-search --json show sodium --full
+mc-search --json show sodium
+mc-search --json show sodium --full    # Modrinth full info
+mc-search --json show sodium --deps    # Modrinth dependency query
 mc-search --json wiki enchanting
 ```
 
@@ -81,11 +90,11 @@ mc-search --json search <keyword> [options]
 | `--resourcepack` | Resource pack search (Modrinth only) |
 | `--type` | Content type: mod/item/shader/resourcepack/modpack |
 | `--platform` | Platform: all/mcmod/modrinth/wiki/wiki-zh |
-| `--author` | Search by author (dual platform) |
+| `--author` | Search by author (Modrinth works; MC百科 side may fail due to firewall) |
 | `-n <count>` | Max results per platform (default 15) |
 | `--timeout <sec>` | Timeout in seconds (default 12) |
 
-### show — View details/deps/recipes
+### show — View details/dependencies
 
 ```bash
 mc-search --json show <name/URL/ID> [options]
@@ -93,9 +102,8 @@ mc-search --json show <name/URL/ID> [options]
 
 | Option | Description |
 |--------|-------------|
-| `--full` | Full dual-platform info |
-| `--deps` | Dependencies |
-| `--recipe` | Crafting recipe (items only) |
+| `--full` | Full info (Modrinth complete data, MC百科 falls back to basic info) |
+| `--deps` | Dependencies (Modrinth data source) |
 | `--skip-dep` | Skip dependency lookup (speed up, only with `--full`) |
 | `--skip-mr` | Skip Modrinth query (speed up, only with `--full`) |
 
@@ -122,7 +130,6 @@ mc-search --json wiki <keyword or URL> [options]
 | `--no-mr` | Disable Modrinth |
 | `--no-wiki` | Disable English wiki |
 | `--no-wiki-zh` | Disable Chinese wiki |
-| `--screenshots <count>` | Screenshot count (show command only, default 0) |
 
 ## Project Structure
 
