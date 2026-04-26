@@ -301,9 +301,9 @@ def _parse_project_identifier(project_arg: str) -> dict:
     return {"class_id": None, "mcmod_name": project_arg, "mr_slug": None}
 
 
-def _extract_slug_from_url(url: str) -> str:
+def _extract_slug_from_url(url: str) -> str | None:
     match = _MODRINTH_SLUG_RE.search(url)
-    return match.group(1) if match else url
+    return match.group(1) if match else None
 
 
 def _mcmod_class_url(class_id: str) -> str:
@@ -321,9 +321,9 @@ def _print_error(msg: str, code: str, is_json: bool):
 # ── 显示函数 ──────────────────────────────────────────
 
 def _type_badge(hit: dict) -> str:
-    t = hit.get("type", "mod")
+    ptype = hit.get("type", "mod")
     badges = {"shader": "【光影】", "resourcepack": "【材质包】", "item": "【物品】"}
-    return badges.get(t, f"【{t}】" if t != "mod" else "")
+    return badges.get(ptype, f"【{ptype}】" if ptype != "mod" else "")
 
 
 def _print_hit(hit: dict):
@@ -1090,7 +1090,6 @@ def main():
             _json(info)
             return
 
-        # 字段过滤选项已在 Phase 3 移除，始终全量输出
         for line in _fmt_title(info):
             print(line)
         for line in (_fmt_status(info) or []):
@@ -1129,7 +1128,7 @@ def main():
                     if not imgs and not mats:
                         print(f"  合成表：无材料数据")
 
-        # 提示（字段过滤已移除，始终输出）
+        # 同作者其他作品提示
         author_val = info.get("author")
         if author_val and not args.deps:
             print(f"\n  💡 同作者其他作品：search --author {author_val.replace(' ', '_')}")

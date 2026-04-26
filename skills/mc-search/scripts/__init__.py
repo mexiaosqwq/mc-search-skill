@@ -19,10 +19,6 @@ from .core import (
     set_platform_enabled,
     # 异常类
     SearchError,
-    NetworkError,
-    ParseError,
-    PlatformError,
-    CacheError,
     # 公共工具（原下划线前缀已移除）
     clean_html_text,
     curl,

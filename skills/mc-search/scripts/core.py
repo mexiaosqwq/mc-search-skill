@@ -16,7 +16,7 @@ from concurrent import futures as futures_module  # ThreadPoolExecutor
 from enum import IntEnum
 from pathlib import Path
 
-# 注：本项目无第三方依赖（纯标准库实现）
+# 注：仅 MC百科主站 (www.mcmod.cn) 使用 curl_cffi 绕过 CDN 盾；其余平台均使用标准库
 
 # 配置日志
 logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
@@ -27,49 +27,12 @@ class SearchError(Exception):
     """搜索过程中的可区分错误基类。"""
     pass
 
-class NetworkError(SearchError):
-    """网络请求相关错误（超时、连接失败等）。"""
-    pass
-
-class ParseError(SearchError):
-    """HTML/JSON 解析错误。"""
-    pass
-
-class PlatformError(SearchError):
-    """特定平台返回异常或不可用。"""
-    pass
-
-class CacheError(SearchError):
-    """缓存读写错误。"""
-    pass
-
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "en-US,en;q=0.9",
 }
-
-
-# URL 解析工具
-def _extract_url_id(url: str, prefix: str) -> str | None:
-    """从 URL 提取 ID。/class/2785.html -> 2785"""
-    m = re.search(rf'{re.escape(prefix)}(\d+)', url)
-    return m.group(1) if m else None
-
-def _extract_url_slug(url: str, prefix: str) -> str | None:
-    """从 URL 提取 slug。/mod/sodium -> sodium"""
-    m = re.search(rf'{re.escape(prefix)}([^/\s"<>\)]+)', url)
-    return m.group(1) if m else None
-
-def _build_absolute_url(base: str, path: str) -> str:
-    """构建绝对 URL"""
-    return path if path.startswith('http') else base.rstrip('/') + '/' + path.lstrip('/')
-
-def _extract_title(html: str) -> str:
-    """从 HTML 提取标题"""
-    m = re.search(r"<title>([^<]+)</title>", html)
-    return m.group(1).strip() if m else ""
 
 
 # 常量定义
@@ -98,7 +61,96 @@ _MAX_AUTHOR_SECTION = 50000
 _MAX_INFO_TABLE_SECTION = 2000
 _MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
 _MAX_VERSIONS_FETCH = 200
+_WAF_SIGNATURES = ["AIWAFCDN", "折翼喵", "防火墙拦截", "访问被拒绝", "Error Code: 503 Forbidden"]
+_WAF_CC_CHECK = "CC check"               # MC百科 CDN 盾检测关键词
+_MIN_TOKEN_PAGE_LEN = 500                # yxd_token 页面长度阈值
+_MAX_CC_PAGE_LEN = 10000                 # CC check 页面最大长度阈值
+_MCMOD_RETRY_CODES = (403, 502, 503)     # MC百科可重试的 HTTP 状态码
+_SEARCH_CHANGELOG_LIMIT = 3              # search 命令非完整模式变更日志默认返回条数
+_SKIP_MCMOD_ORG_NAMES = {"CaffeineMC"}  # 排除的非作者组织名
 _DEFAULT_RESULTS_PER_PLATFORM = 15
+
+
+def _is_mcmod_blocked(html: str) -> bool:
+    """检测页面是否被 MC百科 WAF/防火墙拦截（AIWAFCDN）。"""
+    if not html:
+        return True
+    if len(html) < MIN_HTML_LEN and any(sig in html for sig in _WAF_SIGNATURES):
+        return True
+    if "Error Code: 503" in html and "AIWAFCDN" in html:
+        return True
+    return False
+
+
+def _url_tail_key(url: str) -> str:
+    """从 URL 提取尾部 ID 用于去重比较。
+    /class/2785.html?foo=bar -> 2785
+    """
+    return url.split("?")[0].rstrip("/").rsplit("/", 1)[-1].lower()
+
+
+def _build_mcmod_fallback_result(url: str, name: str, meta: dict | None = None,
+                                  content_type: str = "mod") -> dict:
+    """当详情页被 WAF 拦截时，从搜索数据构建最小结果。"""
+    if meta is None:
+        meta = {}
+
+    # 解析名称（格式："中文名 (English Name)" 或 "English Name"）
+    name_zh = name
+    name_en = ""
+    m = re.match(r'^(.+?)\s*\(([^)]+)\)\s*$', name)
+    if m:
+        name_zh = m.group(1).strip()
+        name_en = m.group(2).strip()
+
+    # 确定类型和 source_id
+    if content_type == "item":
+        source_id = re.search(r'/item/(\d+)', url).group(1) if url else ""
+        type_name = "item"
+    elif content_type == "modpack":
+        source_id = re.search(r'/modpack/(\d+)', url).group(1) if url else ""
+        type_name = "modpack"
+    else:
+        source_id = re.search(r'/class/(\d+)', url).group(1) if url else ""
+        type_name = "mod"
+
+    # 分类：从 meta 中提取
+    categories = []
+    if meta.get("category"):
+        try:
+            categories = [int(meta["category"])]
+        except (ValueError, TypeError):
+            categories = [meta["category"]]
+
+    # 描述：优先用 meta 中的，否则尝试从名称中提取（如无）
+    description = meta.get("description", "")
+
+    result = {
+        "name": name_zh or name,
+        "name_en": name_en,
+        "name_zh": name_zh or name,
+        "url": url,
+        "source": "mcmod.cn",
+        "source_id": source_id,
+        "type": type_name,
+        "is_vanilla": bool(re.search(r"/class/1\.html", url)),
+        "cover_image": "",
+        "screenshots": [],
+        "supported_versions": [],
+        "categories": categories,
+        "tags": [],
+        "author": None,
+        "author_team": None,
+        "community_stats": None,
+        "status": None,
+        "source_type": None,
+        "description": description,
+        "relationships": None,
+        "has_changelog": False,
+        "external_links": None,
+        "content_list": None,
+    }
+    return result
 _WIKI_SNIPPET_SEGMENT_LEN = 5000
 _WIKI_FALLBACK_SEGMENT_LEN = 20000
 _WIKI_FULL_SCAN_LEN = 60000       # 英文 wiki infobox 可达 30000+ 字符
@@ -327,8 +379,131 @@ def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool =
     }
 
 
+# ── MC百科 CDN 绕过状态 ──────────────────────────────
+# 使用 curl_cffi 模拟浏览器 TLS 指纹，绕过 www.mcmod.cn 的 CDN 盾
+_MCMOD_SESSION = None
+_MCMOD_BYPASSED = False
+
+
+def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
+    """绕过 www.mcmod.cn 的 CDN 盾（一次性 cookie 交换）。"""
+    global _MCMOD_SESSION, _MCMOD_BYPASSED
+    if _MCMOD_BYPASSED:
+        return True
+
+    try:
+        from curl_cffi import requests as curl_requests
+    except ImportError:
+        logger.error("curl_cffi 未安装，无法访问 MC百科 (www.mcmod.cn)")
+        return False
+
+    if _MCMOD_SESSION is None:
+        _MCMOD_SESSION = curl_requests.Session()
+
+    headers = {
+        "User-Agent": HTTP_HEADERS["User-Agent"],
+        "Accept": HTTP_HEADERS["Accept"],
+        "Accept-Language": HTTP_HEADERS["Accept-Language"],
+    }
+
+    try:
+        # 注意：session 过期时，主页可能返回极小页面（~105B）且不含 CC check
+        # 此时需检测并重置 session
+        r = _MCMOD_SESSION.get(
+            "https://www.mcmod.cn/", impersonate="chrome124", headers=headers, timeout=timeout
+        )
+        if "CC check" not in r.text:
+            if len(r.text) < 500:
+                # 极小页面 → 可能为过期 session，重置
+                _MCMOD_SESSION = None
+                return _bypass_mcmod_cdn(timeout=timeout)
+            _MCMOD_BYPASSED = True
+            return True
+
+        # POST 浏览器指纹数据完成验证
+        data = {k: "false" for k in ["navigator", "userAgent", "windowWidth", "performance", "callPhantom"]}
+        data["v1"] = ""
+        ch = {**headers, "Content-Type": "application/x-www-form-urlencoded",
+              "Referer": "https://www.mcmod.cn/", "Origin": "https://www.mcmod.cn"}
+        r2 = _MCMOD_SESSION.post(
+            "https://www.mcmod.cn/cdn-shield/check", data=data,
+            impersonate="chrome124", headers=ch, allow_redirects=False, timeout=timeout
+        )
+        loc = r2.headers.get("Location")
+        if loc:
+            _MCMOD_SESSION.get(
+                urllib.parse.urljoin("https://www.mcmod.cn", loc),
+                impersonate="chrome124", headers=headers, timeout=timeout
+            )
+        _MCMOD_BYPASSED = True
+        return True
+    except Exception as e:
+        logger.warning(f"MC百科 CDN 绕过失败: {e}")
+        return False
+
+
+def _curl_mcmod(url: str, timeout: int = 10) -> str:
+    """使用 curl_cffi 请求 www.mcmod.cn，自动绕过 CDN 盾。"""
+    global _MCMOD_BYPASSED, _MCMOD_SESSION
+
+    headers = {
+        "User-Agent": HTTP_HEADERS["User-Agent"],
+        "Accept": HTTP_HEADERS["Accept"],
+        "Accept-Language": HTTP_HEADERS["Accept-Language"],
+    }
+
+    for attempt in range(3):
+        if not _MCMOD_BYPASSED:
+            if not _bypass_mcmod_cdn(timeout=timeout):
+                # 绕过失败，尝试重置 session 重新来过
+                if attempt == 0:
+                    _MCMOD_SESSION = None
+                    continue
+                return ""
+
+        try:
+            r = _MCMOD_SESSION.get(url, impersonate="chrome124", headers=headers, timeout=timeout)
+        except Exception as e:
+            logger.warning(f"MC百科请求失败 ({url}): {e}")
+            return ""
+
+        text = r.text
+
+        # 处理 yxd_token 页面（JS 设置 cookie 后重定向）
+        if 'yxd_token=' in text and len(text) < _MIN_TOKEN_PAGE_LEN:
+            token_m = re.search(r"yxd_token=([^;'\"\s]+)", text)
+            if token_m:
+                _MCMOD_SESSION.cookies.set("yxd_token", token_m.group(1), domain="www.mcmod.cn")
+            href_m = re.search(r"window\.location\.href='([^']+)'", text)
+            if href_m:
+                target = urllib.parse.urljoin("https://www.mcmod.cn", href_m.group(1))
+                try:
+                    r = _MCMOD_SESSION.get(target, impersonate="chrome124", headers=headers, timeout=timeout)
+                    return r.text
+                except Exception:
+                    return ""
+
+        # 再次遇到 CC check：session 过期，重置后重试
+        if _WAF_CC_CHECK in text and len(text) < _MAX_CC_PAGE_LEN:
+            _MCMOD_BYPASSED = False
+            _MCMOD_SESSION = None
+            continue
+
+        return text
+
+    return ""
+
+
 def curl(url: str, timeout: int = 10) -> str:
-    """发起HTTP请求，返回HTML内容（失败返回空字符串）。-"""
+    """发起HTTP请求，返回HTML内容（失败返回空字符串）。
+
+    - www.mcmod.cn：使用 curl_cffi + CDN 绕过
+    - 其他 URL：标准 urllib.request
+    """
+    # MC百科主站需要 CDN 绕过
+    if "://www.mcmod.cn/" in url:
+        return _curl_mcmod(url, timeout)
+
     try:
         req = urllib.request.Request(
             url,
@@ -341,8 +516,7 @@ def curl(url: str, timeout: int = 10) -> str:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
-        # 检测 MC 百科运营异常状态码
-        if "mcmod.cn" in url and e.code in (403, 502, 503):
+        if "mcmod.cn" in url and e.code in _MCMOD_RETRY_CODES:
             logger.error(f"MC百科 (mcmod.cn) 服务暂时不可用 (HTTP {e.code})，可能正在维护或遭受攻击。建议稍后重试或使用 --platform modrinth 仅搜索 Modrinth。")
         else:
             logger.warning(f"HTTP {e.code} for {url}: {e.reason}")
@@ -377,6 +551,9 @@ def _fetch_json(url: str, default=None) -> dict | list | None:
 
 def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
     """从 MC百科 item 页面解析。物品页面结构与 class 页面完全不同。"""
+    if _is_mcmod_blocked(html):
+        return _build_mcmod_fallback_result(url, name, None, "item")
+
     m = re.search(r"<title>([^<]+)</title>", html)
     raw_title = m.group(1).strip() if m else name
 
@@ -620,6 +797,9 @@ def _extract_mcmod_modpack_stats(html: str) -> list[str]:
 
 def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
     """从 MC百科整合包页面解析。整合包页面结构与 class 页面类似但有差异。"""
+    if _is_mcmod_blocked(html):
+        return _build_mcmod_fallback_result(url, name, None, "modpack")
+
     # 提取元数据
     name_zh, name_en, author, status, categories = _extract_mcmod_modpack_metadata(html)
 
@@ -834,7 +1014,6 @@ def _extract_mcmod_author_team(html: str) -> list[dict]:
 
     # 需要过滤的组织/团队名称（不是真实作者）
     # 包含：组织名、团队名、工作室名、以及含有特定关键词的名称
-    skip_names = {"CaffeineMC"}
     skip_keywords = [
         "Mods", "Studio", "Studios", "Team", "Development",
         "开发团队", "工作室", "团队", "官方",
@@ -853,7 +1032,7 @@ def _extract_mcmod_author_team(html: str) -> list[dict]:
             name = re.split(r'\s*[-–]\s*', name)[0].strip()
 
             # 过滤组织名称（精确匹配或包含关键词）
-            is_org = name in skip_names
+            is_org = name in _SKIP_MCMOD_ORG_NAMES
             if not is_org:
                 for keyword in skip_keywords:
                     if keyword in name:
@@ -1123,6 +1302,9 @@ def _extract_mcmod_content_list(html: str, class_id: str) -> dict:
 
 def parse_mcmod_result(html: str, url: str, name: str) -> dict:
     """从 MC百科 class 页面解析。name 来自搜索页，html 仅用于提取扩展字段。"""
+    if _is_mcmod_blocked(html):
+        return _build_mcmod_fallback_result(url, name, None, "mod")
+
     m = re.search(r"<title>([^<]+)</title>", html)
     raw_title = re.sub(r"\s*-\s*MC百科\|.*", "", m.group(1)).strip() if m else name
 
@@ -1279,6 +1461,54 @@ def _parse_mcmod_search_results(html: str, content_type: str, keyword: str) -> l
     return all_pairs
 
 
+def _extract_search_result_metadata(html: str) -> dict[str, dict]:
+    """从搜索结果页提取每个结果的描述和分类 ID。
+    返回 {url: {"description": "...", "category": N}}。
+    """
+    idx = html.find("search-result-list")
+    if idx == -1:
+        return {}
+
+    end_idx = html.find('class="pagination"', idx)
+    if end_idx == -1:
+        end_idx = len(html)
+    section = html[idx:end_idx]
+
+    # 按 result-item 分割
+    items = section.split('class="result-item"')
+    metadata = {}
+
+    for item in items[1:]:  # 跳过第一个空段
+        # 提取 URL
+        url_m = re.search(
+            r'href="(https://www\.mcmod\.cn/(?:class|item|modpack)/\d+\.html)"',
+            item
+        )
+        if not url_m:
+            continue
+        url = url_m.group(1)
+
+        # 提取描述（body div）
+        body_m = re.search(r'<div class="body">(.*?)</div>', item, re.DOTALL)
+        if body_m:
+            raw = body_m.group(1)
+            raw = re.sub(r"<em[^>]*>|</em>", "", raw)
+            raw = re.sub(r'<[^>]+>', '', raw)
+            raw = html_module.unescape(raw)
+            raw = re.sub(r'\s+', ' ', raw).strip()
+            metadata.setdefault(url, {})["description"] = raw[:_MAX_SEARCH_DESC_CHARS]
+
+        # 提取分类 ID（class="c_N" 中的 N）
+        cat_m = re.search(r'class="c_(\d+)"', item)
+        if cat_m:
+            try:
+                metadata.setdefault(url, {})["category"] = int(cat_m.group(1))
+            except ValueError:
+                pass
+
+    return metadata
+
+
 def _rank_by_name_match(pairs: list[tuple[str, str]], keyword: str) -> list[tuple[str, str]]:
     """按名称匹配度排序。精确匹配→前缀→包含→其余，每层内部保持原始顺序。"""
     keyword_lower = keyword.lower().replace(" ", "")
@@ -1303,14 +1533,24 @@ def _rank_by_name_match(pairs: list[tuple[str, str]], keyword: str) -> list[tupl
     return result
 
 
-def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str) -> list[dict]:
-    """并行抓取模组详情页"""
+def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str,
+                         search_metadata: dict[str, dict] | None = None) -> list[dict]:
+    """并行抓取模组详情页。若被 WAF 拦截，回退到搜索数据构建最小结果。"""
     if not limited_pairs:
         return []
+
+    if search_metadata is None:
+        search_metadata = {}
 
     def _fetch_one(args):
         raw_url, name = args
         page_html = curl(raw_url)
+
+        # 检测 WAF 拦截 → 用搜索数据回退
+        if _is_mcmod_blocked(page_html):
+            meta = search_metadata.get(raw_url, {})
+            return _build_mcmod_fallback_result(raw_url, name, meta, content_type)
+
         if content_type == "item":
             return _parse_mcmod_item_result(page_html, raw_url, name)
         elif content_type == "modpack":
@@ -1353,6 +1593,7 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
 
     # 4. 解析结果
     all_pairs = _parse_mcmod_search_results(html, content_type, keyword)
+    search_metadata = _extract_search_result_metadata(html)
 
     # 5. 按匹配度排序
     reordered = _rank_by_name_match(all_pairs, keyword)
@@ -1360,8 +1601,8 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     # 6. 截断到 max_results
     limited_pairs = reordered[:max_results]
 
-    # 7. 抓取详情
-    results = _fetch_mcmod_details(limited_pairs, content_type)
+    # 7. 抓取详情（WAF 拦截时自动回退到搜索数据）
+    results = _fetch_mcmod_details(limited_pairs, content_type, search_metadata)
 
     # 8. 截断描述（控制 token 消耗）
     for r in results:
@@ -1401,6 +1642,8 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
 
     # 解析作者页面，获取所有模组
     page_html = curl(author_url)
+    if _is_mcmod_blocked(page_html):
+        raise SearchError(f"MC百科 作者页面被防火墙拦截：{author_name}。MC百科当前限制了页面访问，请稍后重试或使用 --platform modrinth。")
     if not page_html or len(page_html) < MIN_HTML_LEN:
         raise SearchError(f"MC百科 作者页面获取失败：{author_name}")
 
@@ -1414,11 +1657,13 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
             seen.add(url)
             unique_mods.append((url, name.strip()))
 
-    # 并行解析每个模组页面（使用通用辅助函数）
+    # 并行解析每个模组页面
     def _fetch_mod(args):
         url, name = args
         full_url = f"https://www.mcmod.cn{url}"
         page = curl(full_url)
+        if _is_mcmod_blocked(page):
+            return _build_mcmod_fallback_result(full_url, name, None, "mod")
         if page and len(page) >= MIN_HTML_LEN:
             return parse_mcmod_result(page, full_url, name)
         return None
@@ -1445,6 +1690,7 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     # 多 filter 策略：按优先级尝试不同的 filter 值
     all_pairs = []
     seen = set()
+    all_metadata = {}  # 跨 filter 累积搜索元数据
 
     for filter_val in _MCMOD_MODPACK_FILTERS:
         html = curl(f"https://search.mcmod.cn/s?key={q}&filter={filter_val}")
@@ -1454,6 +1700,10 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
         idx = html.find("search-result-list")
         if idx == -1:
             continue
+
+        # 累积搜索元数据（用于 WAF 回退）
+        page_meta = _extract_search_result_metadata(html)
+        all_metadata.update(page_meta)
 
         # 找到结果区域的结束位置（分页区域）
         end_idx = html.find('class="pagination"', idx)
@@ -1488,16 +1738,8 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     # 截断到 max_results
     limited_pairs = reordered[:max_results]
 
-    # 并行抓取详情页
-    def _fetch_one(args):
-        raw_url, name = args
-        page_html = curl(raw_url)
-        return _parse_mcmod_modpack_result(page_html, raw_url, name)
-
-    results = _parallel_fetch_with_fallback(
-        limited_pairs, _fetch_one,
-        max_workers=min(len(limited_pairs), _MAX_FETCH_WORKERS)
-    )
+    # 并行抓取详情页（WAF 拦截时自动回退到搜索数据）
+    results = _fetch_mcmod_details(limited_pairs, "modpack", all_metadata)
 
     _cache_set("search", key, results)
     return results
@@ -1542,7 +1784,7 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
                 description = body[:_MAX_SEARCH_DESC_CHARS] + ("..." if len(body) > _MAX_SEARCH_DESC_CHARS else "")
             # 提取前3条 changelogs（非 full 命令限制为3条）
             cl_list = full_info.get("changelogs", [])
-            changelogs = cl_list[:3]
+            changelogs = cl_list[:_SEARCH_CHANGELOG_LIMIT]
 
         result = {
             "name": hit.get("title", ""),
@@ -1792,7 +2034,7 @@ def _format_modrinth_versions(project_id: str, no_limit: bool) -> dict:
     # changelog处理 - 根据 no_limit 标志区分数量
     # no_limit=True (full命令): 取前5个
     # no_limit=False (普通命令): 取前3个
-    changelog_limit = _MAX_CHANGELOGS if no_limit else 3
+    changelog_limit = _MAX_CHANGELOGS if no_limit else _SEARCH_CHANGELOG_LIMIT
     changelogs = []
     for v in versions[:changelog_limit]:
         cl = v.get("changelog", "").strip()
@@ -2229,15 +2471,15 @@ def _search_wiki_impl(
     # 去重：API 结果中与直接访问结果同名的跳过（URL 去重，避免繁简体同名问题）
     # 若直接命中 snippet 过短，用 API 结果的 snippet 补充
     if results:
-        direct_urls = {r.get("url", "").split("?")[0].rstrip("/").rsplit("/", 1)[-1].lower()
+        direct_urls = {_url_tail_key(r.get("url", ""))
                        for r in results}
         for r in api_results:
-            r_url_key = r.get("url", "").split("?")[0].rstrip("/").rsplit("/", 1)[-1].lower()
+            r_url_key = _url_tail_key(r.get("url", ""))
             if r_url_key in direct_urls:
                 # 同一页面：若直接命中 snippet 过短，用 API snippet 替换
                 if len(r.get("snippet", "")) > 50:
                     for dr in results:
-                        dr_url = dr.get("url", "").split("?")[0].rstrip("/").rsplit("/", 1)[-1].lower()
+                        dr_url = _url_tail_key(dr.get("url", ""))
                         if dr_url == r_url_key and len(dr.get("snippet", "")) < 60:
                             dr["snippet"] = r["snippet"]
             else:
@@ -2534,25 +2776,6 @@ def _extract_table_items_from_section(section_html: str, source: str, current_pa
             rows = _extract_table_rows(tbl, max_rows=_MAX_TABLE_ITEMS)
             table_rows.extend(rows)
     return table_rows
-
-
-def _extract_table_items(table_html: str, max_items: int = 8) -> list[str]:
-    """从 wiki table 中提取第一列的 item 名称列表（向后兼容）。"""
-    items = []
-    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL)
-    for row in rows[1:]:
-        cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.DOTALL)
-        if not cells:
-            continue
-        cell_text = clean_html_text(cells[0])
-        if cell_text and len(cell_text) >= _MIN_TABLE_CELL_LEN and not re.match(r"^[\s\-\d]+$", cell_text):
-            # 过滤 CSS/样式代码泄漏
-            if re.match(r"\.\w+-", cell_text) or "{" in cell_text or "display:" in cell_text:
-                continue
-            items.append(cell_text)
-        if len(items) >= max_items:
-            break
-    return items
 
 
 def _extract_table_rows(table_html: str, max_rows: int = 50) -> list[str]:

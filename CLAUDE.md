@@ -137,7 +137,8 @@ print(json.dumps(d.get('platform_stats', {}), indent=2))
 ### 网络层
 
 所有 HTTP 请求通过 `core.curl()` 完成：
-- 使用 `urllib.request` 发起 HTTP 请求（无外部系统依赖）
+- MC百科主站 (www.mcmod.cn)：使用 `curl_cffi` + Chrome TLS 指纹绕过 CDN 盾
+- 其余平台：使用 `urllib.request` 发起 HTTP 请求（无外部系统依赖）
 - 处理超时和编码
 - 返回原始 HTML/JSON 供解析
 
@@ -207,12 +208,14 @@ print(json.dumps(d.get('platform_stats', {}), indent=2))
 ## 依赖项
 
 - Python 3.8+
-- 无外部依赖（仅使用标准库，HTTP 请求使用 `urllib.request`）
+- `curl_cffi>=0.15.0`（MC百科 CDN 绕过，必需）
+- 其余平台仅使用标准库
 
 ## 重要提示
 
 - **始终使用 `--json`** 进行程序化访问
-- MC 百科解析较脆弱（HTML 结构可能变化）
+- MC 百科解析较脆弱（HTML 结构可能变化；详情页可能被 WAF 拦截，此时自动回退到搜索页数据）
+- MC 百科搜索页 (search.mcmod.cn) 无需 CDN 绕过，详情页 (www.mcmod.cn/class/...) 需要 curl_cffi 且可能仍被防火墙限制
 - Modrinth API 有速率限制（360/小时）
 - minecraft.wiki 在某些环境（Termux）可能无法访问
 - 缓存目录在使用 `--cache` 时自动创建
