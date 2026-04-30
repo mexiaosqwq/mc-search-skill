@@ -18,13 +18,24 @@ mc-search 是为 **Claude Code Agent** 设计的 Minecraft 内容搜索 Skill，
 - **minecraft.wiki** — 原版游戏 wiki（英文）
 - **minecraft.wiki/zh** — 原版游戏 wiki（中文）
 
-默认值针对 AI Agent 场景优化（少量结果、合理超时）。所有平台均通过 `curl_cffi` 访问，无 403 问题。
+默认值针对 AI Agent 场景优化（少量结果、合理超时）。
+
+> **MC百科 说明**：MC百科 (mcmod.cn) 使用 `curl_cffi` + Chrome TLS 指纹绕过 CDN 盾（各子域名独立绕过）。搜索+详情均可正常使用，需安装 `curl_cffi>=0.15.0`。
 
 ## 安装到 Claude Code
 
+将 `skills/mc-search` 目录复制到 Claude Code 的 `skills` 目录：
+
 ```bash
+# 方式 1：克隆后安装
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
 cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
+
+# 方式 2：直接从仓库复制
+cd ~/.claude/skills
+git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
+cp -r temp/skills/mc-search .
+rm -rf temp
 ```
 
 ## 主要功能
@@ -83,3 +94,9 @@ mc-search-skill/
 ## 许可证
 
 MIT License
+
+## 致谢
+
+- [MC 百科](https://www.mcmod.cn/) — 中文 Minecraft 模组百科
+- [Modrinth](https://modrinth.com/) — Minecraft 模组平台
+- [Minecraft Wiki](https://minecraft.wiki/) — 原版游戏 wiki

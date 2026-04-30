@@ -18,13 +18,24 @@ mc-search is a Minecraft content search **Skill for Claude Code Agent**, searchi
 - **minecraft.wiki** — Vanilla game wiki (English)
 - **minecraft.wiki/zh** — Vanilla game wiki (Chinese)
 
-Defaults optimized for AI Agent usage (fewer results, reasonable timeouts). All platforms accessed via `curl_cffi` — no 403 issues.
+Defaults optimized for AI Agent usage (fewer results, reasonable timeouts).
+
+> **MC百科 Note**: MC百科 (mcmod.cn) uses `curl_cffi` + Chrome TLS fingerprinting to bypass CDN protection (per-subdomain). Both search and details work. Requires `curl_cffi>=0.15.0`.
 
 ## Install
 
+Place the `skills/mc-search` directory in Claude Code's `skills` directory:
+
 ```bash
+# Method 1: Clone and install
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
 cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
+
+# Method 2: Clone directly to skills
+cd ~/.claude/skills
+git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
+cp -r temp/skills/mc-search .
+rm -rf temp
 ```
 
 ## Features
@@ -83,3 +94,9 @@ mc-search-skill/
 ## License
 
 MIT
+
+## Acknowledgments
+
+- [MC 百科](https://www.mcmod.cn/) — Chinese Minecraft mod wiki
+- [Modrinth](https://modrinth.com/) — Minecraft mod platform
+- [Minecraft Wiki](https://minecraft.wiki/) — Vanilla game wiki
