@@ -24,18 +24,19 @@ Defaults optimized for AI Agent usage (fewer results, reasonable timeouts).
 
 ## Install
 
-Place the `skills/mc-search` directory in Claude Code's `skills` directory:
+One command: clone + install deps + register Skill + cleanup:
 
 ```bash
-# Method 1: Clone and install
-git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
+git clone https://github.com/mexiaosqwq/mc-search-skill.git && \
+  cp -r mc-search-skill/skills/mc-search ~/.claude/skills/ && \
+  cd ~/.claude/skills/mc-search && pip install -e . && \
+  cd ~ && rm -rf mc-search-skill
+```
 
-# Method 2: Clone directly to skills
-cd ~/.claude/skills
-git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
-cp -r temp/skills/mc-search .
-rm -rf temp
+Verify:
+
+```bash
+mc-search --json search JEI -n 1 --platform mcmod
 ```
 
 ## Features

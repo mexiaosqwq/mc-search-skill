@@ -24,18 +24,19 @@ mc-search 是为 **Claude Code Agent** 设计的 Minecraft 内容搜索 Skill，
 
 ## 安装到 Claude Code
 
-将 `skills/mc-search` 目录复制到 Claude Code 的 `skills` 目录：
+一条命令完成克隆 + 安装依赖 + 注册 Skill：
 
 ```bash
-# 方式 1：克隆后安装
-git clone https://github.com/mexiaosqwq/mc-search-skill.git
-cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
+git clone https://github.com/mexiaosqwq/mc-search-skill.git && \
+  cp -r mc-search-skill/skills/mc-search ~/.claude/skills/ && \
+  cd ~/.claude/skills/mc-search && pip install -e . && \
+  cd ~ && rm -rf mc-search-skill
+```
 
-# 方式 2：直接从仓库复制
-cd ~/.claude/skills
-git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
-cp -r temp/skills/mc-search .
-rm -rf temp
+安装后验证：
+
+```bash
+mc-search --json search JEI -n 1 --platform mcmod
 ```
 
 ## 主要功能
