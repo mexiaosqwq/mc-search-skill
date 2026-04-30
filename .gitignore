@@ -48,3 +48,6 @@ Thumbs.db
 doc-consistency.*
 quality-review.*
 clean-code-review.*
+
+# Claude Code local config (hooks, settings)
+.claude/

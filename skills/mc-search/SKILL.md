@@ -28,10 +28,7 @@ triggers:
 
 Minecraft 内容搜索 Skill。当用户询问 Minecraft 模组、整合包、光影、材质包、原版游戏内容或攻略时，使用此工具获取信息。
 
-> **MC百科 现状**：详情页受 AIWAFCDN 防火墙保护。**搜索功能正常**，可获取名称/描述/分类。
-> 详情字段（作者/版本/截图/依赖/合成表）暂不可用，Modrinth 和 wiki 不受影响。
-
-**所有命令必须使用 `--json`**，全局选项必须放在子命令**之前**。
+**所有命令必须使用 `--json`**，全局选项（`--cache` / `--no-*`）必须放在子命令**之前**。
 
 ---
 
@@ -64,11 +61,11 @@ mc-search --json search <关键词> [选项]
 | `--modpack` | 快捷：搜整合包（= `--type modpack`） | - |
 | `--resourcepack` | 快捷：搜材质包（= `--type resourcepack`，仅 Modrinth） | - |
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh | all |
-| `--author` | 按作者搜索（Modrinth 可用；MC百科侧受防火墙限制可能失败） | - |
-| `-n <数量>` | 每平台最多结果（Agent 建议设 3-5，避免输出过长） | 15 |
-| `--timeout <秒>` | 超时时间 | 12 |
+| `--author` | 按作者搜索（MC百科 + Modrinth 双平台并行） | - |
+| `-n <数量>` | 每平台最多结果 | 5 |
+| `--timeout <秒>` | 超时时间 | 15 |
 
-> Agent 提示：搜索结果包含多平台融合数据。默认 15 条/平台可能过多，建议设 `-n 3` 或 `-n 5` 只取 top 结果。如需精确匹配，加 `--platform mcmod` 或 `--platform modrinth` 限定单平台。如需保存结果到文件，追加 `-o result.json`。
+> Agent 提示：默认 5 条/平台适合 AI 场景。如需更多结果可设 `-n 10`。精确匹配加 `--platform mcmod` 或 `--platform modrinth`。英文模组建议加 `--no-mcmod` 去中文噪音。
 
 ---
 
@@ -83,15 +80,16 @@ mc-search --json show <名称/URL/ID> [选项]
 | `--full` | 完整信息（Modrinth 返回完整数据；MC百科详情页受限，回退到基础信息）|
 | `--deps` | 依赖关系（走 Modrinth 数据源） |
 | `--skip-dep` | 跳过依赖查询（加速，仅 `--full`） |
-| `--skip-mr` | 跳过 Modrinth 查询（加速，仅 `--full`） |
+| `--skip-mr` | 跳过 Modrinth 查询（加速，仅 `--full`）；`--no-mr` 等效 | - |
 
-**参数格式**：
-- 模组名称：`show 钠` / `show sodium`
-- MC百科 URL：`show https://www.mcmod.cn/class/23352.html`
-- 纯数字 ID：`show 23352`
-- Modrinth URL：`show https://modrinth.com/mod/sodium`
+**参数格式与路由规则**：
+- 中文名称 → MC百科优先，失败回退 Modrinth（`show 钠`）
+- 英文/slug → Modrinth 优先（`show sodium`）
+- MC百科 URL → 直读 MC百科页面（`show https://www.mcmod.cn/class/23352.html`）
+- Modrinth URL → 直读 Modrinth API（`show https://modrinth.com/mod/sodium`）
+- 纯数字 ID → 按 MC百科 class ID 查询（`show 23352`）
 
-> Agent 提示：`show` 默认返回轻量信息。需要完整信息（描述、版本、依赖）时用 `--full`（Modrinth 侧完整，MC百科侧回退到基础信息）。仅查依赖用 `--deps` 更快。返回的 `body` 字段是长 Markdown 描述（已截断至 5000 字符）——不要直接输出全部，提取关键段落即可。
+> Agent 提示：`show` 默认返回轻量信息。完整信息用 `--full`（MC百科含 external_links/依赖关系，Modrinth 含 body/versions/gallery）。仅查依赖用 `--deps` 更快。`body` 是长 Markdown（已截断至 5000 字符）——提取关键段落，不要全量输出。
 
 ---
 
@@ -106,7 +104,7 @@ mc-search --json wiki <关键词或URL> [选项]
 | `-r` | 搜索后自动读取第一个结果的正文 | - |
 | `-n <数量>` | 最多返回多少条搜索结果 | 5 |
 | `-p <段落数>` | 读取页面时的最大段落数 | 20 |
-| `--timeout <秒>` | 超时时间 | 12 |
+| `--timeout <秒>` | 超时时间 | 15 |
 
 **智能检测**：
 - 参数以 `http` 开头 → 直接读取 wiki 页面
@@ -139,11 +137,11 @@ mc-search --json wiki <关键词或URL> [选项]
 
 ### 平台选择建议
 
-- 中文模组搜索 → **MC百科**（搜索正常，可获取名称/描述/分类）
-- 模组详情/依赖 → **Modrinth**（详情页完整，依赖准确，版本明确）
-- 英文模组/光影/材质包 → **Modrinth**（功能完整）
+- 中文模组搜索/详情 → **MC百科**（中文描述+联动关系+外部链接完整）
+- 英文模组/光影/材质包 → **Modrinth**（完整 API，依赖准确）
+- 全量详情 → `show <名> --full`（MC百科+Modrinth 双平台）
 - 原版内容 → **minecraft.wiki**（中英文自动选择）
-- 搜英文模组时加 `--no-mcmod` 避免中文结果干扰
+- 英文搜索加 `--no-mcmod` 避免中文噪音
 
 ### 常见错误处理
 
@@ -169,8 +167,8 @@ mc-search --json wiki <关键词或URL> [选项]
 
 ## 平台说明
 
-- **MC 百科** — 中文模组为主，联动信息全，中文搜索效果好。注意：详情页可能受防火墙保护，此时仅返回搜索页基本信息（名称+描述+分类），缺失作者/版本/依赖等详情
-- **Modrinth** — 英文模组，依赖准确，光影/材质包唯一来源
-- **minecraft.wiki** — 原版游戏内容（方块、物品、机制），中英文自动匹配
+- **MC 百科** — 中文模组为主，联动关系+外部链接完整，中文搜索效果好。搜索+详情均可正常使用（curl_cffi CDN 绕过）
+- **Modrinth** — 英文模组，API 完整，依赖/版本准确，光影/材质包唯一来源
+- **minecraft.wiki** — 原版游戏内容（方块、物品、机制），中英文自动选择
 
 详见 [platform-comparison.md](references/platform-comparison.md)。

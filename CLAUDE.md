@@ -48,7 +48,7 @@ mc-search-skill/
 - `search_all()` — 并行搜索与结果融合
 - `fetch_mod_info()` — Modrinth 模组详情
 - `get_mod_dependencies()` — 依赖树解析
-- `curl()` — 统一 HTTP 请求封装（urllib.request）
+- `curl()` — 统一 HTTP 请求封装（MC百科/wiki 用 curl_cffi，其余用 urllib.request）
 
 **scripts/cli.py** — CLI 接口：
 - 三个子命令：`search`、`show`、`wiki`
@@ -92,7 +92,7 @@ mc-search --json search BSL --shader
 # 测试 show 命令
 mc-search --json show 钠 --full
 mc-search --json show sodium --deps
-mc-search --json show 钻石剑 --recipe
+mc-search --json show 钻石剑 --full
 
 # 测试 wiki 命令
 mc-search --json wiki 附魔台
@@ -137,8 +137,9 @@ print(json.dumps(d.get('platform_stats', {}), indent=2))
 ### 网络层
 
 所有 HTTP 请求通过 `core.curl()` 完成：
-- MC百科主站 (www.mcmod.cn)：使用 `curl_cffi` + Chrome TLS 指纹绕过 CDN 盾
-- 其余平台：使用 `urllib.request` 发起 HTTP 请求（无外部系统依赖）
+- MC百科所有子域名 (www + search)：使用 `curl_cffi` + Chrome TLS 指纹绕过 CDN 盾
+- minecraft.wiki / zh.minecraft.wiki：使用 `curl_cffi` 绕过反爬
+- 其他平台 (api.modrinth.com 等)：使用 `urllib.request` 发起 HTTP 请求
 - 处理超时和编码
 - 返回原始 HTML/JSON 供解析
 
@@ -215,7 +216,8 @@ print(json.dumps(d.get('platform_stats', {}), indent=2))
 
 - **始终使用 `--json`** 进行程序化访问
 - MC 百科解析较脆弱（HTML 结构可能变化；详情页可能被 WAF 拦截，此时自动回退到搜索页数据）
-- MC 百科搜索页 (search.mcmod.cn) 无需 CDN 绕过，详情页 (www.mcmod.cn/class/...) 需要 curl_cffi 且可能仍被防火墙限制
+- MC百科搜索页 (search.mcmod.cn) 和详情页 (www.mcmod.cn/class/...) 均需要 curl_cffi CDN 绕过；各子域名需独立绕过
 - Modrinth API 有速率限制（360/小时）
-- minecraft.wiki 在某些环境（Termux）可能无法访问
-- 缓存目录在使用 `--cache` 时自动创建
+- minecraft.wiki 使用 curl_cffi 绕过反爬，原来 urllib 403 的问题已解决
+- 缓存目录在使用 `--cache` 时自动创建；MC百科详情页 HTML 缓存可显著加速二次访问
+- **复杂任务/修复/重构**：必须先走 `workflow-execute-plans` 规划，分批次执行，每批次验证+暂停反馈

@@ -31,9 +31,9 @@ mc-search --json search <关键词> [选项]
 | `--modpack` | 快捷：搜整合包（= `--type modpack`） | - |
 | `--resourcepack` | 快捷：搜材质包（= `--type resourcepack`，仅 Modrinth） | - |
 | `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh | all |
-| `--author` | 按作者搜索（Modrinth 可用；MC百科侧受防火墙限制可能失败） | - |
-| `-n <数量>` | 每平台最多结果（默认 15；wiki 命令默认 5） | 15 |
-| `--timeout <秒>` | 超时时间（默认 12 秒） | 12 |
+| `--author` | 按作者搜索（MC百科 + Modrinth 双平台并行） | - |
+| `-n <数量>` | 每平台最多结果 | 5 |
+| `--timeout <秒>` | 超时时间 | 15 |
 
 **快捷标志等价关系**：
 - `--shader` = `--type shader` + 自动限定仅 Modrinth
@@ -66,15 +66,14 @@ mc-search --json show <名称/URL/ID> [选项]
 | `--skip-dep` | 跳过依赖查询（加速，仅 --full） |
 | `--skip-mr` | 跳过 Modrinth 查询（加速，仅 --full） |
 
-**参数格式**：
-- 模组名称：`mc-search show 钠`
-- MC百科 URL：`mc-search show https://www.mcmod.cn/class/23352.html`
-- 纯数字 ID：`mc-search show 23352`
-- Modrinth URL：`mc-search show https://modrinth.com/mod/sodium`
+**参数格式与路由规则**：
+- 中文名称 → MC百科优先，失败回退 Modrinth（`mc-search show 钠`）
+- 英文/slug → Modrinth 优先（`mc-search show sodium`）
+- MC百科 URL → 直读 MC百科页面（`mc-search show https://www.mcmod.cn/class/23352.html`）
+- Modrinth URL → 直读 Modrinth API（`mc-search show https://modrinth.com/mod/sodium`）
+- 纯数字 ID → 按 MC百科 class ID 查询（`mc-search show 23352`）
 
-**默认行为（无 --full）**：
-- MC百科 URL/ID/中文名 → 查 MC百科，失败回退 Modrinth
-- Modrinth URL/slug → 查 Modrinth
+> 注：`--skip-mr` 和全局 `--no-mr` 在 show 命令中等效，均可跳过 Modrinth。
 
 **`--deps` 快捷路径**：
 - 直接搜 Modrinth slug → 获取依赖
@@ -111,7 +110,7 @@ mc-search --json wiki <关键词或URL> [选项]
 | `-r` | 搜索后读取第一个结果正文 | - |
 | `-n <数量>` | 最多结果 | 5 |
 | `-p <段落数>` | 读取页面时的最大段落数 | 20 |
-| `--timeout <秒>` | 超时时间（默认12秒） | 12 |
+| `--timeout <秒>` | 超时时间 | 15 |
 
 **智能检测**：
 - 参数以 `http` 开头 → 直接读取 wiki 页面（替代 wiki `read` 模式）

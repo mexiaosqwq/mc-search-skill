@@ -23,8 +23,8 @@ _OUTPUT_DIR = os.environ.get(
 )
 
 # CLI 默认值（网络请求和显示配置）
-_DEFAULT_RESULTS_PER_PLATFORM = 15
-_DEFAULT_TIMEOUT = 12
+_DEFAULT_RESULTS_PER_PLATFORM = 5  # AI-first: Agent 场景不需要大量结果
+_DEFAULT_TIMEOUT = 15
 _DEFAULT_WIKI_MAX = 5
 _DEFAULT_PARAGRAPHS = 20
 _EXACT_SEARCH_MAX = 5
@@ -45,6 +45,7 @@ _DISPLAY_MAX_AUTHOR_TEAM = 10
 _DISPLAY_MAX_SEARCH_SHOTS = 3
 _DISPLAY_MAX_SEARCH_SECTIONS = 5
 _DISPLAY_URL_TRUNCATE = 80
+_CAPTCHA_NAME = "安全验证中"  # MC百科触发验证码时返回的页面标题
 
 # 文件保存阈值（超过此长度自动保存）
 _SAVE_BODY_LENGTH_THRESHOLD = 3000
@@ -110,8 +111,7 @@ def _truncate_to_sentence(text: str, max_len: int, min_boundary: int = 0,
     return truncated
 
 
-# info 字段输出配置：(属性名，显示标签，格式化函数)
-# formatter 接收 info dict，返回要 print 的行列表，或 None 跳过
+# info 字段格式化函数 — 各 formatter 接收 info dict，返回要 print 的行列表，或 None 跳过
 def _fmt_title(info: dict) -> list:
     """
     格式化名称字段输出。
@@ -163,15 +163,7 @@ def _fmt_author(info: dict) -> list | None:
     return [f"  作者：{author_val}"] if author_val else None
 
 def _fmt_desc(info: dict) -> list | None:
-    """
-    格式化简介字段输出（字段过滤已移除，始终输出）。
-
-    Args:
-        info: 模组信息字典
-
-    Returns:
-        要打印的行列表，或 None 跳过
-    """
+    """格式化简介输出。返回要打印的行列表，或 None 跳过。"""
     desc = info.get("description", "")
     if not desc:
         return None
@@ -539,6 +531,52 @@ def _print_full_modrinth_info(mr: dict, saved_files: list = None):
     _print_mr_gallery(mr)
 
 
+def _print_mcmod_desc(mc: dict, full_desc: bool = False, saved_files: list = None):
+    """打印 MC百科模组描述。"""
+    desc = mc.get('description', '')
+    if not desc:
+        return
+    clean_desc = core.clean_html_text(desc)
+    if not clean_desc:
+        return
+    print(f"\n  简介：")
+    desc_len = len(clean_desc)
+    if desc_len > _SAVE_DESC_LENGTH_THRESHOLD:
+        proj_name = mc.get('name_zh', 'unknown')
+        filepath = _save_full_description(proj_name, clean_desc, 'mod')
+        if saved_files is not None:
+            saved_files.append(filepath)
+        print(f"    💾 完整简介已保存到文件:")
+        print(f"       {filepath}")
+        print(f"       （共 {desc_len} 字符）")
+        print(f"\n    【简要摘要】")
+        preview = _truncate_to_sentence(clean_desc, _MCMOD_DESC_PREVIEW_LEN,
+                                        _MCMOD_DESC_PREVIEW_SENTENCE_MIN)
+        for p in preview.split('\n')[:_MCMOD_DESC_PREVIEW_MAX_PARAS]:
+            if p.strip(): print(f"    {p.strip()}")
+    elif full_desc or desc_len <= _DISPLAY_INFO_DESC_MAX:
+        for p in clean_desc.split('\n'):
+            if p.strip(): print(f"    {p.strip()}")
+    else:
+        truncated = _truncate_to_sentence(clean_desc, _DISPLAY_INFO_DESC_MAX, _DISPLAY_INFO_DESC_TRUNCATE)
+        print(f"    {truncated}")
+        print(f"    ...（还有 {desc_len - len(truncated)} 字符，完整内容请查看网页）")
+
+
+def _print_mcmod_team(mc: dict):
+    """打印 MC百科模组开发团队。"""
+    author_team = mc.get('author_team', [])
+    if author_team:
+        print(f"  开发团队（{len(author_team)} 人）：")
+        for member in author_team:
+            roles_str = ', '.join(member.get('roles', []))
+            print(f"    - {member.get('name', '?')}（{roles_str}）")
+        if len(author_team) >= _DISPLAY_MAX_AUTHOR_TEAM:
+            print(f"    （还有更多成员，仅显示前 {_DISPLAY_MAX_AUTHOR_TEAM} 人）")
+    elif mc.get('author'):
+        print(f"  作者: {mc['author']}")
+
+
 def _print_full_mcmod_info(mc: dict, full_desc: bool = False, saved_files: list = None):
     print(f"\n【MC百科 - {mc.get('name_zh')}】")
     print(f"  平台: {mc.get('url', '')}")
@@ -546,32 +584,7 @@ def _print_full_mcmod_info(mc: dict, full_desc: bool = False, saved_files: list 
     if mc.get('status'):
         print(f"  状态: {mc['status']}  (类型: {mc.get('type', '?')})")
 
-    desc = mc.get('description', '')
-    if desc:
-        clean_desc = core.clean_html_text(desc)
-        if clean_desc:
-            print(f"\n  简介：")
-            desc_len = len(clean_desc)
-            if desc_len > _SAVE_DESC_LENGTH_THRESHOLD:
-                proj_name = mc.get('name_zh', 'unknown')
-                filepath = _save_full_description(proj_name, clean_desc, 'mod')
-                if saved_files is not None:
-                    saved_files.append(filepath)
-                print(f"    💾 完整简介已保存到文件:")
-                print(f"       {filepath}")
-                print(f"       （共 {desc_len} 字符）")
-                print(f"\n    【简要摘要】")
-                preview = _truncate_to_sentence(clean_desc, _MCMOD_DESC_PREVIEW_LEN,
-                                                _MCMOD_DESC_PREVIEW_SENTENCE_MIN)
-                for p in preview.split('\n')[:_MCMOD_DESC_PREVIEW_MAX_PARAS]:
-                    if p.strip(): print(f"    {p.strip()}")
-            elif full_desc or desc_len <= _DISPLAY_INFO_DESC_MAX:
-                for p in clean_desc.split('\n'):
-                    if p.strip(): print(f"    {p.strip()}")
-            else:
-                truncated = _truncate_to_sentence(clean_desc, _DISPLAY_INFO_DESC_MAX, _DISPLAY_INFO_DESC_TRUNCATE)
-                print(f"    {truncated}")
-                print(f"    ...（还有 {desc_len - len(truncated)} 字符，完整内容请查看网页）")
+    _print_mcmod_desc(mc, full_desc, saved_files)
 
     vers = mc.get('supported_versions', [])
     if vers:
@@ -587,16 +600,7 @@ def _print_full_mcmod_info(mc: dict, full_desc: bool = False, saved_files: list 
         if cats: print(f"    分类: {', '.join(cats)}")
         if tags: print(f"    标签: {' '.join(tags)}")
 
-    author_team = mc.get('author_team', [])
-    if author_team:
-        print(f"  开发团队（{len(author_team)} 人）：")
-        for member in author_team:
-            roles_str = ', '.join(member.get('roles', []))
-            print(f"    - {member.get('name', '?')}（{roles_str}）")
-        if len(author_team) >= _DISPLAY_MAX_AUTHOR_TEAM:
-            print(f"    （还有更多成员，仅显示前 {_DISPLAY_MAX_AUTHOR_TEAM} 人）")
-    elif mc.get('author'):
-        print(f"  作者: {mc['author']}")
+    _print_mcmod_team(mc)
 
 
 # ── 内部搜索辅助 ──────────────────────────────────────
@@ -627,7 +631,7 @@ def _search_modrinth_exact(keyword: str) -> dict | None:
 def _is_captcha(info: dict) -> bool:
     """检测 MC百科 返回的是否为安全验证（captcha）空数据。"""
     name = info.get("name_zh") or info.get("name") or ""
-    return name == "安全验证中"
+    return name == _CAPTCHA_NAME
 
 
 def _fetch_mcmod_info(class_id: str, mcmod_name: str) -> tuple[dict, list, str]:
@@ -669,6 +673,21 @@ def _fetch_mcmod_info(class_id: str, mcmod_name: str) -> tuple[dict, list, str]:
     return parsed, hits, None
 
 
+def _print_integrations(integrations: list):
+    """打印 MC百科联动模组列表。"""
+    print(f"  联动模组（{len(integrations)} 个）：")
+    for int_mod in integrations:
+        int_name = int_mod.get('name_zh') or int_mod.get('name_en', '?')
+        int_url = int_mod.get('url', '')
+        int_desc = int_mod.get('summary') or int_mod.get('snippet') or ''
+        print(f"    • {int_name}")
+        if int_desc:
+            for line in int_desc.split('\n')[:2]:
+                print(f"      {line.strip()}")
+        if int_url:
+            print(f"      {int_url}")
+
+
 def _output_full_result(result: dict, is_json: bool):
     """输出双平台全量结果（JSON 或文本）。"""
     if is_json:
@@ -700,16 +719,7 @@ def _output_full_result(result: dict, is_json: bool):
             _print_deps(deps, mr.get("name", "") if mr else "")
         if mc_integrations:
             if has_mr_deps: print()
-            print(f"  联动模组（{len(mc_integrations)} 个）：")
-            for int_mod in mc_integrations:
-                int_name = int_mod.get('name_zh') or int_mod.get('name_en', '?')
-                int_url = int_mod.get('url', '')
-                int_desc = int_mod.get('summary') or int_mod.get('snippet') or ''
-                print(f"    • {int_name}")
-                if int_desc:
-                    for line in int_desc.split('\n')[:2]:
-                        print(f"      {line.strip()}")
-                if int_url: print(f"      {int_url}")
+            _print_integrations(mc_integrations)
     elif mr or mc:
         print(f"\n  ── 依赖关系 ──")
         print(f"  无")
@@ -717,233 +727,111 @@ def _output_full_result(result: dict, is_json: bool):
 
 # ── CLI 入口 ──────────────────────────────────────────
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="mc-search: Minecraft 聚合搜索",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    # 全局选项
-    parser.add_argument("--json", action="store_true", dest="global_json",
-                        help="以 JSON 格式输出（推荐）")
-    parser.add_argument("--cache", action="store_true", help="启用本地缓存（TTL 1小时）")
-    parser.add_argument("--no-mcmod", dest="no_mcmod", action="store_true", help="禁用 MC百科")
-    parser.add_argument("--no-mr", dest="no_mr", action="store_true", help="禁用 Modrinth")
-    parser.add_argument("--no-wiki", dest="no_wiki", action="store_true", help="禁用 minecraft.wiki")
-    parser.add_argument("--no-wiki-zh", dest="no_wiki_zh", action="store_true", help="禁用 minecraft.wiki/zh")
-    parser.add_argument("-o", "--output", dest="output", default=None, help="输出到文件")
 
-    sub = parser.add_subparsers(dest="cmd")
+# ── 命令实现 ──────────────────────────────────────────
 
-    # ── search ──
-    search_parser = sub.add_parser("search", help="多平台搜索")
-    search_parser.add_argument("keyword", nargs="?", help="搜索关键词")
-    search_parser.add_argument("--type", dest="content_type", default="mod",
-                   choices=["mod", "item", "modpack", "shader", "resourcepack"],
-                   help="内容类型（默认 mod）")
-    search_parser.add_argument("--shader", action="store_const", const="shader", dest="content_type",
-                   help="快捷：搜光影包")
-    search_parser.add_argument("--modpack", action="store_const", const="modpack", dest="content_type",
-                   help="快捷：搜整合包")
-    search_parser.add_argument("--resourcepack", action="store_const", const="resourcepack", dest="content_type",
-                   help="快捷：搜材质包")
-    search_parser.add_argument("--platform", "-p",
-                   choices=["all", "mcmod", "modrinth", "wiki", "wiki-zh"],
-                   default="all", help="指定平台（默认 all）")
-    search_parser.add_argument("--author", dest="author_name", default=None,
-                   help="按作者搜索（MC百科+Modrinth）")
-    search_parser.add_argument("-n", "--max", type=int, default=None,
-                   help=f"每平台最多结果（默认{_DEFAULT_RESULTS_PER_PLATFORM}）")
-    search_parser.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
-                   help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
-
-    # ── show ──
-    show_parser = sub.add_parser("show", help="查看详情/依赖")
-    show_parser.add_argument("name", help="名称 / MC百科 URL/ID / Modrinth URL/slug")
-    show_parser.add_argument("--full", action="store_true",
-                    help="双平台完整信息")
-    show_parser.add_argument("--deps", action="store_true",
-                    help="仅依赖关系（快捷路径）")
-    show_parser.add_argument("--skip-dep", dest="skip_dep", action="store_true",
-                    help="跳过依赖查询（仅 --full）")
-    show_parser.add_argument("--skip-mr", dest="skip_mr", action="store_true",
-                    help="跳过 Modrinth（仅 --full）")
-    
-    # ── wiki ──
-    wiki_parser = sub.add_parser("wiki", help="原版 Wiki 搜索与阅读")
-    wiki_parser.add_argument("keyword", help="搜索关键词 或 wiki 页面 URL")
-    wiki_parser.add_argument("-n", "--max", type=int, default=_DEFAULT_WIKI_MAX,
-                   help=f"最多结果（默认{_DEFAULT_WIKI_MAX}）")
-    wiki_parser.add_argument("-r", "--read", action="store_true",
-                   help="搜索后读取第一个结果正文")
-    wiki_parser.add_argument("-p", "--paragraphs", type=int, default=_DEFAULT_PARAGRAPHS,
-                   help=f"段落数（读取页面时，默认{_DEFAULT_PARAGRAPHS}）")
-    wiki_parser.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
-                   help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
-
-    args = parser.parse_args()
-
-    # 统一 --json
-    args.json = getattr(args, 'global_json', False) or getattr(args, 'json', False)
-
-    # 全局设置
-    if args.cache:
-        core.set_cache(True)
-    core.set_platform_enabled(
-        mcmod=not args.no_mcmod,
-        modrinth=not args.no_mr,
-        wiki=not args.no_wiki,
-        wiki_zh=not args.no_wiki_zh,
-    )
-
+def _cmd_search_author(args):
+    """作者搜索：双平台并行。"""
     _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
+    _effective_max = args.max if args.max is not None else _DEFAULT_RESULTS_PER_PLATFORM
+    author = args.author_name.strip()
+    if not author:
+        _fail("错误: 作者名不能为空", "EMPTY_AUTHOR", args.json)
 
-    def _run_and_capture(func):
-        if args.output:
-            with open(args.output, "w", encoding="utf-8") as f:
-                with contextlib.redirect_stdout(f):
-                    func()
-            print(f"[已写入 {args.output}]", file=sys.stderr)
-        else:
-            func()
+    mcmod_hits = []
+    mr_hits = []
+    try:
+        mcmod_hits = core.search_mcmod_author(author, max_mods=_effective_max)
+    except (core.SearchError, OSError) as e:
+        core.logger.warning(f"MC百科作者搜索失败: {e}")
+    try:
+        mr_hits = core.search_modrinth_author(author, max_results=_effective_max)
+    except (core.SearchError, OSError) as e:
+        core.logger.warning(f"Modrinth作者搜索失败: {e}")
 
-    # ============================================================
-    # search 命令
-    # ============================================================
-    @_timed(json_mode=args.json)
-    def _cmd_search():
-        _effective_max = args.max if args.max is not None else _DEFAULT_RESULTS_PER_PLATFORM
-        # ── 作者搜索：双平台并行 ──
-        if args.author_name:
-            author = args.author_name.strip()
-            if not author:
-                _fail("错误: 作者名不能为空", "EMPTY_AUTHOR", args.json)
-
-            mcmod_hits = []
-            mr_hits = []
-            # MC百科
-            try:
-                mcmod_hits = core.search_mcmod_author(author, max_mods=_effective_max)
-            except (core.SearchError, OSError) as e:
-
-                core.logger.warning(f"MC百科作者搜索失败: {e}")
-            # Modrinth
-            try:
-                mr_hits = core.search_modrinth_author(author, max_results=_effective_max)
-            except (core.SearchError, OSError) as e:
-
-                core.logger.warning(f"Modrinth作者搜索失败: {e}")
-
-            if args.json:
-                _json({"mcmod": mcmod_hits, "modrinth": mr_hits,
-                       "mcmod_count": len(mcmod_hits), "modrinth_count": len(mr_hits)})
-            else:
-                if mcmod_hits:
-                    print(f"[{author}] 的 MC百科 作品（共 {len(mcmod_hits)} 个）：")
-                    for hit in mcmod_hits:
-                        _print_hit(hit)
-                if mr_hits:
-                    if mcmod_hits: print()
-                    print(f"[{author}] 的 Modrinth 作品（共 {len(mr_hits)} 个）：")
-                    for hit in mr_hits:
-                        _print_hit(hit)
-                if not mcmod_hits and not mr_hits:
-                    _fail(f"MC百科 和 Modrinth 均未找到 [{author}] 的作品", "NO_RESULTS", args.json)
-            return
-
-        # ── 关键词搜索 ──
-        if not args.keyword or not args.keyword.strip():
-            _fail("错误: 搜索关键词不能为空", "EMPTY_KEYWORD", args.json)
-        args.keyword = args.keyword.strip()
-
-        content_type = args.content_type
-
-        # 快捷标志自动限定平台：shader/resourcepack 仅 Modrinth
-        if content_type in ("shader", "resourcepack") and args.platform == "all":
-            args.platform = "modrinth"
-
-        # ── 单平台搜索 ──
-        if args.platform != "all":
-            flags = _PLATFORM_FLAGS.get(args.platform)
-            if flags:
-                core.set_platform_enabled(*flags)
-
-            if args.platform == "modrinth":
-                data = core.search_modrinth(args.keyword, max_results=_effective_max, project_type=content_type)
-                hits = data.get("results", [])
-                if args.json:
-                    _json({"results": hits, "platform": "modrinth", "returned": len(hits)})
-                else:
-                    if not hits:
-                        _fail(f"Modrinth 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
-                    for hit in hits:
-                        _print_hit(hit)
-            else:
-                result = core.search_all(args.keyword, max_per_source=_effective_max,
-                                          timeout=args.timeout, content_type=content_type,
-                                          fuse=True)
-                hits = result.get("results", [])
-                if args.json:
-                    _json({"results": hits, "platform": args.platform, "returned": len(hits)})
-                else:
-                    if not hits:
-                        _fail(f"{args.platform} 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
-                    for hit in hits:
-                        _print_hit(hit)
-            return
-
-        # ── 多平台并行搜索 ──
-        results = core.search_all(args.keyword, max_per_source=_effective_max,
-                                  timeout=args.timeout, content_type=content_type,
-                                  fuse=True)
-        if args.json:
-            _json(results)
-        else:
-            if not results.get("results"):
-                _fail(f"所有平台均无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
-            for hit in results["results"]:
+    if args.json:
+        _json({"mcmod": mcmod_hits, "modrinth": mr_hits,
+               "mcmod_count": len(mcmod_hits), "modrinth_count": len(mr_hits)})
+    else:
+        if mcmod_hits:
+            print(f"[{author}] 的 MC百科 作品（共 {len(mcmod_hits)} 个）：")
+            for hit in mcmod_hits:
                 _print_hit(hit)
+        if mr_hits:
+            if mcmod_hits: print()
+            print(f"[{author}] 的 Modrinth 作品（共 {len(mr_hits)} 个）：")
+            for hit in mr_hits:
+                _print_hit(hit)
+        if not mcmod_hits and not mr_hits:
+            _fail(f"MC百科 和 Modrinth 均未找到 [{author}] 的作品", "NO_RESULTS", args.json)
 
-    # ============================================================
-    # show 命令
-    # ============================================================
-    @_timed(json_mode=args.json)
-    def _cmd_show():
-        name = args.name
-        ident = _parse_project_identifier(name)
 
-        # ── --deps 快捷路径：只查 Modrinth 依赖 ──
-        if args.deps:
-            slug = None
-            if ident["mr_slug"]:
-                slug = ident["mr_slug"]
-            elif name.startswith("http") and "modrinth.com" in name:
-                slug = _extract_slug_from_url(name)
+def _cmd_search_keyword(args):
+    """关键词搜索：单平台或多平台。"""
+    _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
+    _effective_max = args.max if args.max is not None else _DEFAULT_RESULTS_PER_PLATFORM
+    if not args.keyword or not args.keyword.strip():
+        _fail("错误: 搜索关键词不能为空", "EMPTY_KEYWORD", args.json)
+    args.keyword = args.keyword.strip()
+
+    content_type = args.content_type
+    if content_type in ("shader", "resourcepack") and args.platform == "all":
+        args.platform = "modrinth"
+
+    # 单平台搜索
+    if args.platform != "all":
+        flags = _PLATFORM_FLAGS.get(args.platform)
+        if flags:
+            core.set_platform_enabled(*flags)
+        if args.platform == "modrinth":
+            data = core.search_modrinth(args.keyword, max_results=_effective_max, project_type=content_type)
+            hits = data.get("results", [])
+            if args.json:
+                _json({"results": hits, "platform": "modrinth", "returned": len(hits)})
             else:
-                hit = _search_modrinth_exact(name)
-                if hit:
-                    slug = hit.get("source_id") or hit.get("slug")
+                if not hits:
+                    _fail(f"Modrinth 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
+                for hit in hits:
+                    _print_hit(hit)
+        else:
+            result = core.search_all(args.keyword, max_per_source=_effective_max,
+                                      timeout=args.timeout, content_type=content_type,
+                                      fuse=True)
+            hits = result.get("results", [])
+            if args.json:
+                _json({"results": hits, "platform": args.platform, "returned": len(hits)})
+            else:
+                if not hits:
+                    _fail(f"{args.platform} 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
+        return
 
-            if not slug:
-                _fail(f"未找到相关项目: {name}", "NOT_FOUND", args.json)
+    # 多平台并行搜索
+    results = core.search_all(args.keyword, max_per_source=_effective_max,
+                              timeout=args.timeout, content_type=content_type,
+                              fuse=True)
+    if args.json:
+        _json(results)
+    else:
+        if not results.get("results"):
+            _fail(f"所有平台均无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
+        for hit in results["results"]:
+            _print_hit(hit)
 
-            try:
-                deps = core.get_mod_dependencies(slug, project_id=None)
-                if args.json:
-                    _json(deps)
-                else:
-                    _print_deps(deps, slug)
-            except Exception as e:
-                _fail(f"获取依赖失败: {e}", "FETCH_FAILED", args.json)
-            return
 
-        # ── --full：双平台全量 ──
-        if args.full:
-            _show_full(name, ident)
-            return
+def _cmd_search(args):
+    """搜索命令分发。"""
+    if args.author_name:
+        _cmd_search_author(args)
+    else:
+        _cmd_search_keyword(args)
 
-        # ── 默认：按输入类型自动选平台 ──
-        _show_default(name, ident)
-
+# ============================================================
+# show 命令
+# ============================================================
+def _cmd_show(args):
+    _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
+    name = args.name
+    ident = _parse_project_identifier(name)
     def _show_full(name: str, ident: dict):
         """show --full 双平台全量输出。"""
         result = {"mcmod": None, "modrinth": None, "dependencies": None, "saved_files": []}
@@ -1108,98 +996,224 @@ def main():
     # ============================================================
     # wiki 命令
     # ============================================================
-    @_timed(json_mode=args.json)
-    def _cmd_wiki():
-        keyword = args.keyword
 
-        # ── URL 检测：直接读取 wiki 页面 ──
-        if keyword.startswith("http"):
-            if "zh.minecraft.wiki" in keyword or keyword.startswith("minecraft.wiki/w/zh"):
-                content = core.read_wiki_zh(keyword, max_paragraphs=args.paragraphs)
-            else:
-                content = core.read_wiki(keyword, max_paragraphs=args.paragraphs)
-            if args.json:
-                _json(content)
-            elif "error" in content:
-                _print_error(f"读取失败: {content['error']}", "READ_ERROR", args.json)
-            else:
-                print(f"[{content['name']}]")
-                print(f"  {content['url']}")
-                sections = content.get("_sections", [])
-                if sections:
-                    for sec in sections:
-                        parent = sec.get("parent")
-                        heading = sec.get("heading", "")
-                        if parent:
-                            print(f"\n  ▸ [{parent}] {heading}")
-                        else:
-                            print(f"\n  ▸ {heading}")
-                        for line in sec.get("content", []):
-                            print(f"    {line[:_DISPLAY_READ_LINE_MAX]}")
-                else:
-                    for i, p in enumerate(content["content"], 1):
-                        print(f"\n  {i}. {p[:_DISPLAY_READ_LINE_MAX]}")
-            return
-
-        # ── 关键词搜索 wiki ──
-        core.set_platform_enabled(mcmod=False, modrinth=False,
-                                  wiki=not args.no_wiki, wiki_zh=not args.no_wiki_zh)
-        result = core.search_all(keyword, max_per_source=args.max,
-                                  timeout=args.timeout, content_type="vanilla",
-                                  fuse=True)
-        hits = result.get("results", [])
-        if not hits:
-            if args.json:
-                _json([])
-            else:
-                _print_error(f"minecraft.wiki 无 [{keyword}] 相关结果", "NO_RESULTS", args.json)
-            return
-
-        # -r 读取第一个结果（JSON/text 共用）
-        if args.read and hits:
-            source = hits[0].get("source", "")
-            if source == "minecraft.wiki/zh":
-                content = core.read_wiki_zh(hits[0]["url"], max_paragraphs=-1)
-            else:
-                content = core.read_wiki(hits[0]["url"], max_paragraphs=-1)
+    # ── --deps 快捷路径：只查 Modrinth 依赖 ──
+    if args.deps:
+        slug = None
+        if ident["mr_slug"]:
+            slug = ident["mr_slug"]
+        elif name.startswith("http") and "modrinth.com" in name:
+            slug = _extract_slug_from_url(name)
         else:
-            content = None
+            hit = _search_modrinth_exact(name)
+            if hit:
+                slug = hit.get("source_id") or hit.get("slug")
 
+        if not slug:
+            _fail(f"未找到相关项目: {name}", "NOT_FOUND", args.json)
+
+        try:
+            deps = core.get_mod_dependencies(slug, project_id=None)
+            if args.json:
+                _json(deps)
+            else:
+                _print_deps(deps, slug)
+        except Exception as e:
+            _fail(f"获取依赖失败: {e}", "FETCH_FAILED", args.json)
+        return
+
+    # ── --full：双平台全量 ──
+    if args.full:
+        _show_full(name, ident)
+        return
+
+    # ── 默认：按输入类型自动选平台 ──
+    _show_default(name, ident)
+
+def _cmd_wiki(args):
+    _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
+    keyword = args.keyword
+
+    # ── URL 检测：直接读取 wiki 页面 ──
+    if keyword.startswith("http"):
+        if "zh.minecraft.wiki" in keyword or keyword.startswith("minecraft.wiki/w/zh"):
+            content = core.read_wiki_zh(keyword, max_paragraphs=args.paragraphs)
+        else:
+            content = core.read_wiki(keyword, max_paragraphs=args.paragraphs)
         if args.json:
-            if content and "error" not in content:
-                hits[0]["read_content"] = content
-            _json(hits)
+            _json(content)
+        elif "error" in content:
+            _print_error(f"读取失败: {content['error']}", "READ_ERROR", args.json)
         else:
-            for i, hit in enumerate(hits[:_DISPLAY_WIKI_MAX_RESULTS], 1):
-                name = hit.get("name_zh") or hit.get("name_en") or hit.get("name", "?")
-                source = hit.get("source", "")
-                snippet = hit.get("snippet", "")
-                sections = hit.get("sections", [])
-
-                print(f"  {i}. {name} 【{source}】")
-
-                if snippet:
-                    clean_snippet = core.clean_html_text(snippet)
-                    if len(clean_snippet) > _DISPLAY_WIKI_SNIPPET_MAX:
-                        clean_snippet = clean_snippet[:_DISPLAY_WIKI_SNIPPET_MAX] + '...'
-                    if clean_snippet:
-                        print(f"     摘要: {clean_snippet}")
-
-                if sections:
-                    print(f"     章节：")
-                    for sec in sections[:_DISPLAY_WIKI_MAX_SECTIONS]:
-                        print(f"       {sec}")
-
-                url = hit.get("url", "")
-                if url:
-                    print(f"     → {url}")
-                print()
-
-            # -r 读取正文输出
-            if content and "error" not in content:
-                print("\n[读取正文...]")
+            print(f"[{content['name']}]")
+            print(f"  {content['url']}")
+            sections = content.get("_sections", [])
+            if sections:
+                for sec in sections:
+                    parent = sec.get("parent")
+                    heading = sec.get("heading", "")
+                    if parent:
+                        print(f"\n  ▸ [{parent}] {heading}")
+                    else:
+                        print(f"\n  ▸ {heading}")
+                    for line in sec.get("content", []):
+                        print(f"    {line[:_DISPLAY_READ_LINE_MAX]}")
+            else:
                 for i, p in enumerate(content["content"], 1):
-                    print(f"  {i}. {p[:_DISPLAY_LINE_MAX]}")
+                    print(f"\n  {i}. {p[:_DISPLAY_READ_LINE_MAX]}")
+        return
+
+    # ── 关键词搜索 wiki ──
+    core.set_platform_enabled(mcmod=False, modrinth=False,
+                              wiki=not args.no_wiki, wiki_zh=not args.no_wiki_zh)
+    result = core.search_all(keyword, max_per_source=args.max,
+                              timeout=args.timeout, content_type="vanilla",
+                              fuse=True)
+    hits = result.get("results", [])
+    if not hits:
+        if args.json:
+            _json([])
+        else:
+            _print_error(f"minecraft.wiki 无 [{keyword}] 相关结果", "NO_RESULTS", args.json)
+        return
+
+    # -r 读取第一个结果（JSON/text 共用）
+    if args.read and hits:
+        source = hits[0].get("source", "")
+        if source == "minecraft.wiki/zh":
+            content = core.read_wiki_zh(hits[0]["url"], max_paragraphs=-1)
+        else:
+            content = core.read_wiki(hits[0]["url"], max_paragraphs=-1)
+    else:
+        content = None
+
+    if args.json:
+        if content and "error" not in content:
+            hits[0]["read_content"] = content
+        _json(hits)
+    else:
+        for i, hit in enumerate(hits[:_DISPLAY_WIKI_MAX_RESULTS], 1):
+            name = hit.get("name_zh") or hit.get("name_en") or hit.get("name", "?")
+            source = hit.get("source", "")
+            snippet = hit.get("snippet", "")
+            sections = hit.get("sections", [])
+
+            print(f"  {i}. {name} 【{source}】")
+
+            if snippet:
+                clean_snippet = core.clean_html_text(snippet)
+                if len(clean_snippet) > _DISPLAY_WIKI_SNIPPET_MAX:
+                    clean_snippet = clean_snippet[:_DISPLAY_WIKI_SNIPPET_MAX] + '...'
+                if clean_snippet:
+                    print(f"     摘要: {clean_snippet}")
+
+            if sections:
+                print(f"     章节：")
+                for sec in sections[:_DISPLAY_WIKI_MAX_SECTIONS]:
+                    print(f"       {sec}")
+
+            url = hit.get("url", "")
+            if url:
+                print(f"     → {url}")
+            print()
+
+        # -r 读取正文输出
+        if content and "error" not in content:
+            print("\n[读取正文...]")
+            for i, p in enumerate(content["content"], 1):
+                print(f"  {i}. {p[:_DISPLAY_LINE_MAX]}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="mc-search: Minecraft 聚合搜索",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    # 全局选项
+    parser.add_argument("--json", action="store_true", dest="global_json",
+                        help="以 JSON 格式输出（推荐）")
+    parser.add_argument("--cache", action="store_true", help="启用本地缓存（TTL 1小时）")
+    parser.add_argument("--no-mcmod", dest="no_mcmod", action="store_true", help="禁用 MC百科")
+    parser.add_argument("--no-mr", dest="no_mr", action="store_true", help="禁用 Modrinth")
+    parser.add_argument("--no-wiki", dest="no_wiki", action="store_true", help="禁用 minecraft.wiki")
+    parser.add_argument("--no-wiki-zh", dest="no_wiki_zh", action="store_true", help="禁用 minecraft.wiki/zh")
+    parser.add_argument("-o", "--output", dest="output", default=None, help="输出到文件")
+
+    sub = parser.add_subparsers(dest="cmd")
+
+    # ── search ──
+    search_parser = sub.add_parser("search", help="多平台搜索")
+    search_parser.add_argument("keyword", nargs="?", help="搜索关键词")
+    search_parser.add_argument("--type", dest="content_type", default="mod",
+                   choices=["mod", "item", "modpack", "shader", "resourcepack"],
+                   help="内容类型（默认 mod）")
+    search_parser.add_argument("--shader", action="store_const", const="shader", dest="content_type",
+                   help="快捷：搜光影包")
+    search_parser.add_argument("--modpack", action="store_const", const="modpack", dest="content_type",
+                   help="快捷：搜整合包")
+    search_parser.add_argument("--resourcepack", action="store_const", const="resourcepack", dest="content_type",
+                   help="快捷：搜材质包")
+    search_parser.add_argument("--platform", "-p",
+                   choices=["all", "mcmod", "modrinth", "wiki", "wiki-zh"],
+                   default="all", help="指定平台（默认 all）")
+    search_parser.add_argument("--author", dest="author_name", default=None,
+                   help="按作者搜索（MC百科+Modrinth）")
+    search_parser.add_argument("-n", "--max", type=int, default=None,
+                   help=f"每平台最多结果（默认{_DEFAULT_RESULTS_PER_PLATFORM}）")
+    search_parser.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
+                   help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
+
+    # ── show ──
+    show_parser = sub.add_parser("show", help="查看详情/依赖")
+    show_parser.add_argument("name", help="名称 / MC百科 URL/ID / Modrinth URL/slug")
+    show_parser.add_argument("--full", action="store_true",
+                    help="双平台完整信息")
+    show_parser.add_argument("--deps", action="store_true",
+                    help="仅依赖关系（快捷路径）")
+    show_parser.add_argument("--skip-dep", dest="skip_dep", action="store_true",
+                    help="跳过依赖查询（仅 --full）")
+    show_parser.add_argument("--skip-mr", dest="skip_mr", action="store_true",
+                    help="跳过 Modrinth（仅 --full）")
+    
+    # ── wiki ──
+    wiki_parser = sub.add_parser("wiki", help="原版 Wiki 搜索与阅读")
+    wiki_parser.add_argument("keyword", help="搜索关键词 或 wiki 页面 URL")
+    wiki_parser.add_argument("-n", "--max", type=int, default=_DEFAULT_WIKI_MAX,
+                   help=f"最多结果（默认{_DEFAULT_WIKI_MAX}）")
+    wiki_parser.add_argument("-r", "--read", action="store_true",
+                   help="搜索后读取第一个结果正文")
+    wiki_parser.add_argument("-p", "--paragraphs", type=int, default=_DEFAULT_PARAGRAPHS,
+                   help=f"段落数（读取页面时，默认{_DEFAULT_PARAGRAPHS}）")
+    wiki_parser.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
+                   help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
+
+    args = parser.parse_args()
+
+    # 统一 --json
+    args.json = getattr(args, 'global_json', False) or getattr(args, 'json', False)
+
+    # 全局设置
+    if args.cache:
+        core.set_cache(True)
+    core.set_platform_enabled(
+        mcmod=not args.no_mcmod,
+        modrinth=not args.no_mr,
+        wiki=not args.no_wiki,
+        wiki_zh=not args.no_wiki_zh,
+    )
+
+    def _run_captured(func, output):
+        if output:
+            with open(output, "w", encoding="utf-8") as f:
+                with contextlib.redirect_stdout(f):
+                    func()
+            print(f"[已写入 {output}]", file=sys.stderr)
+        else:
+            func()
+
+    # ============================================================
+    # search 命令
+    # ============================================================
 
     # ── 命令分发 ──
     commands = {
@@ -1209,9 +1223,10 @@ def main():
     }
 
     if args.cmd in commands:
-        _run_and_capture(commands[args.cmd])
+        _run_captured(lambda: commands[args.cmd](args), args.output)
     else:
         parser.print_help()
+
 
 
 if __name__ == "__main__":

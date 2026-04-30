@@ -16,7 +16,7 @@ from concurrent import futures as futures_module  # ThreadPoolExecutor
 from enum import IntEnum
 from pathlib import Path
 
-# 注：仅 MC百科主站 (www.mcmod.cn) 使用 curl_cffi 绕过 CDN 盾；其余平台均使用标准库
+# 注：MC百科所有子域名 (www + search + 其他) 和 minecraft.wiki 使用 curl_cffi；其余平台使用标准库
 
 # 配置日志
 logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
@@ -69,7 +69,7 @@ _MAX_CC_PAGE_LEN = 10000                 # CC check 页面最大长度阈值
 _MCMOD_RETRY_CODES = (403, 502, 503)     # MC百科可重试的 HTTP 状态码
 _SEARCH_CHANGELOG_LIMIT = 3              # search 命令非完整模式变更日志默认返回条数
 _SKIP_MCMOD_ORG_NAMES = {"CaffeineMC"}  # 排除的非作者组织名
-_DEFAULT_RESULTS_PER_PLATFORM = 15
+_DEFAULT_RESULTS_PER_PLATFORM = 5   # AI-first: Agent 场景默认，cli.py 也有一份同值常量
 
 # CDN 绕过配置
 _CURL_IMPERSONATE = "chrome124"               # curl_cffi 模拟的浏览器 TLS 指纹版本
@@ -286,11 +286,17 @@ _ZH_CONNECTORS_RE = re.compile(
 _MOD_META_PAT = re.compile(r"^(?:\(\d+\)\s*)?Mod(?:讨论|教程)\s*\(\d+\)")
 
 
-def clean_html_text(html_fragment: str) -> str:
-    """去除所有 HTML 标签，转义实体，合并空白。"""
+def clean_html_text(html_fragment: str, preserve_nl: bool = False) -> str:
+    """去除所有 HTML 标签，转义实体，合并空白。
+
+    preserve_nl=True 时保留换行符（仅合并水平空白），用于段落/列表等需要保留行结构的场景。
+    """
     text = re.sub(r"<[^>]+>", "", html_fragment)
     text = html_module.unescape(text)
-    text = re.sub(r"\s+", " ", text).strip()
+    if preserve_nl:
+        text = re.sub(r"[ \t\r]+", " ", text).strip()
+    else:
+        text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
@@ -363,6 +369,42 @@ def _cache_set(cache_type: str, key: str, data: dict):
         logger.debug(f"Cache write failed: {e}")
 
 
+def _html_cache_key(url: str) -> str:
+    """为 HTML 缓存生成 key（基于完整 URL）。"""
+    return hashlib.sha1(url.encode()).hexdigest()[:16]
+
+
+def _html_cache_get(url: str) -> str | None:
+    """读取 HTML 缓存，命中返回 HTML 字符串，未命中返回 None。"""
+    if not _cache_enabled:
+        return None
+    p = _cache_dir() / "html" / f"{_html_cache_key(url)}.html"
+    if not p.exists():
+        return None
+    try:
+        if time.time() - p.stat().st_mtime > _cache_ttl:
+            return None
+        with open(p, encoding="utf-8") as f:
+            return f.read()
+    except OSError as e:
+        logger.debug(f"HTML cache read failed: {e}")
+        return None
+
+
+def _html_cache_set(url: str, html: str):
+    """写入 HTML 缓存。"""
+    if not _cache_enabled:
+        return
+    try:
+        d = _cache_dir() / "html"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{_html_cache_key(url)}.html"
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(html)
+    except OSError as e:
+        logger.debug(f"HTML cache write failed: {e}")
+
+
 def set_cache(enabled: bool, ttl: int = 3600):
     """由 CLI 调用启用缓存。"""
     global _cache_enabled, _cache_ttl
@@ -416,6 +458,25 @@ def _do_cdn_shield_post(session, base_url: str, headers: dict, timeout: int) -> 
         )
 
 
+def _handle_yxd_token(session, text: str, base_url: str, headers: dict, timeout: int) -> str:
+    """处理 yxd_token 页面：提取 token、设置 cookie、跟随重定向。
+    返回重定向后的 HTML，失败返回空字符串。"""
+    token_m = re.search(r"yxd_token=([^;'\"\s]+)", text)
+    if not token_m:
+        return ""
+    host = _mcmod_host(base_url)
+    session.cookies.set("yxd_token", token_m.group(1), domain=host, path="/")
+    href_m = re.search(r"window\.location\.href='([^']+)'", text)
+    if not href_m:
+        return ""
+    target = urllib.parse.urljoin(base_url, href_m.group(1))
+    try:
+        r = session.get(target, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
+        return r.text
+    except Exception:
+        return ""
+
+
 def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
     """绕过 www.mcmod.cn 的 CDN 盾（一次性 cookie 交换 + yxd_token + CC check）。"""
     global _MCMOD_SESSION, _MCMOD_BYPASSED
@@ -443,21 +504,13 @@ def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
         )
 
         # 处理 yxd_token 页面（JS 设置 cookie 后重定向）—— 需要先于 CC check
-        if 'yxd_token=' in r.text and len(r.text) < _MIN_TOKEN_PAGE_LEN:
-            token_m = re.search(r"yxd_token=([^;'\"\s]+)", r.text)
-            if token_m:
-                _MCMOD_SESSION.cookies.set("yxd_token", token_m.group(1), domain="www.mcmod.cn", path="/")
-            href_m = re.search(r"window\.location\.href='([^']+)'", r.text)
-            if href_m:
-                target = urllib.parse.urljoin("https://www.mcmod.cn", href_m.group(1))
-                try:
-                    r = _MCMOD_SESSION.get(target, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
-                except Exception:
-                    return False
-            else:
+        page_text = r.text
+        if 'yxd_token=' in page_text and len(page_text) < _MIN_TOKEN_PAGE_LEN:
+            page_text = _handle_yxd_token(_MCMOD_SESSION, page_text, "https://www.mcmod.cn", headers, timeout)
+            if not page_text:
                 return False
 
-        if "CC check" not in r.text:
+        if "CC check" not in page_text:
             _MCMOD_BYPASSED = True
             return True
 
@@ -499,17 +552,10 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
 
         # 处理 yxd_token 页面（JS 设置 cookie 后重定向）
         if 'yxd_token=' in text and len(text) < _MIN_TOKEN_PAGE_LEN:
-            token_m = re.search(r"yxd_token=([^;'\"\s]+)", text)
-            if token_m:
-                _MCMOD_SESSION.cookies.set("yxd_token", token_m.group(1), domain=_mcmod_host(url), path="/")
-            href_m = re.search(r"window\.location\.href='([^']+)'", text)
-            if href_m:
-                target = urllib.parse.urljoin(url, href_m.group(1))
-                try:
-                    r = _MCMOD_SESSION.get(target, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
-                    return r.text
-                except Exception:
-                    return ""
+            html = _handle_yxd_token(_MCMOD_SESSION, text, url, headers, timeout)
+            if html:
+                return html
+            return ""
 
         # CC check：为该子域名单独绕过 CDN 盾（各子域名隔离）
         if _WAF_CC_CHECK in text and len(text) < _MAX_CC_PAGE_LEN:
@@ -534,15 +580,49 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
     return ""
 
 
+def _curl_wiki(url: str, timeout: int = 10) -> str:
+    """使用 curl_cffi 请求 minecraft.wiki（绕过反爬虫拦截）。"""
+    try:
+        from curl_cffi import requests as curl_requests
+    except ImportError:
+        logger.error("curl_cffi 未安装，无法访问 minecraft.wiki")
+        return ""
+    headers = {
+        "User-Agent": HTTP_HEADERS["User-Agent"],
+        "Accept": HTTP_HEADERS["Accept"],
+        "Accept-Language": HTTP_HEADERS["Accept-Language"],
+    }
+    try:
+        r = curl_requests.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
+        return r.text
+    except Exception as e:
+        logger.warning(f"Wiki 请求失败 ({url}): {e}")
+        return ""
+
+
 def curl(url: str, timeout: int = 10) -> str:
     """发起HTTP请求，返回HTML内容（失败返回空字符串）。
 
     - *.mcmod.cn：使用 curl_cffi + CDN 绕过
+    - minecraft.wiki / zh.minecraft.wiki：使用 curl_cffi 绕过反爬
     - 其他 URL：标准 urllib.request
     """
+    # MC百科详情页 HTML 缓存（最贵请求，绕过 CDN 前先查缓存）
+    if _cache_enabled and "://www.mcmod.cn/class/" in url:
+        cached = _html_cache_get(url)
+        if cached is not None:
+            return cached
+
     # MC百科所有子域名需要 CDN 绕过（www + search）
     if "://www.mcmod.cn/" in url or "://search.mcmod.cn/" in url:
-        return _curl_mcmod(url, timeout)
+        html = _curl_mcmod(url, timeout)
+        # 成功获取的 MC百科详情页写入 HTML 缓存
+        if html and _cache_enabled and "://www.mcmod.cn/class/" in url:
+            _html_cache_set(url, html)
+        return html
+    # minecraft.wiki 需要 curl_cffi 绕过反爬
+    if "://minecraft.wiki/" in url or "://zh.minecraft.wiki/" in url:
+        return _curl_wiki(url, timeout)
 
     try:
         req = urllib.request.Request(
@@ -647,9 +727,7 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
                     segment = search[:i]
                     segment = re.sub(r"<br\s*/?>", "\n", segment)
                     segment = re.sub(r"</p>", "\n", segment)
-                    text = re.sub(r"<[^>]+>", "", segment)
-                    text = html_module.unescape(text)
-                    text = re.sub(r"[ \t\r]+", " ", text).strip()
+                    text = clean_html_text(segment, preserve_nl=True)
                     skip_prefixes = list(_MCMOD_COMMON_SKIP_PREFIXES) + [
                         "暂无简介，欢迎协助完善",
                         "MCmod does not have a description with this game data yet",
@@ -763,9 +841,7 @@ def _extract_mcmod_modpack_description(html: str) -> str:
     content = re.sub(r"<img[^>]*>", "", content)
     content = re.sub(r"<br\s*/?>", "\n", content)
     content = re.sub(r"<p[^>]*>", "\n", content)
-    text = re.sub(r"<[^>]+>", "", content)
-    text = html_module.unescape(text)
-    text = re.sub(r"[ \t\r]+", " ", text).strip()
+    text = clean_html_text(content, preserve_nl=True)
 
     lines = []
     for line in text.split("\n"):
@@ -888,12 +964,12 @@ def _extract_mcmod_description(html: str) -> str:
     content = re.sub(r"<br\s*/?>", "\n", content)
     content = re.sub(r"<p[^>]*>", "\n", content)
     content = re.sub(r"</li>", "\n", content)  # 列表项单独一行
-    text = re.sub(r"<[^>]+>", "", content)
-    text = html_module.unescape(text)
-    text = re.sub(r"[ \t\r]+", " ", text).strip()
+    text = clean_html_text(content, preserve_nl=True)
     prefix_pat = r"^(?:Mod(?:介绍|教程|下载|讨论|特性|关系)|模组介绍|配方|前置Mod|联动Mod|更新日志|介绍)\s*"
     prev = None
-    while prev != text:
+    for _ in range(10):  # 安全上限，防止无限循环
+        if prev == text:
+            break
         prev = text
         text = re.sub(prefix_pat, "", text).strip()
     skip_fragments = list(_MCMOD_COMMON_SKIP_PREFIXES) + [
@@ -1129,28 +1205,6 @@ def _decode_mcmod_obfuscated_link(encoded: str) -> str:
         return ""
 
 
-def _extract_fallback_external_links(html: str, links: dict) -> None:
-    """明文正则回退提取外部链接（向后兼容）。在原地修改 links。"""
-    if "curseforge" not in links:
-        cf = re.search(r'https?://(?:www\.)?curseforge\.com/minecraft/mc-mods/[^/\s"<>\)]+', html)
-        if cf:
-            links['curseforge'] = cf.group(0)
-    if "modrinth" not in links:
-        mr = re.search(r'https?://modrinth\.com/(?:mod|shader|resourcepack)/[^/\s"<>\)]+', html)
-        if mr:
-            links['modrinth'] = mr.group(0)
-    if "github" not in links:
-        all_gh = re.findall(r'https?://github\.com/[^\s"<>\)]+', html)
-        main_gh = [u.rstrip(').,') for u in all_gh
-                   if not any(x in u for x in ['/issues', '/commit', '/blob', '/wiki', '/releases/tag', '/pull/'])]
-        if main_gh:
-            links['github'] = min(main_gh, key=len)
-    if "discord" not in links:
-        dc = re.search(r'https?://(?:www\.)?(?:discord\.gg|discord\.com/invite)/[^\s"<>\)]+', html)
-        if dc:
-            links['discord'] = dc.group(0).rstrip(').,')
-
-
 def _add_cross_platform_ids(links: dict) -> None:
     """从已提取链接中解析跨平台 slug。在原地修改 links。"""
     cross_platform_ids = {}
@@ -1210,7 +1264,7 @@ def _extract_mcmod_external_links(html: str) -> dict:
             links["discord"] = url
 
         # Jenkins CI
-        elif "jenkins" in url.lower() or "ci." in url and "jenkins" not in links:
+        elif "jenkins" in url.lower() or ("ci." in url and "jenkins" not in links):
             links["jenkins"] = url
 
         # MCBBS
@@ -1228,9 +1282,6 @@ def _extract_mcmod_external_links(html: str) -> dict:
     # 选择最短的 GitHub 链接（通常是主仓库）
     if github_links:
         links["github"] = min(github_links, key=len)
-
-    # 方式2：明文链接回退（向后兼容）
-    _extract_fallback_external_links(html, links)
 
     # 跨平台 ID（用于精确关联 Modrinth/CurseForge）
     _add_cross_platform_ids(links)
@@ -1489,10 +1540,7 @@ def _extract_search_result_metadata(html: str) -> dict[str, dict]:
         body_m = re.search(r'<div class="body">(.*?)</div>', item, re.DOTALL)
         if body_m:
             raw = body_m.group(1)
-            raw = re.sub(r"<em[^>]*>|</em>", "", raw)
-            raw = re.sub(r'<[^>]+>', '', raw)
-            raw = html_module.unescape(raw)
-            raw = re.sub(r'\s+', ' ', raw).strip()
+            raw = clean_html_text(raw)
             metadata.setdefault(url, {})["description"] = raw[:_MAX_SEARCH_DESC_CHARS]
 
         # 提取分类 ID（class="c_N" 中的 N）
@@ -1541,18 +1589,26 @@ def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str
 
     def _fetch_one(args):
         raw_url, name = args
+        detail_key = _cache_key("mcmod_detail", raw_url, content_type)
+        cached = _cache_get("mcmod_detail", detail_key)
+        if cached is not None:
+            return cached
+
         page_html = curl(raw_url)
 
-        # 检测 WAF 拦截 → 用搜索数据回退
+        # 检测 WAF 拦截 → 用搜索数据回退（不缓存回退结果）
         if _is_mcmod_blocked(page_html):
             meta = search_metadata.get(raw_url, {})
             return _build_mcmod_fallback_result(raw_url, name, meta, content_type)
 
         if content_type == "item":
-            return _parse_mcmod_item_result(page_html, raw_url, name)
+            result = _parse_mcmod_item_result(page_html, raw_url, name)
         elif content_type == "modpack":
-            return _parse_mcmod_modpack_result(page_html, raw_url, name)
-        return parse_mcmod_result(page_html, raw_url, name)
+            result = _parse_mcmod_modpack_result(page_html, raw_url, name)
+        else:
+            result = parse_mcmod_result(page_html, raw_url, name)
+        _cache_set("mcmod_detail", detail_key, result)
+        return result
 
     results = _parallel_fetch_with_fallback(
         limited_pairs, _fetch_one,
@@ -2364,6 +2420,11 @@ def _wiki_direct_access(
     parser_output = re.search(r'<div[^>]+class="[^"]*mw-parser-output[^"]*"[^>]*>', html)
     if parser_output:
         snippet, _ = _wiki_extract_snippet(html, parser_output.end(), source)
+    # 消歧义页：snippet 为空时补充提示
+    if not snippet:
+        meta_desc = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', html)
+        if meta_desc and 'may refer to' in meta_desc.group(1):
+            snippet = "Disambiguation page — lists entries sharing this name."
 
     if add_variant and article_url:
         article_url = _add_variant_param(article_url)
@@ -2768,7 +2829,7 @@ def _extract_table_items_from_section(section_html: str, source: str, current_pa
     """从章节中提取表格行内容（每行所有列，用 | 分隔）。"""
     table_rows = []
     if current_para_count < _MAX_SECTION_PARAGRAPHS:
-        tables = re.findall(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>.*?</table>', section_html, re.DOTALL)
+        tables = re.findall(r'<table[^>]*class="[^"]*(?:wikitable|id-table|datatable)[^"]*"[^>]*>.*?</table>', section_html, re.DOTALL)
         for tbl in tables[:_MAX_TABLES_PER_SECTION]:
             rows = _extract_table_rows(tbl, max_rows=_MAX_TABLE_ITEMS)
             table_rows.extend(rows)
@@ -2809,6 +2870,21 @@ def _extract_table_rows(table_html: str, max_rows: int = 50) -> list[str]:
     return rows_out
 
 
+def _extract_disambig_links(content_html: str, source: str) -> list[str]:
+    """从消歧义页面提取 <li> 链接条目。"""
+    links = []
+    # 移除 TOC（id="toc"）
+    content = re.sub(r'<div[^>]+id="toc"[^>]*>.*?</div>', '', content_html, flags=re.DOTALL)
+    for li in re.findall(r'<li[^>]*>(.*?)</li>', content, re.DOTALL):
+        # 跳过 TOC 条目（包含 tocnumber / toctext）
+        if 'tocnumber' in li or 'toctext' in li:
+            continue
+        clean = clean_html_text(li)
+        if len(clean) >= 10:
+            links.append(clean)
+    return links
+
+
 def _read_wiki_impl(url: str, max_paragraphs: int,
                     para_skip_prefixes: tuple[str, ...],
                     heading_skip_ids: set[str],
@@ -2823,12 +2899,17 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
       source:             返回结果的 source 字段值
       include_infobox:    是否在结果中包含 infobox 数据
     """
+    cache_key = _cache_key("wiki_read", url, str(max_paragraphs), source)
+    cached = _cache_get("wiki_read", cache_key)
+    if cached is not None:
+        return cached
+
     html = curl(url)
     if not html or len(html) < MIN_HTML_LEN_ITEM:
         return {"error": "NO_CONTENT"}
 
     m_title = re.search(r'<h1[^>]*id="firstHeading"[^>]*>(.*?)</h1>', html, re.DOTALL)
-    title = html_module.unescape(re.sub(r"<[^>]+>", "", m_title.group(1)).strip()) if m_title else "UNKNOWN"
+    title = clean_html_text(m_title.group(1)) if m_title else "UNKNOWN"
 
     # 提取 infobox 结构化数据（在移除之前）
     infobox_data = _extract_wiki_infobox(html)
@@ -2865,6 +2946,16 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
         source, intro_paragraphs, max_paragraphs
     )
 
+    # 消歧义页面：无段落/章节时提取 <li> 链接列表
+    is_disambig = False
+    if not paragraphs and not sections_output:
+        meta_desc = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', html)
+        if meta_desc and 'may refer to' in meta_desc.group(1):
+            is_disambig = True
+            paragraphs = _extract_disambig_links(content_html, source)
+            if paragraphs:
+                sections_output = [{"heading": "Disambiguation", "parent": None, "content": paragraphs}]
+
     result = {
         "name": title,
         "url": url,
@@ -2882,9 +2973,12 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
     if main_image:
         result["main_image"] = main_image
 
+    if is_disambig:
+        result["is_disambiguation"] = True
     if not include_infobox and "infobox" in result:
         del result["infobox"]
 
+    _cache_set("wiki_read", cache_key, result)
     return result
 
 
@@ -2910,7 +3004,7 @@ def read_wiki_zh(url: str, max_paragraphs: int = -1, include_infobox: bool = Tru
     )
 
 
-def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 12,
+def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 15,
                content_type: str = "mod", fuse: bool = False) -> dict:
     """
     四平台并行搜索，返回统一格式。

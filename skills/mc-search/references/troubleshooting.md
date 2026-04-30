@@ -81,13 +81,13 @@ rm -rf ~/.cache/mc-search/
    - 等待 1 小时自动重置
 
 3. **检查返回内容**：
-   - HTTP 403/500：服务端问题，稍后重试
+   - HTTP 403/500：服务端问题，稍后重试；wiki 403 请检查 `curl_cffi>=0.15.0` 是否安装
    - 返回空或 JSON 错误：检查网络或 User-Agent
 
 **解决方案**：
 1. 稍后重试（等待 5-15 分钟）
 2. 使用 `--cache` 利用缓存数据
-3. 减少频繁请求（特别是 `full` 命令）
+3. 减少频繁请求（特别是 `show --full` 命令）
 
 ## minecraft.wiki 搜索无结果
 
@@ -123,7 +123,7 @@ curl -s -H "User-Agent: mc-search/5.1.0" "https://minecraft.wiki/api.php?action=
    ```
 2. 改用 Modrinth 搜索：
    ```bash
-   mc-search --json full <模组名>
+   mc-search --json show <模组名> --full
    ```
 
 ## 速度问题

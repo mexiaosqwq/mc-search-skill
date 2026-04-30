@@ -189,7 +189,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 
 | 平台 | 字段 | 默认限制 | 说明 |
 |------|------|----------|------|
-| MC百科 | `screenshots` | 0 张（需 `--screenshots` 启用） | 详情页截图 |
+| MC百科 | `screenshots` | 0 张（默认关闭） | 详情页截图 |
 | Modrinth | `body` | 完整 | 项目描述（已赞助者名单清洗，不截断） |
 | Modrinth | `gallery` | 10 张 | 项目截图 |
 | Modrinth | `version_groups` | 5 组 | 版本分组 |
@@ -214,7 +214,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 | `source_mod_name` | 所属模组名称 |
 | `source_mod_url` | 所属模组页面链接 |
 | `description` | 物品描述 |
-| `has_recipe` | 是否有合成表（通过 `show --recipe` 查看） |
+| `has_recipe` | 是否有合成表 |
 
 ---
 
