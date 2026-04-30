@@ -1,6 +1,6 @@
 # mc-search
 
-Minecraft content aggregation search tool with four-platform parallel search.
+AI-Agent-first Minecraft content search Skill — four-platform parallel.
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
@@ -9,151 +9,77 @@ Minecraft content aggregation search tool with four-platform parallel search.
 
 [中文文档 →](README.md)
 
-> **⚠️ MC百科 Status Note**
->
-> MC百科 (mcmod.cn) detail pages (`/class/*`, `/item/*`) are currently protected by AIWAFCDN firewall.
-> **Search works normally** — names, descriptions, and categories are available.
-> Detail fields (author, versions, screenshots, dependencies, recipes) are currently unavailable;
-> the tool automatically falls back to search page data.
-> Modrinth and minecraft.wiki are unaffected and fully functional.
+## Overview
 
-## Project Overview
+mc-search is a Minecraft content search **Skill for Claude Code Agent**, searching four platforms in parallel:
 
-mc-search is a Minecraft content search **Skill for Claude Code**, capable of searching four platforms in parallel:
-
-- **MC 百科** (mcmod.cn) — Chinese mods/items/modpacks (⚠️ detail pages limited, search works)
-- **Modrinth** — English mods/shaders/resourcepacks/modpacks
+- **MC百科** (mcmod.cn) — Chinese mods/items/modpacks, search + details fully available
+- **Modrinth** — English mods/shaders/resourcepacks/modpacks, full API
 - **minecraft.wiki** — Vanilla game wiki (English)
 - **minecraft.wiki/zh** — Vanilla game wiki (Chinese)
 
-Supports searching for mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions, and other game content.
+Defaults optimized for AI Agent usage (fewer results, reasonable timeouts). All platforms accessed via `curl_cffi` — no 403 issues.
 
-## Install to Claude Code
-
-Place the `skills/mc-search` directory in Claude Code's `skills` directory:
+## Install
 
 ```bash
-# Method 1: Clone and install
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
 cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
-
-# Method 2: Clone directly to skills
-cd ~/.claude/skills
-git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
-cp -r temp/skills/mc-search .
-rm -rf temp
 ```
 
 ## Features
 
-- **Four Platforms**: MC 百科，Modrinth, minecraft.wiki (English/Chinese)
-- **Multiple Types**: mods, modpacks, shaders, resourcepacks, items, entities, biomes, dimensions
-- **Result Fusion**: Cross-platform results auto-sorted and merged
-- **Modrinth Dependency Query**: Automatic mod dependency retrieval (Modrinth data source, unaffected by MC百科 limits)
-- **Local Cache**: Optional caching mechanism to reduce network requests
+- **Four-platform parallel search**: MC百科 + Modrinth + minecraft.wiki EN/ZH
+- **Full details**: `show --full` for dual-platform complete data (description, versions, authors, dependencies, external links)
+- **Dependency query**: Modrinth dependency tree + MC百科 relationships
+- **Result fusion**: Cross-platform dedup, scoring, and sorting
+- **Multi-layer cache**: Search results + detail page HTML + wiki pages via `--cache`
 
 ## Quick Usage
 
-**Claude Code will automatically detect and invoke this skill** when users ask about:
-
-```
-"搜索机械动力"
-"钠模组信息"
-"BSL 光影怎么样"
-"wiki 附魔台"
-"RLCraft 整合包"
-```
+Claude Code Agent auto-detects trigger words (mod, MC百科, wiki, etc.) and invokes this Skill.
 
 ### Manual Testing
 
 ```bash
-cd ~/.claude/skills/mc-search
 mc-search --json search sodium
-mc-search --json show sodium
-mc-search --json show sodium --full    # Modrinth full info
-mc-search --json show sodium --deps    # Modrinth dependency query
-mc-search --json wiki enchanting
+mc-search --json show sodium --full    # Dual-platform details
+mc-search --json show sodium --deps    # Dependency query
+mc-search --json wiki enchanting -r    # Wiki search + read
+mc-search --json search --author Simibubi -n 3
 ```
 
-## Commands
+## Command Overview
 
-### search — Multi-platform search
-
-```bash
-mc-search --json search <keyword> [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--shader` | Shader pack search (Modrinth only) |
-| `--modpack` | Modpack search |
-| `--resourcepack` | Resource pack search (Modrinth only) |
-| `--type` | Content type: mod/item/shader/resourcepack/modpack |
-| `--platform` | Platform: all/mcmod/modrinth/wiki/wiki-zh |
-| `--author` | Search by author (Modrinth works; MC百科 side may fail due to firewall) |
-| `-n <count>` | Max results per platform (default 15) |
-| `--timeout <sec>` | Timeout in seconds (default 12) |
-
-### show — View details/dependencies
-
-```bash
-mc-search --json show <name/URL/ID> [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--full` | Full info (Modrinth complete data, MC百科 falls back to basic info) |
-| `--deps` | Dependencies (Modrinth data source) |
-| `--skip-dep` | Skip dependency lookup (speed up, only with `--full`) |
-| `--skip-mr` | Skip Modrinth query (speed up, only with `--full`) |
-
-### wiki — Vanilla Wiki search & read
-
-```bash
-mc-search --json wiki <keyword or URL> [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-r` | Read first result after search |
-| `-n` | Max results |
-| `-p` | Paragraphs to read |
+| Command | Purpose | Defaults |
+|---------|---------|----------|
+| `search` | Multi-platform search | `-n 5`, `--timeout 15` |
+| `show` | Details/dependencies | `--full` for dual-platform |
+| `wiki` | Wiki search & read | `-n 5`, `-r` one-step search+read |
 
 ## Global Options
 
 | Option | Description |
 |--------|-------------|
-| `--json` | JSON format output (recommended) |
-| `-o, --output` | Output to file |
-| `--cache` | Enable local cache (TTL 1 hour) |
-| `--no-mcmod` | Disable MC 百科 |
-| `--no-mr` | Disable Modrinth |
-| `--no-wiki` | Disable English wiki |
-| `--no-wiki-zh` | Disable Chinese wiki |
+| `--json` | JSON output (required for Agent) |
+| `--cache` | Enable cache (TTL 1h, includes HTML page cache) |
+| `--no-mcmod` / `--no-mr` | Disable specific platform |
+| `--no-wiki` / `--no-wiki-zh` | Disable wiki |
 
 ## Project Structure
 
 ```
 mc-search-skill/
-├── skills/
-│   └── mc-search/              # Skill directory (for Claude Code)
-│       ├── SKILL.md            # Claude Code Skill definition
-│       ├── pyproject.toml      # Python package config
-│       ├── scripts/
-│       │   ├── core.py         # Core search logic
-│       │   └── cli.py          # CLI entry
-│       └── references/         # Detailed documentation
-└── README.md
+├── skills/mc-search/          # Skill directory
+│   ├── SKILL.md               # Agent invocation definition
+│   ├── scripts/
+│   │   ├── core.py             # Search/parse/cache (~3300 lines)
+│   │   └── cli.py              # CLI entry (~1200 lines)
+│   └── references/            # Commands/errors/platform docs
+├── README.md
+└── README.en.md
 ```
 
 ## License
 
-MIT License
-
-## Acknowledgments
-
-Thanks to the following platforms for providing data support:
-
-- [MC 百科](https://www.mcmod.cn/)
-- [Modrinth](https://modrinth.com/)
-- [Minecraft Wiki](https://minecraft.wiki/)
+MIT

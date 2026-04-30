@@ -1,6 +1,6 @@
 # mc-search
 
-Minecraft 内容聚合搜索工具，支持四平台并行搜索。
+AI Agent 优先的 Minecraft 聚合搜索 Skill，四平台并行。
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
@@ -9,150 +9,77 @@ Minecraft 内容聚合搜索工具，支持四平台并行搜索。
 
 [English Documentation →](README.en.md)
 
-> **⚠️ MC百科 现状说明**
->
-> MC百科 (mcmod.cn) 的详情页（`/class/*`、`/item/*`）当前受到 AIWAFCDN 防火墙保护。
-> **搜索功能正常**，可获取名称、描述、分类信息。
-> 详情页字段（作者、版本、截图、依赖关系、合成表）暂不可用，工具已自动回退到搜索页数据。
-> Modrinth 和 minecraft.wiki 不受影响，功能完整。
-
 ## 项目简介
 
-mc-search 是一个为 **Claude Code** 设计的 Minecraft 内容搜索 Skill，可以并行搜索四个平台：
+mc-search 是为 **Claude Code Agent** 设计的 Minecraft 内容搜索 Skill，并行搜索四个平台：
 
-- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包（⚠️ 详情页受限，搜索可正常使用）
-- **Modrinth** — 英文 mod/光影/材质包/整合包
-- **minecraft.wiki** — 原版游戏内容 wiki（英文）
-- **minecraft.wiki/zh** — 原版游戏内容 wiki（中文）
+- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包，搜索+详情完整可用
+- **Modrinth** — 英文 mod/光影/材质包/整合包，API 完整
+- **minecraft.wiki** — 原版游戏 wiki（英文）
+- **minecraft.wiki/zh** — 原版游戏 wiki（中文）
 
-支持搜索模组、整合包、光影包、材质包、物品，以及实体、生物群系、维度等游戏内容。
+默认值针对 AI Agent 场景优化（少量结果、合理超时）。所有平台均通过 `curl_cffi` 访问，无 403 问题。
 
 ## 安装到 Claude Code
 
-将 `skills/mc-search` 目录复制到 Claude Code 的 `skills` 目录：
-
 ```bash
-# 方式 1：克隆后安装
 git clone https://github.com/mexiaosqwq/mc-search-skill.git
 cp -r mc-search-skill/skills/mc-search ~/.claude/skills/
-
-# 方式 2：直接从仓库复制
-cd ~/.claude/skills
-git clone https://github.com/mexiaosqwq/mc-search-skill.git temp
-cp -r temp/skills/mc-search .
-rm -rf temp
 ```
 
 ## 主要功能
 
-- **四平台搜索**：MC 百科、Modrinth、minecraft.wiki（英文/中文）
-- **多类型支持**：模组、整合包、光影包、材质包、物品、实体、生物群系、维度
-- **结果融合**：跨平台结果自动排序和合并
-- **Modrinth 依赖查询**：自动获取模组依赖关系（Modrinth 数据源，不受 MC百科限制影响）
-- **本地缓存**：可选缓存机制，减少网络请求
+- **四平台并行搜索**：MC百科 + Modrinth + minecraft.wiki 中/英文
+- **全量详情**：`show --full` 获取双平台完整数据（描述、版本、作者、依赖、外部链接）
+- **依赖查询**：Modrinth 依赖树 + MC百科联动/前置关系
+- **结果融合**：跨平台去重、评分、排序
+- **多层缓存**：搜索结果 + 详情页 HTML + wiki 页面，`--cache` 开启
 
 ## 快速使用
 
-**Claude Code 会自动识别并调用此 skill**，当用户询问以下任何内容时：
-
-```
-"搜索机械动力"
-"钠模组信息"
-"BSL 光影怎么样"
-"wiki 附魔台"
-"RLCraft 整合包"
-```
+Claude Code Agent 自动识别触发词（模组、MC百科、wiki 等）调用此 Skill。
 
 ### 手动测试
 
 ```bash
-cd ~/.claude/skills/mc-search
 mc-search --json search 钠
-mc-search --json show 钠
-mc-search --json show sodium --full    # Modrinth 完整信息
-mc-search --json show sodium --deps    # Modrinth 依赖查询
-mc-search --json wiki 附魔台
+mc-search --json show 钠 --full       # 双平台全量
+mc-search --json show sodium --deps   # 依赖查询
+mc-search --json wiki 附魔台 -r       # wiki 搜索+读取
+mc-search --json search --author Simibubi -n 3
 ```
 
-## 命令说明
+## 命令概览
 
-### search — 多平台搜索
-
-```bash
-mc-search --json search <关键词> [选项]
-```
-
-| 选项 | 说明 |
-|------|------|
-| `--shader` | 光影包搜索（仅 Modrinth） |
-| `--modpack` | 整合包搜索 |
-| `--resourcepack` | 材质包搜索（仅 Modrinth） |
-| `--type` | 内容类型：mod/item/shader/resourcepack/modpack |
-| `--platform` | 平台：all/mcmod/modrinth/wiki/wiki-zh |
-| `--author` | 按作者搜索（Modrinth 可用；MC百科侧受防火墙限制可能失败） |
-| `-n <数量>` | 每平台最多结果数（默认 15） |
-| `--timeout <秒>` | 超时时间（默认 12 秒） |
-
-### show — 查看详情/依赖
-
-```bash
-mc-search --json show <名称/URL/ID> [选项]
-```
-
-| 选项 | 说明 |
-|------|------|
-| `--full` | 完整信息（Modrinth 侧返回完整数据，MC百科侧回退到基础信息） |
-| `--deps` | 依赖关系（走 Modrinth 数据源） |
-| `--skip-dep` | 跳过依赖查询（加速，仅 `--full`） |
-| `--skip-mr` | 跳过 Modrinth 查询（加速，仅 `--full`） |
-
-### wiki — 原版 Wiki 搜索与阅读
-
-```bash
-mc-search --json wiki <关键词或 URL> [选项]
-```
-
-| 选项 | 说明 |
-|------|------|
-| `-r` | 搜索后读取正文 |
-| `-n` | 最多结果数 |
-| `-p` | 读取段落数 |
+| 命令 | 用途 | 默认值 |
+|------|------|--------|
+| `search` | 多平台搜索 | `-n 5`, `--timeout 15` |
+| `show` | 详情/依赖 | `--full` 双平台 |
+| `wiki` | wiki 搜索与阅读 | `-n 5`, `-r` 一步搜索+读取 |
 
 ## 全局选项
 
 | 选项 | 说明 |
 |------|------|
-| `--json` | JSON 格式输出（推荐） |
-| `-o, --output` | 输出到文件 |
-| `--cache` | 启用本地缓存（TTL 1 小时） |
-| `--no-mcmod` | 禁用 MC 百科 |
-| `--no-mr` | 禁用 Modrinth |
-| `--no-wiki` | 禁用英文 wiki |
-| `--no-wiki-zh` | 禁用中文 wiki |
+| `--json` | JSON 输出（Agent 必须） |
+| `--cache` | 启用缓存（TTL 1h，含 HTML 页面缓存） |
+| `--no-mcmod` / `--no-mr` | 禁用指定平台 |
+| `--no-wiki` / `--no-wiki-zh` | 禁用 wiki |
 
 ## 项目结构
 
 ```
 mc-search-skill/
-├── skills/
-│   └── mc-search/              # Skill 目录（放入 Claude Code）
-│       ├── SKILL.md            # Claude Code Skill 定义
-│       ├── pyproject.toml      # Python 包配置
-│       ├── scripts/
-│       │   ├── core.py         # 核心搜索逻辑
-│       │   └── cli.py          # CLI 入口
-│       └── references/         # 详细文档
-└── README.md
+├── skills/mc-search/          # Skill 目录
+│   ├── SKILL.md               # Agent 调用定义
+│   ├── scripts/
+│   │   ├── core.py             # 搜索/解析/缓存 (~3300 行)
+│   │   └── cli.py              # CLI 入口 (~1200 行)
+│   └── references/            # 命令/错误码/平台对比文档
+├── README.md
+└── README.en.md
 ```
 
 ## 许可证
 
 MIT License
-
-## 致谢
-
-感谢以下平台提供的数据支持：
-
-- [MC 百科](https://www.mcmod.cn/)
-- [Modrinth](https://modrinth.com/)
-- [Minecraft Wiki](https://minecraft.wiki/)
