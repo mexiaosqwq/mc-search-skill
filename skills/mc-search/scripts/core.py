@@ -61,7 +61,8 @@ _MAX_AUTHOR_SECTION = 50000
 _MAX_INFO_TABLE_SECTION = 2000
 _MAX_VERSION_SECTION_LEN = 3000  # 版本检索区域长度
 _MAX_VERSIONS_FETCH = 200
-_WAF_SIGNATURES = ["AIWAFCDN", "折翼喵", "防火墙拦截", "访问被拒绝", "Error Code: 503 Forbidden"]
+# 注：WAF 签名需保守选择。"折翼喵"在 MC百科 正常页脚中出现，此处不收录
+_WAF_SIGNATURES = ["AIWAFCDN", "防火墙拦截", "访问被拒绝"]
 _WAF_CC_CHECK = "CC check"               # MC百科 CDN 盾检测关键词
 _MIN_TOKEN_PAGE_LEN = 500                # yxd_token 页面长度阈值
 _MAX_CC_PAGE_LEN = 10000                 # CC check 页面最大长度阈值
@@ -70,14 +71,27 @@ _SEARCH_CHANGELOG_LIMIT = 3              # search 命令非完整模式变更日
 _SKIP_MCMOD_ORG_NAMES = {"CaffeineMC"}  # 排除的非作者组织名
 _DEFAULT_RESULTS_PER_PLATFORM = 15
 
+# CDN 绕过配置
+_CURL_IMPERSONATE = "chrome124"               # curl_cffi 模拟的浏览器 TLS 指纹版本
+_MCMOD_CDN_SHIELD = "https://www.mcmod.cn/cdn-shield/check"  # CDN 盾验证端点
+_CC_CHECK_FIELDS = ["navigator", "userAgent", "windowWidth", "performance", "callPhantom"]
+_CDN_BYPASS_RETRIES = 3                  # CDN 绕过外层重试次数
+_CDN_RETRY_ATTEMPTS = 2                  # CC check 后重试原请求次数
+
 
 def _is_mcmod_blocked(html: str) -> bool:
-    """检测页面是否被 MC百科 WAF/防火墙拦截（AIWAFCDN）。"""
+    """检测页面是否被 MC百科 WAF/防火墙拦截。
+
+    "AIWAFCDN" 在正常 MC百科 页面中也会出现（CDN 配置），
+    因此仅用于短页面检测和 503 联合判断。
+    """
     if not html:
         return True
-    if len(html) < MIN_HTML_LEN and any(sig in html for sig in _WAF_SIGNATURES):
-        return True
+    # 503 + AIWAFCDN 是明确的 WAF 错误页
     if "Error Code: 503" in html and "AIWAFCDN" in html:
+        return True
+    # 短页面（<1000B）含可疑签名 → 被阻断
+    if len(html) < MIN_HTML_LEN and any(sig in html for sig in _WAF_SIGNATURES):
         return True
     return False
 
@@ -356,13 +370,6 @@ def set_cache(enabled: bool, ttl: int = 3600):
     _cache_ttl = ttl
 
 
-def set_screenshot_limit(limit: int):
-    """设置截图返回数量限制。默认 0（不返回），可调整为任意正整数。"""
-    global _MAX_SCREENSHOTS, _MAX_GALLERY
-    _MAX_SCREENSHOTS = limit
-    _MAX_GALLERY = limit
-
-
 # 平台开关
 
 _platform_enabled = {"mcmod.cn": True, "modrinth": True, "minecraft.wiki": True, "minecraft.wiki/zh": True}
@@ -385,8 +392,32 @@ _MCMOD_SESSION = None
 _MCMOD_BYPASSED = False
 
 
+def _mcmod_host(url: str) -> str:
+    """从 MC百科 URL 提取主机名，用于 cookie 域名。"""
+    m = re.match(r'https?://([^/]+)', url)
+    return m.group(1) if m else "www.mcmod.cn"
+
+
+def _do_cdn_shield_post(session, base_url: str, headers: dict, timeout: int) -> None:
+    """POST /cdn-shield/check 完成 CDN 验证，跟随 Location 重定向。"""
+    data = {k: "false" for k in _CC_CHECK_FIELDS}
+    data["v1"] = ""
+    ch = {**headers, "Content-Type": "application/x-www-form-urlencoded",
+          "Referer": base_url + "/", "Origin": base_url}
+    r = session.post(
+        base_url + "/cdn-shield/check", data=data,
+        impersonate=_CURL_IMPERSONATE, headers=ch, allow_redirects=False, timeout=timeout
+    )
+    loc = r.headers.get("Location")
+    if loc:
+        session.get(
+            urllib.parse.urljoin(base_url, loc),
+            impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout
+        )
+
+
 def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
-    """绕过 www.mcmod.cn 的 CDN 盾（一次性 cookie 交换）。"""
+    """绕过 www.mcmod.cn 的 CDN 盾（一次性 cookie 交换 + yxd_token + CC check）。"""
     global _MCMOD_SESSION, _MCMOD_BYPASSED
     if _MCMOD_BYPASSED:
         return True
@@ -407,34 +438,31 @@ def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
     }
 
     try:
-        # 注意：session 过期时，主页可能返回极小页面（~105B）且不含 CC check
-        # 此时需检测并重置 session
         r = _MCMOD_SESSION.get(
-            "https://www.mcmod.cn/", impersonate="chrome124", headers=headers, timeout=timeout
+            "https://www.mcmod.cn/", impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout
         )
+
+        # 处理 yxd_token 页面（JS 设置 cookie 后重定向）—— 需要先于 CC check
+        if 'yxd_token=' in r.text and len(r.text) < _MIN_TOKEN_PAGE_LEN:
+            token_m = re.search(r"yxd_token=([^;'\"\s]+)", r.text)
+            if token_m:
+                _MCMOD_SESSION.cookies.set("yxd_token", token_m.group(1), domain="www.mcmod.cn", path="/")
+            href_m = re.search(r"window\.location\.href='([^']+)'", r.text)
+            if href_m:
+                target = urllib.parse.urljoin("https://www.mcmod.cn", href_m.group(1))
+                try:
+                    r = _MCMOD_SESSION.get(target, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
+                except Exception:
+                    return False
+            else:
+                return False
+
         if "CC check" not in r.text:
-            if len(r.text) < 500:
-                # 极小页面 → 可能为过期 session，重置
-                _MCMOD_SESSION = None
-                return _bypass_mcmod_cdn(timeout=timeout)
             _MCMOD_BYPASSED = True
             return True
 
         # POST 浏览器指纹数据完成验证
-        data = {k: "false" for k in ["navigator", "userAgent", "windowWidth", "performance", "callPhantom"]}
-        data["v1"] = ""
-        ch = {**headers, "Content-Type": "application/x-www-form-urlencoded",
-              "Referer": "https://www.mcmod.cn/", "Origin": "https://www.mcmod.cn"}
-        r2 = _MCMOD_SESSION.post(
-            "https://www.mcmod.cn/cdn-shield/check", data=data,
-            impersonate="chrome124", headers=ch, allow_redirects=False, timeout=timeout
-        )
-        loc = r2.headers.get("Location")
-        if loc:
-            _MCMOD_SESSION.get(
-                urllib.parse.urljoin("https://www.mcmod.cn", loc),
-                impersonate="chrome124", headers=headers, timeout=timeout
-            )
+        _do_cdn_shield_post(_MCMOD_SESSION, "https://www.mcmod.cn", headers, timeout)
         _MCMOD_BYPASSED = True
         return True
     except Exception as e:
@@ -443,7 +471,7 @@ def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
 
 
 def _curl_mcmod(url: str, timeout: int = 10) -> str:
-    """使用 curl_cffi 请求 www.mcmod.cn，自动绕过 CDN 盾。"""
+    """使用 curl_cffi 请求 *.mcmod.cn，自动绕过 CDN 盾（各子域名独立绕过）。"""
     global _MCMOD_BYPASSED, _MCMOD_SESSION
 
     headers = {
@@ -452,7 +480,7 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
         "Accept-Language": HTTP_HEADERS["Accept-Language"],
     }
 
-    for attempt in range(3):
+    for attempt in range(_CDN_BYPASS_RETRIES):
         if not _MCMOD_BYPASSED:
             if not _bypass_mcmod_cdn(timeout=timeout):
                 # 绕过失败，尝试重置 session 重新来过
@@ -462,7 +490,7 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
                 return ""
 
         try:
-            r = _MCMOD_SESSION.get(url, impersonate="chrome124", headers=headers, timeout=timeout)
+            r = _MCMOD_SESSION.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
         except Exception as e:
             logger.warning(f"MC百科请求失败 ({url}): {e}")
             return ""
@@ -473,18 +501,30 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
         if 'yxd_token=' in text and len(text) < _MIN_TOKEN_PAGE_LEN:
             token_m = re.search(r"yxd_token=([^;'\"\s]+)", text)
             if token_m:
-                _MCMOD_SESSION.cookies.set("yxd_token", token_m.group(1), domain="www.mcmod.cn")
+                _MCMOD_SESSION.cookies.set("yxd_token", token_m.group(1), domain=_mcmod_host(url), path="/")
             href_m = re.search(r"window\.location\.href='([^']+)'", text)
             if href_m:
-                target = urllib.parse.urljoin("https://www.mcmod.cn", href_m.group(1))
+                target = urllib.parse.urljoin(url, href_m.group(1))
                 try:
-                    r = _MCMOD_SESSION.get(target, impersonate="chrome124", headers=headers, timeout=timeout)
+                    r = _MCMOD_SESSION.get(target, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
                     return r.text
                 except Exception:
                     return ""
 
-        # 再次遇到 CC check：session 过期，重置后重试
+        # CC check：为该子域名单独绕过 CDN 盾（各子域名隔离）
         if _WAF_CC_CHECK in text and len(text) < _MAX_CC_PAGE_LEN:
+            host = _mcmod_host(url)
+            base = f"https://{host}"
+            try:
+                _do_cdn_shield_post(_MCMOD_SESSION, base, headers, timeout)
+                # 重试原请求（首次重试可能仍为 CC check，需 2 次）
+                for _ in range(_CDN_RETRY_ATTEMPTS):
+                    r = _MCMOD_SESSION.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
+                    if _WAF_CC_CHECK not in r.text or len(r.text) >= _MAX_CC_PAGE_LEN:
+                        return r.text
+            except Exception:
+                pass
+            # 绕过失败：重置 session 后重试
             _MCMOD_BYPASSED = False
             _MCMOD_SESSION = None
             continue
@@ -497,11 +537,11 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
 def curl(url: str, timeout: int = 10) -> str:
     """发起HTTP请求，返回HTML内容（失败返回空字符串）。
 
-    - www.mcmod.cn：使用 curl_cffi + CDN 绕过
+    - *.mcmod.cn：使用 curl_cffi + CDN 绕过
     - 其他 URL：标准 urllib.request
     """
-    # MC百科主站需要 CDN 绕过
-    if "://www.mcmod.cn/" in url:
+    # MC百科所有子域名需要 CDN 绕过（www + search）
+    if "://www.mcmod.cn/" in url or "://search.mcmod.cn/" in url:
         return _curl_mcmod(url, timeout)
 
     try:
@@ -658,52 +698,6 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
         result["_truncated"] = screenshots_meta
 
     return result
-
-
-def fetch_item_recipe(item_url: str) -> dict:
-    """获取物品合成表信息。返回 {"recipe_images": [], "recipe_materials": []}。"""
-    key = _cache_key("recipe", item_url)
-    cached = _cache_get("item", key)
-    if cached is not None:
-        return cached
-
-    html = curl(item_url)
-    if not html or len(html) < MIN_HTML_LEN_ITEM:
-        return {"error": "NO_CONTENT"}
-
-    result = {"recipe_images": [], "recipe_materials": []}
-
-    # 提取合成表图片（recipe-table 中的 img）
-    recipe_imgs = re.findall(
-        r'<table[^>]*class="[^"]*recipe[^"]*"[^>]*>.*?<img[^>]+src="([^"]+)"',
-        html, re.DOTALL | re.IGNORECASE
-    )
-    result["recipe_images"] = [img for img in recipe_imgs if img and not img.startswith("data:")]
-
-    # 提取材料文本（从 recipe-table 附近的文本节点）
-    material_patterns = [
-        r'配方：</td><td[^>]*>(.*?)</td>',
-        r'材料：</td><td[^>]*>(.*?)</td>',
-        r'合成素材：</td><td[^>]*>(.*?)</td>',
-    ]
-    for pat in material_patterns:
-        m = re.search(pat, html, re.DOTALL)
-        if m:
-            mats = re.findall(r'<img[^>]+alt="([^"]+)"', m.group(1), re.IGNORECASE)
-            if mats:
-                result["recipe_materials"] = [r.strip() for r in mats if r.strip()]
-                break
-            # 降级：提取纯文本
-            text = re.sub(r"<[^>]+>", "", m.group(1))
-            text = html_module.unescape(text).strip()
-            if text:
-                result["recipe_materials"] = [t.strip() for t in text.split() if t.strip()]
-                break
-
-    _cache_set("item", key, result)
-    return result
-
-
 
 # 模组解析（MC百科 /class/ 页面）
 
@@ -1123,28 +1117,64 @@ def _extract_mcmod_community_stats(html: str) -> dict:
     return stats
 
 
+def _decode_mcmod_obfuscated_link(encoded: str) -> str:
+    """解码 MC百科的 Base64 混淆链接。失败返回空字符串。"""
+    try:
+        padding = 4 - len(encoded) % 4
+        if padding != 4:
+            encoded += "=" * padding
+        return base64.b64decode(encoded).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as e:
+        logger.debug(f"Link decode failed: {e}")
+        return ""
+
+
+def _extract_fallback_external_links(html: str, links: dict) -> None:
+    """明文正则回退提取外部链接（向后兼容）。在原地修改 links。"""
+    if "curseforge" not in links:
+        cf = re.search(r'https?://(?:www\.)?curseforge\.com/minecraft/mc-mods/[^/\s"<>\)]+', html)
+        if cf:
+            links['curseforge'] = cf.group(0)
+    if "modrinth" not in links:
+        mr = re.search(r'https?://modrinth\.com/(?:mod|shader|resourcepack)/[^/\s"<>\)]+', html)
+        if mr:
+            links['modrinth'] = mr.group(0)
+    if "github" not in links:
+        all_gh = re.findall(r'https?://github\.com/[^\s"<>\)]+', html)
+        main_gh = [u.rstrip(').,') for u in all_gh
+                   if not any(x in u for x in ['/issues', '/commit', '/blob', '/wiki', '/releases/tag', '/pull/'])]
+        if main_gh:
+            links['github'] = min(main_gh, key=len)
+    if "discord" not in links:
+        dc = re.search(r'https?://(?:www\.)?(?:discord\.gg|discord\.com/invite)/[^\s"<>\)]+', html)
+        if dc:
+            links['discord'] = dc.group(0).rstrip(').,')
+
+
+def _add_cross_platform_ids(links: dict) -> None:
+    """从已提取链接中解析跨平台 slug。在原地修改 links。"""
+    cross_platform_ids = {}
+    if "curseforge" in links:
+        cf_slug = re.search(r'/minecraft/mc-mods/([^/\s"<>\)]+)', links["curseforge"])
+        if cf_slug:
+            cross_platform_ids["curseforge_slug"] = cf_slug.group(1)
+    if "modrinth" in links:
+        mr_slug = re.search(r'/(?:mod|shader|resourcepack|modpack)/([^/\s"<>\)]+)', links["modrinth"])
+        if mr_slug:
+            cross_platform_ids["modrinth_slug"] = mr_slug.group(1)
+    if cross_platform_ids:
+        links["cross_platform_ids"] = cross_platform_ids
+
+
 def _extract_mcmod_external_links(html: str) -> dict:
     """提取模组的外部平台链接。返回 {"official": "...", "curseforge": "...", ...}。"""
     links = {}
-
-    # 辅助函数：解码 MC百科的 Base64 混淆链接
-    def _decode_mcmod_link(encoded: str) -> str:
-        try:
-            # URL 中可能有缺失的 padding，补齐
-            padding = 4 - len(encoded) % 4
-            if padding != 4:
-                encoded += "=" * padding
-            decoded = base64.b64decode(encoded).decode("utf-8")
-            return decoded
-        except (ValueError, UnicodeDecodeError) as e:
-            logger.debug(f"Link decode failed: {e}")
-            return ""
 
     # 收集所有解码后的链接
     all_decoded = []
     obfuscated = re.findall(r'link\.mcmod\.cn/target/([A-Za-z0-9+/=]+)', html)
     for encoded in obfuscated:
-        url = _decode_mcmod_link(encoded)
+        url = _decode_mcmod_obfuscated_link(encoded)
         if url and url.startswith("http"):
             all_decoded.append(url)
 
@@ -1199,44 +1229,11 @@ def _extract_mcmod_external_links(html: str) -> dict:
     if github_links:
         links["github"] = min(github_links, key=len)
 
-    # 方式2：提取明文链接（向后兼容）
-    if "curseforge" not in links:
-        cf = re.search(r'https?://(?:www\.)?curseforge\.com/minecraft/mc-mods/[^/\s"<>\)]+', html)
-        if cf:
-            links['curseforge'] = cf.group(0)
+    # 方式2：明文链接回退（向后兼容）
+    _extract_fallback_external_links(html, links)
 
-    if "modrinth" not in links:
-        mr = re.search(r'https?://modrinth\.com/(?:mod|shader|resourcepack)/[^/\s"<>\)]+', html)
-        if mr:
-            links['modrinth'] = mr.group(0)
-
-    if "github" not in links:
-        all_gh = re.findall(r'https?://github\.com/[^\s"<>\)]+', html)
-        main_gh = [u.rstrip(').,') for u in all_gh
-                   if not any(x in u for x in ['/issues', '/commit', '/blob', '/wiki', '/releases/tag', '/pull/'])]
-        if main_gh:
-            links['github'] = min(main_gh, key=len)
-
-    if "discord" not in links:
-        dc = re.search(r'https?://(?:www\.)?(?:discord\.gg|discord\.com/invite)/[^\s"<>\)]+', html)
-        if dc:
-            links['discord'] = dc.group(0).rstrip(').,')
-
-    # 提取跨平台 IDs（用于精确关联 Modrinth/CF）
-    cross_platform_ids = {}
-
-    if "curseforge" in links:
-        cf_slug = re.search(r'/minecraft/mc-mods/([^/\s"<>\)]+)', links["curseforge"])
-        if cf_slug:
-            cross_platform_ids["curseforge_slug"] = cf_slug.group(1)
-
-    if "modrinth" in links:
-        mr_slug = re.search(r'/(?:mod|shader|resourcepack|modpack)/([^/\s"<>\)]+)', links["modrinth"])
-        if mr_slug:
-            cross_platform_ids["modrinth_slug"] = mr_slug.group(1)
-
-    if cross_platform_ids:
-        links["cross_platform_ids"] = cross_platform_ids
+    # 跨平台 ID（用于精确关联 Modrinth/CurseForge）
+    _add_cross_platform_ids(links)
 
     return links
 

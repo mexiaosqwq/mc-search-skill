@@ -13,7 +13,6 @@ from .core import (
     read_wiki_zh,
     fetch_mod_info,
     get_mod_dependencies,
-    fetch_item_recipe,
     # 配置
     set_cache,
     set_platform_enabled,
