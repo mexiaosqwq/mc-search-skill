@@ -2,222 +2,177 @@
 
 本文件为 Claude Code (claude.ai/code) 提供本代码库的工作指导。
 
-## 项目概述
+## 项目定位
 
-**mc-search** 是一个 Minecraft 内容聚合搜索工具，同时也是 Claude Code 的 Skill。它并行搜索四个平台：
+**mc-search** 是 AI Agent 优先的 Minecraft 内容搜索 Skill。AI Agent 通过 Python API 直接调用，不依赖 CLI。
 
-- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包
-- **Modrinth** — 英文模组/光影/材质包/整合包
-- **minecraft.wiki** — 原版游戏 wiki（英文）
-- **minecraft.wiki/zh** — 原版游戏 wiki（中文）
+并行搜索四个平台：
+- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包（HTML 解析，脆弱）
+- **Modrinth** — 英文模组/光影/材质包/整合包（REST API，稳定）
+- **minecraft.wiki** — 原版游戏 wiki 英文/中文（MediaWiki API）
 
-项目具有双重用途：
-- **工具层面**：功能完整的 Minecraft 内容搜索 CLI
-- **Skill 层面**：Claude Agent 可调用的标准化接口
-
-## 项目结构
+## 架构
 
 ```
-mc-search-skill/
-├── skills/mc-search/ # Claude Code Skill 目录
-│ ├── SKILL.md # Skill 定义（触发器、命令说明）
-│ ├── pyproject.toml # Python 包配置
-│ ├── scripts/
-│ │ ├── __init__.py
-│ │ ├── core.py # 核心搜索逻辑（~110KB）
-│ │ └── cli.py # CLI 入口（~51KB）
-│ └── references/ # 详细文档
-│ ├── commands.md # 命令语法参考
-│ ├── result-schema.md # 返回字段定义
-│ ├── platform-comparison.md # 平台差异对比
-│ ├── troubleshooting.md # 故障诊断
-│ └── errors.md # 错误码字典
-├── README.md # 用户文档（中文）
-├── README.en.md # 用户文档（英文）
-└── .github/ # GitHub 工作流
+Agent 调用 → core.py API → 并行平台搜索 → 结果融合(_fuse_results) → 统一 JSON
 ```
 
-## 架构说明
+两个文件：
+- `scripts/core.py` — 全部搜索逻辑（API 调用、HTML 解析、结果融合、缓存）
+- `scripts/cli.py` — argparse 薄壳（Agent 不使用，仅人类调试用）
 
-### 核心组件
+## Agent 使用方式
 
-**scripts/core.py** — 搜索实现：
-- `search_mcmod()` — mcmod.cn HTML 解析
-- `search_modrinth()` — modrinth.com REST API
-- `search_wiki()` / `search_wiki_zh()` — MediaWiki API
-- `search_all()` — 并行搜索与结果融合
-- `fetch_mod_info()` — Modrinth 模组详情
-- `get_mod_dependencies()` — 依赖树解析
-- `curl()` — 统一 HTTP 请求封装（MC百科/wiki 用 curl_cffi，其余用 urllib.request）
+Agent 应直接 `import` core 模块，不通过 CLI。
 
-**scripts/cli.py** — CLI 接口：
-- 三个子命令：`search`、`show`、`wiki`
-- 使用 argparse 解析参数
-- 支持 JSON/文本两种输出格式
-- 字段过滤（`-T`、`-a`、`-d`、`-v` 等）
-- 长描述自动保存到文件
+### 搜索：`search_all()`
 
-### 数据流
+```python
+from scripts import core
 
-```
-用户查询 → CLI 解析器 → 平台路由 → 并行获取 → 结果融合 → 输出
+# 多平台搜索（推荐）
+result = core.search_all("机械动力", max_per_source=5, content_type="mod", fuse=True)
+# → {"results": [...], "platform_stats": {"mcmod.cn": {...}, "modrinth": {...}, ...}}
+
+# 单平台搜索
+core.set_platform_enabled(mcmod=False, modrinth=True, wiki=False, wiki_zh=False)
+result = core.search_all("sodium", max_per_source=5, content_type="mod", fuse=True)
 ```
 
-**平台选择逻辑**：
-- `mod`/`item`/`modpack`：MC百科 + Modrinth
-- `shader`/`resourcepack`：仅 Modrinth
-- `entity`/`biome`/`block`：minecraft.wiki 优先
+`content_type` 可选：`mod` / `item` / `modpack` / `shader` / `resourcepack` / `vanilla`（原版 wiki）。
 
-## 常用开发命令
+返回的每个 hit 关键字段：`name`、`name_zh`、`name_en`、`url`、`source`、`_score`（相关性 0-120）、`_sources`（来源平台列表）、`snippet`/`description`。
 
-### 安装与设置
+### 详情：`fetch_mod_info()` / `get_mod_dependencies()`
 
-```bash
-# 开发模式安装
-cd skills/mc-search
-pip install -e .
+```python
+# Modrinth 模组详情
+info = core.fetch_mod_info("sodium")  # slug 或 project_id
+# → dict 含 name, description, body(Markdown), downloads, author, supported_versions, changelogs...
 
-# 验证安装
-mc-search --version
+# 依赖树
+deps = core.get_mod_dependencies("sodium")
+# → {"deps": {slug: {name, slug, client_side, server_side, url}}}
 ```
 
-### 测试命令
+### MC百科：`search_mcmod()` / `parse_mcmod_result()`
 
-```bash
-# 测试 search 命令
-mc-search --json search 钠
-mc-search --json search sodium --platform modrinth
-mc-search --json search BSL --shader
-
-# 测试 show 命令
-mc-search --json show 钠 --full
-mc-search --json show sodium --deps
-mc-search --json show 钻石剑 --full
-
-# 测试 wiki 命令
-mc-search --json wiki 附魔台
-mc-search --json wiki enchanting -r
-
-# 测试缓存
-mc-search --json --cache search 机械动力
-
-# 测试字段过滤
-mc-search --json show 钠 -a -v # 仅作者和版本
+```python
+hits = core.search_mcmod("机械动力", max_results=3, content_type="mod")
+# → list[dict]，每项含 name_zh, name_en, description, author, supported_versions, relationships...
 ```
 
-### 平台特定测试
+MC百科 详情页可能被 WAF 拦截，此时自动回退到搜索页数据构建最小结果。
 
-```bash
-# 禁用特定平台
-mc-search --json search 钠 --no-mr # 跳过 Modrinth
-mc-search --json search 钠 --no-mcmod # 跳过 MC百科
-mc-search --json search 钠 --no-wiki # 跳过英文 wiki
-mc-search --json search 钠 --no-wiki-zh # 跳过中文 wiki
+### Wiki：`search_wiki()` / `search_wiki_zh()` / `read_wiki()`
+
+```python
+pages = core.search_wiki("enchanting", max_results=5)
+# → list[dict]，每项含 name, url, snippet, sections
+
+article = core.read_wiki("https://minecraft.wiki/w/Enchanting", max_paragraphs=-1)
+# → dict 含 name, url, content([段落]), infobox(结构化数据), main_image
 ```
 
-### 输出与调试
+### 作者搜索：`search_mcmod_author()` / `search_modrinth_author()`
 
-```bash
-# 输出到文件
-mc-search --json search 钠 -o output.json
-
-# 美化 JSON 输出
-mc-search --json search 钠 | python -m json.tool
-
-# 仅查看平台统计
-mc-search --json search 钠 2>/dev/null | python -c "
-import sys, json
-d = json.load(sys.stdin)
-print(json.dumps(d.get('platform_stats', {}), indent=2))
-"
+```python
+mcmod_works = core.search_mcmod_author("Simibubi", max_mods=10)
+mr_works = core.search_modrinth_author("jellysquid3", max_results=10)
 ```
 
-## 关键实现细节
+### 缓存
+
+```python
+core.set_cache(True)  # 启用，TTL 1 小时
+# 缓存位置：~/.cache/mc-search/
+# 详情页 HTML 缓存可显著加速 MC百科 二次访问
+```
+
+### 平台开关
+
+```python
+core.set_platform_enabled(mcmod=True, modrinth=True, wiki=True, wiki_zh=True)
+# Agent 不应裸调 set_platform_enabled，应通过 search_all 的 content_type 自动路由
+```
+
+## JSON 返回格式（统一信封）
+
+所有结果均为 `{"results": ..., ...}` 结构。错误为 `{"error": "CODE", "message": "..."}`。
+
+| 函数 | `results` 类型 | 附加字段 |
+|------|---------------|---------|
+| `search_all(fuse=True)` | `[{hit}]` | `platform_stats` |
+| `fetch_mod_info()` | `{dict}` | — |
+| `get_mod_dependencies()` | `{deps: {...}}` | — |
+| `search_wiki()` | `[{hit}]` | — |
+| `read_wiki()` | `{dict}` | — |
+| `search_mcmod()` | `[{hit}]` | — |
+
+## 重要实现细节
 
 ### 网络层
+- MC百科 + minecraft.wiki：`curl_cffi` + Chrome124 TLS 指纹绕过 CDN/反爬
+- Modrinth API：标准 `urllib.request` HTTP
+- MC百科 各子域名 (www + search) 需独立 CDN 绕过
+- WAF 检测：短页面 (<1000B) 含 AIWAFCDN/防火墙拦截 等签名视为被阻断
 
-所有 HTTP 请求通过 `core.curl()` 完成：
-- MC百科所有子域名 (www + search)：使用 `curl_cffi` + Chrome TLS 指纹绕过 CDN 盾
-- minecraft.wiki / zh.minecraft.wiki：使用 `curl_cffi` 绕过反爬
-- 其他平台 (api.modrinth.com 等)：使用 `urllib.request` 发起 HTTP 请求
-- 处理超时和编码
-- 返回原始 HTML/JSON 供解析
+### MC百科 解析
+- 纯正则 + 字符串操作，无 BeautifulSoup
+- HTML 结构可能变化，解析较脆弱
+- 详情页被 WAF 拦截时自动回退到搜索页数据（`_build_mcmod_fallback_result`）
+- 物品页 (`/item/`) 与模组页 (`/class/`) 结构完全不同，分别解析
 
-### HTML 解析（MC 百科）
+### 结果融合（`_fuse_results`）
+1. 评分：精确匹配 100+ → 前缀 60+ → 包含 30+ → snippet 加分 +5 → 多平台 +10
+2. 去重：同名按 score 保留最高分
+3. 排序：分数 DESC
 
-- 使用正则表达式 + 字符串操作（无 BeautifulSoup 依赖）
-- 处理中文编码（GBK/UTF-8）
-- 解析搜索结果页和详情页
-- 提取：名称、描述、版本、依赖、截图
+### 缓存
+- 装饰器 `@_cached(lambda params: (cache_type, cache_key))` 管理所有缓存
+- MC百科 详情页 HTML 额外缓存（最贵请求，绕过 CDN 前先查）
+- 缓存 key 包含完整参数，修改任何参数自动分离缓存
 
-### API 集成（Modrinth）
+## 性能注意事项
 
-- REST API v2：`api.modrinth.com/v2/`
-- 端点：`/search`、`/project/{slug}`、`/project/{id}/dependencies`
-- 速率限制：360 请求/小时
-- 返回结构化 JSON
+- `search_modrinth()` 内部对每个搜索结果并行获取详情（`_parallel_fetch_with_fallback`，最多 4 workers）
+- `search_all()` 并行提交 4 平台任务
+- Modrinth API 速率限制：360 请求/小时
+- MC百科 无速率限制但 CDN 可能限流
 
-### 结果融合
+## 测试（Python API 方式）
 
-`search_all()` 配合 `fuse=True`：
-1. 使用 ThreadPoolExecutor 并行执行平台搜索
-2. 按名称相关性评分（精确 > 前缀 > 包含）
-3. 跨平台合并重复项
-4. 按相关性排序
+修改代码后，在 Python 中验证：
 
-### 缓存机制
+```python
+import scripts.core as core
 
-- 位置：`~/.cache/mc-search/`
-- TTL：1 小时
-- 使用 `--cache` 参数启用
-- 键：URL/查询的 MD5
+# 搜索
+r = core.search_all("机械动力", max_per_source=1, content_type="mod", fuse=True)
+assert len(r["results"]) > 0
 
-## 代码修改指南
+# 详情
+info = core.fetch_mod_info("sodium")
+assert info and info["name"] == "Sodium"
 
-### 添加新平台
+# Wiki
+pages = core.search_wiki("enchanting", max_results=1)
+assert len(pages) > 0
 
-1. 在 `core.py` 添加搜索函数
-2. 在 `cli.py` 添加平台开关（`--no-<平台>`）
-3. 更新 `_PLATFORM_FLAGS` 映射
-4. 添加到 `search_all()` 平台列表
+# 缓存
+core.set_cache(True)
+r2 = core.search_all("sodium", max_per_source=1, fuse=True)
+assert len(r2["results"]) > 0
+```
 
-### 添加新命令
-
-1. 在 `cli.py` 的 `main()` 中添加子解析器
-2. 实现处理函数
-3. 添加到 `commands` 分发字典
-4. 更新 `SKILL.md` 和 `references/commands.md`
-
-### 修改输出格式
-
-- JSON 输出：修改处理函数中的字典结构
-- 文本输出：修改 `cli.py` 中的 `_print_*` 函数
-- 显示限制常量位于 `cli.py` 顶部
-
-## 测试清单
-
-修改代码后，请验证：
-
-- [ ] `mc-search --json search <关键词>` 返回有效 JSON
-- [ ] `mc-search --json show <名称> --full` 包含双平台数据
-- [ ] `mc-search --json wiki <关键词>` 原版内容搜索正常
-- [ ] 字段过滤（`-a`、`-v` 等）工作正常
-- [ ] `--cache` 参数正确存储和读取数据
-- [ ] 错误情况返回带 `error` 字段的 JSON
-- [ ] 非 JSON 模式产生可读的文本输出
-
-## 依赖项
+## 依赖
 
 - Python 3.8+
-- `curl_cffi>=0.15.0`（MC百科 CDN 绕过，必需）
-- 其余平台仅使用标准库
+- `curl_cffi>=0.15.0`（MC百科 + wiki 必需）
+- 其余标准库
 
-## 重要提示
+## 修改准则
 
-- **始终使用 `--json`** 进行程序化访问
-- MC 百科解析较脆弱（HTML 结构可能变化；详情页可能被 WAF 拦截，此时自动回退到搜索页数据）
-- MC百科搜索页 (search.mcmod.cn) 和详情页 (www.mcmod.cn/class/...) 均需要 curl_cffi CDN 绕过；各子域名需独立绕过
-- Modrinth API 有速率限制（360/小时）
-- minecraft.wiki 使用 curl_cffi 绕过反爬，原来 urllib 403 的问题已解决
-- 缓存目录在使用 `--cache` 时自动创建；MC百科详情页 HTML 缓存可显著加速二次访问
-- **复杂任务/修复/重构**：必须先走 `workflow-execute-plans` 规划，分批次执行，每批次验证+暂停反馈
+- **不改 CLI**：Agent 不经过 CLI，功能迭代优先考虑 core.py API
+- **复杂任务先规划**：走 `workflow-execute-plans`，分批执行 + 验证 + 暂停反馈
+- **保持 AI 优先**：所有设计决策以 AI Agent 调用体验为第一位

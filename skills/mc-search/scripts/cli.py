@@ -321,6 +321,11 @@ def _json_out(obj, is_json: bool):
         print(json.dumps(obj, ensure_ascii=False))
 
 
+def _json(obj, is_json: bool):
+    """_json_out 的别名，方便命令函数调用。"""
+    _json_out(obj, is_json)
+
+
 # ── 显示函数 ──────────────────────────────────────────
 
 def _type_badge(hit: dict) -> str:
@@ -692,7 +697,7 @@ def _output_full_result(result: dict, is_json: bool):
     """输出双平台全量结果（JSON 或文本）。"""
     if is_json:
         output = {k: v for k, v in result.items() if not k.startswith("_")}
-        print(json.dumps(output, ensure_ascii=False))
+        print(json.dumps({"results": output}, ensure_ascii=False))
         return
 
     mc = result.get("mcmod")
@@ -730,9 +735,173 @@ def _output_full_result(result: dict, is_json: bool):
 
 # ── 命令实现 ──────────────────────────────────────────
 
+def _show_mcmod(name: str, ident: dict):
+    """获取 MC百科模组信息。返回 (info, err_type, err_msg)。
+    成功: (info_dict, None, None)；失败: (None, err_type, err_msg)。
+    """
+    class_id = ident["class_id"]
+    mcmod_name = ident["mcmod_name"]
+
+    if not class_id and not mcmod_name:
+        return None, "INVALID_INPUT", f"无法解析: {name}"
+
+    info, _, err_type = _fetch_mcmod_info(class_id, mcmod_name)
+
+    if not info:
+        err_messages = {
+            "NOT_FOUND": f"未找到 ID 为 {class_id} 的模组页面" if class_id else f"未找到名为 [{mcmod_name}] 的模组",
+            "CAPTCHA": "安全验证",
+            "FETCH_FAILED": f"无法获取模组页面（ID: {class_id}）" if class_id else f"无法获取模组页面",
+        }
+        msg = err_messages.get(err_type, f"未找到名为 [{mcmod_name}] 的模组")
+        return None, err_type or "NOT_FOUND", msg
+
+    return info, None, None
+
+
+def _print_mcmod_show_info(info: dict, name: str, *, is_json: bool = False,
+                            show_author_hint: bool = True):
+    """打印 MC百科 show 结果（完整信息/描述/提示）。"""
+    if is_json:
+        _json_out({"results": info}, is_json)
+        return
+
+    for line in _fmt_title(info):
+        print(line)
+    for line in (_fmt_status(info) or []):
+        print(line)
+    for line in (_fmt_author(info) or []):
+        print(line)
+    for line in (_fmt_deps(info) or []):
+        print(line)
+    for line in _fmt_versions(info):
+        print(line)
+    for line in _fmt_cats(info):
+        print(line)
+    for line in (_fmt_gallery(info) or []):
+        print(line)
+    for line in _fmt_source(info):
+        print(line)
+    for line in (_fmt_desc(info) or []):
+        print(line)
+
+    author_val = info.get("author")
+    if author_val and show_author_hint:
+        print(f"\n  💡 同作者其他作品：search --author {author_val.replace(' ', '_')}")
+
+
+def _show_full(name: str, ident: dict, *, skip_mr: bool = False,
+               skip_dep: bool = False, skip_mcmod: bool = False,
+               is_json: bool = False):
+    """show --full 双平台全量输出。"""
+    result = {"mcmod": None, "modrinth": None, "dependencies": None, "saved_files": []}
+
+    # Modrinth URL：直接 slug 获取
+    if ident["mr_slug"]:
+        result["modrinth"] = core.fetch_mod_info(ident["mr_slug"], no_limit=True)
+        if result["modrinth"] is None:
+            _fail(f"Modrinth上不存在slug为 '{ident['mr_slug']}' 的项目", "URL_NOT_FOUND", is_json)
+        mr_name = result["modrinth"].get("name", "")
+        if mr_name and not skip_mcmod:
+            mcmod_info, _, _ = _fetch_mcmod_info(None, mr_name)
+            if mcmod_info and _is_captcha(mcmod_info):
+                mcmod_info = None
+            result["mcmod"] = mcmod_info
+        if not skip_dep:
+            result["dependencies"] = core.get_mod_dependencies(
+                ident["mr_slug"], project_id=result["modrinth"].get("id"))
+        _output_full_result(result, is_json)
+        return
+
+    # MC百科 URL/ID 或纯名称
+    class_id = ident["class_id"]
+    mcmod_name = ident["mcmod_name"]
+
+    mcmod_info = None
+    if not skip_mcmod:
+        mcmod_info, _, _ = _fetch_mcmod_info(class_id, mcmod_name)
+        if mcmod_info and _is_captcha(mcmod_info):
+            mcmod_info = None
+    result["mcmod"] = mcmod_info
+
+    mr_info = None
+    if not skip_mr:
+        mr_search_name = (mcmod_info.get("name_en") if mcmod_info else None) or mcmod_name
+        if mr_search_name:
+            mr_hit = _search_modrinth_exact(mr_search_name)
+            if mr_hit and isinstance(mr_hit, dict):
+                slug = mr_hit.get("source_id") or mr_hit.get("slug")
+                if slug:
+                    try: mr_info = core.fetch_mod_info(slug, no_limit=True)
+                    except (core.SearchError, OSError): mr_info = None
+    result["modrinth"] = mr_info
+
+    if not result["mcmod"] and not result["modrinth"]:
+        _fail(f"未找到 [{name}] 的相关信息", "NOT_FOUND", is_json)
+
+    if not skip_dep and mr_info:
+        try:
+            result["dependencies"] = core.get_mod_dependencies(
+                mr_info.get("slug", ""), project_id=mr_info.get("id"))
+        except (core.SearchError, OSError) as e:
+            core.logger.warning(f"获取依赖失败: {e}")
+
+    _output_full_result(result, is_json)
+
+
+def _show_default(name: str, ident: dict, *, no_mr: bool = False,
+                  no_mcmod: bool = False, is_json: bool = False):
+    """show 默认：MC百科 URL/ID/中文名→MC百科，Modrinth URL/slug→Modrinth。"""
+    saved_files = []
+    # Modrinth 路径
+    if ident["mr_slug"] is not None:
+        if no_mr:
+            _fail("已禁用 Modrinth（--no-mr）", "DISABLED", is_json)
+        slug = ident["mr_slug"]
+        try:
+            info = core.fetch_mod_info(slug, no_limit=True)
+            if info:
+                if is_json:
+                    _json_out({"results": info}, is_json)
+                else:
+                    _print_full_modrinth_info(info, saved_files=saved_files)
+                return
+        except (core.SearchError, OSError) as e:
+            core.logger.warning(f"获取 Modrinth 信息失败 ({slug}): {e}")
+        _fail(f"无法获取 Modrinth 项目信息: {slug}", "NOT_FOUND", is_json)
+
+    # MC百科路径，失败时回退 Modrinth
+    if no_mcmod:
+        info, err_type, err_msg = None, "DISABLED", "已禁用 MC百科（--no-mcmod）"
+    else:
+        info, err_type, err_msg = _show_mcmod(name, ident)
+    if info:
+        _print_mcmod_show_info(info, name, is_json=is_json)
+        return
+
+    # MC百科失败，尝试 Modrinth 回退（仅当用户输入是名称而非数字ID/URL时）
+    if not no_mr and not ident["class_id"]:
+        hit = _search_modrinth_exact(name)
+        if hit:
+            slug = hit.get("source_id") or hit.get("slug")
+            if slug:
+                try:
+                    mr_info = core.fetch_mod_info(slug, no_limit=True)
+                    if mr_info:
+                        if is_json:
+                            _json_out({"results": mr_info}, is_json)
+                        else:
+                            _print_full_modrinth_info(mr_info, saved_files=saved_files)
+                        return
+                except (core.SearchError, OSError):
+                    pass  # 失败后输出错误信息
+
+    # Modrinth 也失败（或已禁用），输出原始错误
+    _fail(err_msg, err_type, is_json)
+
+
 def _cmd_search_author(args):
     """作者搜索：双平台并行。"""
-    _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
     _effective_max = args.max if args.max is not None else _DEFAULT_RESULTS_PER_PLATFORM
     author = args.author_name.strip()
     if not author:
@@ -750,8 +919,8 @@ def _cmd_search_author(args):
         core.logger.warning(f"Modrinth作者搜索失败: {e}")
 
     if args.json:
-        _json({"mcmod": mcmod_hits, "modrinth": mr_hits,
-               "mcmod_count": len(mcmod_hits), "modrinth_count": len(mr_hits)})
+        _json({"results": {"mcmod": mcmod_hits, "modrinth": mr_hits},
+               "mcmod_count": len(mcmod_hits), "modrinth_count": len(mr_hits)}, args.json)
     else:
         if mcmod_hits:
             print(f"[{author}] 的 MC百科 作品（共 {len(mcmod_hits)} 个）：")
@@ -768,7 +937,6 @@ def _cmd_search_author(args):
 
 def _cmd_search_keyword(args):
     """关键词搜索：单平台或多平台。"""
-    _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
     _effective_max = args.max if args.max is not None else _DEFAULT_RESULTS_PER_PLATFORM
     if not args.keyword or not args.keyword.strip():
         _fail("错误: 搜索关键词不能为空", "EMPTY_KEYWORD", args.json)
@@ -778,31 +946,23 @@ def _cmd_search_keyword(args):
     if content_type in ("shader", "resourcepack") and args.platform == "all":
         args.platform = "modrinth"
 
-    # 单平台搜索
+    # 单平台搜索（统一走 search_all + fuse，输出格式与多平台一致）
     if args.platform != "all":
         flags = _PLATFORM_FLAGS.get(args.platform)
         if flags:
             core.set_platform_enabled(*flags)
-        if args.platform == "modrinth":
-            data = core.search_modrinth(args.keyword, max_results=_effective_max, project_type=content_type)
-            hits = data.get("results", [])
-            if args.json:
-                _json({"results": hits, "platform": "modrinth", "returned": len(hits)})
-            else:
-                if not hits:
-                    _fail(f"Modrinth 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
-                for hit in hits:
-                    _print_hit(hit)
+        result = core.search_all(args.keyword, max_per_source=_effective_max,
+                                  timeout=args.timeout, content_type=content_type,
+                                  fuse=True)
+        result["_platform"] = args.platform
+        hits = result.get("results", [])
+        if args.json:
+            _json(result, args.json)
         else:
-            result = core.search_all(args.keyword, max_per_source=_effective_max,
-                                      timeout=args.timeout, content_type=content_type,
-                                      fuse=True)
-            hits = result.get("results", [])
-            if args.json:
-                _json({"results": hits, "platform": args.platform, "returned": len(hits)})
-            else:
-                if not hits:
-                    _fail(f"{args.platform} 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
+            if not hits:
+                _fail(f"{args.platform} 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
+            for hit in hits:
+                _print_hit(hit)
         return
 
     # 多平台并行搜索
@@ -810,7 +970,7 @@ def _cmd_search_keyword(args):
                               timeout=args.timeout, content_type=content_type,
                               fuse=True)
     if args.json:
-        _json(results)
+        _json(results, args.json)
     else:
         if not results.get("results"):
             _fail(f"所有平台均无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
@@ -829,173 +989,8 @@ def _cmd_search(args):
 # show 命令
 # ============================================================
 def _cmd_show(args):
-    _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
     name = args.name
     ident = _parse_project_identifier(name)
-    def _show_full(name: str, ident: dict):
-        """show --full 双平台全量输出。"""
-        result = {"mcmod": None, "modrinth": None, "dependencies": None, "saved_files": []}
-        skip_mr = args.skip_mr or args.no_mr
-        skip_dep = args.skip_dep
-        skip_mcmod = args.no_mcmod
-
-        # Modrinth URL：直接 slug 获取
-        if ident["mr_slug"]:
-            result["modrinth"] = core.fetch_mod_info(ident["mr_slug"], no_limit=True)
-            if result["modrinth"] is None:
-                _fail(f"Modrinth上不存在slug为 '{ident['mr_slug']}' 的项目", "URL_NOT_FOUND", args.json)
-            mr_name = result["modrinth"].get("name", "")
-            if mr_name and not skip_mcmod:
-                mcmod_info, _, _ = _fetch_mcmod_info(None, mr_name)
-                if mcmod_info and _is_captcha(mcmod_info):
-                    mcmod_info = None
-                result["mcmod"] = mcmod_info
-            if not skip_dep:
-                result["dependencies"] = core.get_mod_dependencies(
-                    ident["mr_slug"], project_id=result["modrinth"].get("id"))
-            _output_full_result(result, args.json)
-            return
-
-        # MC百科 URL/ID 或纯名称
-        class_id = ident["class_id"]
-        mcmod_name = ident["mcmod_name"]
-
-        mcmod_info = None
-        if not skip_mcmod:
-            mcmod_info, _, _ = _fetch_mcmod_info(class_id, mcmod_name)
-            if mcmod_info and _is_captcha(mcmod_info):
-                mcmod_info = None
-        result["mcmod"] = mcmod_info
-
-        mr_info = None
-        if not skip_mr:
-            mr_search_name = (mcmod_info.get("name_en") if mcmod_info else None) or mcmod_name
-            if mr_search_name:
-                mr_hit = _search_modrinth_exact(mr_search_name)
-                if mr_hit and isinstance(mr_hit, dict):
-                    slug = mr_hit.get("source_id") or mr_hit.get("slug")
-                    if slug:
-                        try: mr_info = core.fetch_mod_info(slug, no_limit=True)
-                        except (core.SearchError, OSError): mr_info = None
-        result["modrinth"] = mr_info
-
-        if not result["mcmod"] and not result["modrinth"]:
-            _fail(f"未找到 [{name}] 的相关信息", "NOT_FOUND", args.json)
-
-        if not skip_dep and mr_info:
-            try:
-                result["dependencies"] = core.get_mod_dependencies(
-                    mr_info.get("slug", ""), project_id=mr_info.get("id"))
-            except (core.SearchError, OSError) as e:
-                core.logger.warning(f"获取依赖失败: {e}")
-
-        _output_full_result(result, args.json)
-
-    def _show_default(name: str, ident: dict):
-        """show 默认：MC百科 URL/ID/中文名→MC百科，Modrinth URL/slug→Modrinth。"""
-        saved_files = []
-        # Modrinth 路径
-        if ident["mr_slug"] is not None:
-            if args.no_mr:
-                _fail("已禁用 Modrinth（--no-mr）", "DISABLED", args.json)
-            slug = ident["mr_slug"]
-            try:
-                info = core.fetch_mod_info(slug, no_limit=True)
-                if info:
-                    if args.json:
-                        _json(info)
-                    else:
-                        _print_full_modrinth_info(info, saved_files=saved_files)
-                    return
-            except (core.SearchError, OSError) as e:
-                core.logger.warning(f"获取 Modrinth 信息失败 ({slug}): {e}")
-            _fail(f"无法获取 Modrinth 项目信息: {slug}", "NOT_FOUND", args.json)
-
-        # MC百科路径，失败时回退 Modrinth
-        if args.no_mcmod:
-            info, err_type, err_msg = None, "DISABLED", "已禁用 MC百科（--no-mcmod）"
-        else:
-            info, err_type, err_msg = _show_mcmod(name, ident)
-        if info:
-            _print_mcmod_show_info(info, name)
-            return
-
-        # MC百科失败，尝试 Modrinth 回退（仅当用户输入是名称而非数字ID/URL时）
-        if not args.no_mr and not ident["class_id"]:
-            hit = _search_modrinth_exact(name)
-            if hit:
-                slug = hit.get("source_id") or hit.get("slug")
-                if slug:
-                    try:
-                        mr_info = core.fetch_mod_info(slug, no_limit=True)
-                        if mr_info:
-                            if args.json:
-                                _json(mr_info)
-                            else:
-                                _print_full_modrinth_info(mr_info, saved_files=saved_files)
-                            return
-                    except (core.SearchError, OSError):
-                        pass  # 失败后输出错误信息
-
-        # Modrinth 也失败（或已禁用），输出原始错误
-        _fail(err_msg, err_type, args.json)
-
-    def _show_mcmod(name: str, ident: dict):
-        """获取 MC百科模组信息。返回 (info, err_type, err_msg)。
-        成功: (info_dict, None, None)；失败: (None, err_type, err_msg)。
-        """
-        class_id = ident["class_id"]
-        mcmod_name = ident["mcmod_name"]
-
-        if not class_id and not mcmod_name:
-            return None, "INVALID_INPUT", f"无法解析: {name}"
-
-        info, _, err_type = _fetch_mcmod_info(class_id, mcmod_name)
-
-        if not info:
-            err_messages = {
-                "NOT_FOUND": f"未找到 ID 为 {class_id} 的模组页面" if class_id else f"未找到名为 [{mcmod_name}] 的模组",
-                "CAPTCHA": "安全验证",
-                "FETCH_FAILED": f"无法获取模组页面（ID: {class_id}）" if class_id else f"无法获取模组页面",
-            }
-            msg = err_messages.get(err_type, f"未找到名为 [{mcmod_name}] 的模组")
-            return None, err_type or "NOT_FOUND", msg
-
-        return info, None, None
-
-    def _print_mcmod_show_info(info: dict, name: str):
-        """打印 MC百科 show 结果（完整信息/描述/提示）。"""
-        if args.json:
-            _json(info)
-            return
-
-        for line in _fmt_title(info):
-            print(line)
-        for line in (_fmt_status(info) or []):
-            print(line)
-        for line in (_fmt_author(info) or []):
-            print(line)
-        for line in (_fmt_deps(info) or []):
-            print(line)
-        for line in _fmt_versions(info):
-            print(line)
-        for line in _fmt_cats(info):
-            print(line)
-        for line in (_fmt_gallery(info) or []):
-            print(line)
-        for line in _fmt_source(info):
-            print(line)
-        for line in (_fmt_desc(info) or []):
-            print(line)
-
-        # 同作者其他作品提示
-        author_val = info.get("author")
-        if author_val and not args.deps:
-            print(f"\n  💡 同作者其他作品：search --author {author_val.replace(' ', '_')}")
-
-    # ============================================================
-    # wiki 命令
-    # ============================================================
 
     # ── --deps 快捷路径：只查 Modrinth 依赖 ──
     if args.deps:
@@ -1015,23 +1010,39 @@ def _cmd_show(args):
         try:
             deps = core.get_mod_dependencies(slug, project_id=None)
             if args.json:
-                _json(deps)
+                _json({"results": deps}, args.json)
             else:
                 _print_deps(deps, slug)
         except Exception as e:
             _fail(f"获取依赖失败: {e}", "FETCH_FAILED", args.json)
         return
 
+    # ── 无效 flag 警告 ──
+    if (args.skip_dep or args.skip_mr) and not args.full:
+        print("警告: --skip-dep / --skip-mr 仅在 --full 模式下有效，当前已忽略",
+              file=sys.stderr)
+
     # ── --full：双平台全量 ──
     if args.full:
-        _show_full(name, ident)
+        _show_full(name, ident,
+                   skip_mr=args.skip_mr or args.no_mr,
+                   skip_dep=args.skip_dep,
+                   skip_mcmod=args.no_mcmod,
+                   is_json=args.json)
         return
 
     # ── 默认：按输入类型自动选平台 ──
-    _show_default(name, ident)
+    _show_default(name, ident,
+                  no_mr=args.no_mr or args.skip_mr,
+                  no_mcmod=args.no_mcmod,
+                  is_json=args.json)
+
+
+# ============================================================
+# wiki 命令
+# ============================================================
 
 def _cmd_wiki(args):
-    _json = lambda obj: _json_out(obj, args.json)  # noqa: E731
     keyword = args.keyword
 
     # ── URL 检测：直接读取 wiki 页面 ──
@@ -1041,7 +1052,7 @@ def _cmd_wiki(args):
         else:
             content = core.read_wiki(keyword, max_paragraphs=args.paragraphs)
         if args.json:
-            _json(content)
+            _json({"results": content}, args.json)
         elif "error" in content:
             _print_error(f"读取失败: {content['error']}", "READ_ERROR", args.json)
         else:
@@ -1072,7 +1083,7 @@ def _cmd_wiki(args):
     hits = result.get("results", [])
     if not hits:
         if args.json:
-            _json([])
+            _json({"results": []}, args.json)
         else:
             _print_error(f"minecraft.wiki 无 [{keyword}] 相关结果", "NO_RESULTS", args.json)
         return
@@ -1090,7 +1101,7 @@ def _cmd_wiki(args):
     if args.json:
         if content and "error" not in content:
             hits[0]["read_content"] = content
-        _json(hits)
+        _json({"results": hits}, args.json)
     else:
         for i, hit in enumerate(hits[:_DISPLAY_WIKI_MAX_RESULTS], 1):
             name = hit.get("name_zh") or hit.get("name_en") or hit.get("name", "?")
@@ -1124,7 +1135,8 @@ def _cmd_wiki(args):
                 print(f"  {i}. {p[:_DISPLAY_LINE_MAX]}")
 
 
-def main():
+def _build_parser():
+    """构建 argparse 解析器。"""
     parser = argparse.ArgumentParser(
         description="mc-search: Minecraft 聚合搜索",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1138,6 +1150,7 @@ def main():
     parser.add_argument("--no-wiki", dest="no_wiki", action="store_true", help="禁用 minecraft.wiki")
     parser.add_argument("--no-wiki-zh", dest="no_wiki_zh", action="store_true", help="禁用 minecraft.wiki/zh")
     parser.add_argument("-o", "--output", dest="output", default=None, help="输出到文件")
+    parser.add_argument("--version", action="version", version="mc-search 5.1.0")
 
     sub = parser.add_subparsers(dest="cmd")
 
@@ -1147,6 +1160,8 @@ def main():
     search_parser.add_argument("--type", dest="content_type", default="mod",
                    choices=["mod", "item", "modpack", "shader", "resourcepack"],
                    help="内容类型（默认 mod）")
+    search_parser.add_argument("--item", action="store_const", const="item", dest="content_type",
+                   help="快捷：搜物品")
     search_parser.add_argument("--shader", action="store_const", const="shader", dest="content_type",
                    help="快捷：搜光影包")
     search_parser.add_argument("--modpack", action="store_const", const="modpack", dest="content_type",
@@ -1174,7 +1189,7 @@ def main():
                     help="跳过依赖查询（仅 --full）")
     show_parser.add_argument("--skip-mr", dest="skip_mr", action="store_true",
                     help="跳过 Modrinth（仅 --full）")
-    
+
     # ── wiki ──
     wiki_parser = sub.add_parser("wiki", help="原版 Wiki 搜索与阅读")
     wiki_parser.add_argument("keyword", help="搜索关键词 或 wiki 页面 URL")
@@ -1187,6 +1202,11 @@ def main():
     wiki_parser.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
                    help=f"超时秒数（默认{_DEFAULT_TIMEOUT}）")
 
+    return parser
+
+
+def main():
+    parser = _build_parser()
     args = parser.parse_args()
 
     # 统一 --json

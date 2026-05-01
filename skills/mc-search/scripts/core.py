@@ -3,6 +3,7 @@
 
 # ── 标准库导入 ─────────────────────────────────────────
 import base64
+import functools
 import hashlib
 import html as html_module  # 别名：与 html变量名区分
 import json
@@ -53,6 +54,14 @@ _MAX_SCREENSHOTS = 0        # 默认不返回截图（可配置）
 _MAX_GALLERY = 0            # 默认不返回画廊（可配置）
 _MAX_TAG_SECTION_LEN = 500
 _EXTERNAL_LINK_EXCLUDE_DOMAINS = ["curseforge", "modrinth", "github", "discord", "wikipedia", "mcbbs", "jenkins", "archive"]
+# MC百科外部链接分类规则：(匹配函数, key)。按顺序匹配第一个命中，key 已存在则跳过
+_SIMPLE_LINK_RULES = [
+    (lambda u: "modrinth.com" in u, "modrinth"),
+    (lambda u: "wiki" in u.lower() and "github.com" not in u, "wiki"),
+    (lambda u: "discord.gg" in u or "discord.com/invite" in u, "discord"),
+    (lambda u: "jenkins" in u.lower() or "ci." in u, "jenkins"),
+    (lambda u: "mcbbs" in u, "mcbbs"),
+]
 _MAX_TAG_TEXT_LEN = 20
 _MAX_SEARCH_SEGMENT = 2000
 _MAX_DESCRIPTION_SEGMENT = 70000
@@ -403,6 +412,25 @@ def _html_cache_set(url: str, html: str):
             f.write(html)
     except OSError as e:
         logger.debug(f"HTML cache write failed: {e}")
+
+
+def _cached(make_key):
+    """缓存装饰器：自动检查/写入缓存，消除重复的 cache get/set 模式。
+
+    make_key(*args, **kwargs) 返回 (cache_type: str, cache_key: str)。
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            cache_type, key = make_key(*args, **kwargs)
+            cached = _cache_get(cache_type, key)
+            if cached is not None:
+                return cached
+            result = func(*args, **kwargs)
+            _cache_set(cache_type, key, result)
+            return result
+        return wrapper
+    return decorator
 
 
 def set_cache(enabled: bool, ttl: int = 3600):
@@ -1237,39 +1265,27 @@ def _extract_mcmod_external_links(html: str) -> dict:
     github_links = []
 
     for url in all_decoded:
-        # 官方网站（非已知平台的独立域名）
+        # 官方网站（非已知平台的独立域名，仅设一次）
         if "official" not in links:
             if not any(x in url for x in _EXTERNAL_LINK_EXCLUDE_DOMAINS):
                 links["official"] = url
 
-        # CurseForge
+        # CurseForge 收集（后续选最优）
         if "curseforge.com" in url:
             curseforge_links.append(url)
+            continue
 
-        # Modrinth
-        elif "modrinth.com" in url and "modrinth" not in links:
-            links["modrinth"] = url
-
-        # GitHub
-        elif "github.com" in url:
+        # GitHub 收集（过滤 wiki/issues/pull，后续选主仓库）
+        if "github.com" in url:
             if not any(x in url for x in ["/blob/", "/wiki", "/issues", "/pull/"]):
                 github_links.append(url)
+            continue
 
-        # Wiki（非 GitHub Wiki）
-        elif "wiki" in url.lower() and "github.com" not in url and "wiki" not in links:
-            links["wiki"] = url
-
-        # Discord
-        elif ("discord.gg" in url or "discord.com/invite" in url) and "discord" not in links:
-            links["discord"] = url
-
-        # Jenkins CI
-        elif "jenkins" in url.lower() or ("ci." in url and "jenkins" not in links):
-            links["jenkins"] = url
-
-        # MCBBS
-        elif "mcbbs" in url and "mcbbs" not in links:
-            links["mcbbs"] = url
+        # 其余平台：按规则表匹配，每个 key 只存第一个
+        for pattern, key in _SIMPLE_LINK_RULES:
+            if pattern(url) and key not in links:
+                links[key] = url
+                break
 
     # 选择 CurseForge 链接：优先 mc-mods，其次最短
     if curseforge_links:
@@ -1617,6 +1633,7 @@ def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str
     return results
 
 
+@_cached(lambda keyword, max_results=5, content_type="mod": ("search", _cache_key("mcmod", keyword, max_results, content_type)))
 def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") -> list[dict]:
     """
     MC百科 搜索。
@@ -1630,50 +1647,38 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     if content_type == "modpack":
         return search_mcmod_modpack(keyword, max_results)
 
-    # 1. 缓存检查
-    key = _cache_key("mcmod", keyword, max_results, content_type)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
-
-    # 2. 构建搜索URL
+    # 1. 构建搜索URL
     urls = _build_mcmod_search_urls(keyword, content_type)
 
-    # 3. 执行搜索
+    # 2. 执行搜索
     html = curl(urls[0])
     if not html:
         raise SearchError(f"MC百科 (mcmod.cn) 当前无法访问，可能正在维护。建议使用 --platform modrinth 搜索 Modrinth 或稍后重试。")
 
-    # 4. 解析结果
+    # 3. 解析结果
     all_pairs = _parse_mcmod_search_results(html, content_type, keyword)
     search_metadata = _extract_search_result_metadata(html)
 
-    # 5. 按匹配度排序
+    # 4. 按匹配度排序
     reordered = _rank_by_name_match(all_pairs, keyword)
 
-    # 6. 截断到 max_results
+    # 5. 截断到 max_results
     limited_pairs = reordered[:max_results]
 
-    # 7. 抓取详情（WAF 拦截时自动回退到搜索数据）
+    # 6. 抓取详情（WAF 拦截时自动回退到搜索数据）
     results = _fetch_mcmod_details(limited_pairs, content_type, search_metadata)
 
-    # 8. 截断描述（控制 token 消耗）
+    # 7. 截断描述（控制 token 消耗）
     for r in results:
         if r.get('description') and len(r['description']) > _MAX_SEARCH_DESC_CHARS:
             r['description'] = r['description'][:_MAX_SEARCH_DESC_CHARS]
 
-    # 9. 缓存并返回
-    _cache_set("search", key, results)
     return results
 
 
+@_cached(lambda author_name, max_mods=20: ("search", _cache_key("mcmod_author", author_name, max_mods)))
 def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
     """MC百科按作者搜索。返回模组列表。"""
-    key = _cache_key("mcmod_author", author_name, max_mods)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
-
     q = urllib.parse.quote(author_name)
     html = curl(f"https://search.mcmod.cn/s?key={q}&filter=0")
     if not html or len(html) < MIN_HTML_LEN:
@@ -1727,17 +1732,12 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
         max_workers=min(len(limited_mods), _MAX_FETCH_WORKERS)
     )
 
-    _cache_set("search", key, results)
     return results
 
 
+@_cached(lambda keyword, max_results=5: ("search", _cache_key("mcmod_modpack", keyword, max_results)))
 def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     """MC百科整合包搜索。尝试多个filter策略，返回结果列表。"""
-    key = _cache_key("mcmod_modpack", keyword, max_results)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
-
     q = urllib.parse.quote(keyword)
 
     # 多 filter 策略：按优先级尝试不同的 filter 值
@@ -1794,7 +1794,6 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     # 并行抓取详情页（WAF 拦截时自动回退到搜索数据）
     results = _fetch_mcmod_details(limited_pairs, "modpack", all_metadata)
 
-    _cache_set("search", key, results)
     return results
 
 
@@ -1803,39 +1802,55 @@ def _build_modrinth_url(slug: str, project_type: str) -> str:
     return f"https://modrinth.com/{project_type or 'mod'}/{slug}"
 
 
+@_cached(lambda keyword, max_results=5, project_type="mod": ("search", _cache_key("modrinth", keyword, max_results, project_type)))
 def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
     """Modrinth搜索。返回 {"results": [...], "total": N, "returned": M}。
 
-    每个结果包含完整description（与MC百科齐平）。
+    每个结果包含完整description（与MC百科齐平）。详情（body+changelogs）并行获取。
     """
-    key = _cache_key("modrinth", keyword, max_results, project_type)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
-
     q = urllib.parse.quote(keyword)
     url = f"https://api.modrinth.com/v2/search?query={q}&index=relevance&limit={max_results}"
     data = _fetch_json(url, {"hits": []})
     if not data or "hits" not in data:
         return {"results": [], "total": 0, "returned": 0}
 
-    results = []
+    # 1. 收集匹配的 hits
+    matched_hits = []
     for hit in data.get("hits", []):
         proj_type = hit.get("project_type", "")
         if project_type and proj_type and proj_type != project_type:
             continue
+        matched_hits.append((hit, hit.get("slug", "")))
 
+    if not matched_hits:
+        return {"results": [], "total": data.get("total_hits", 0), "returned": 0}
+
+    # 2. 并行获取详情（body + changelogs）
+    def _fetch_detail(args):
+        hit, slug = args
+        if not slug:
+            return (hit, None)
+        try:
+            return (hit, fetch_mod_info(slug, no_limit=True))
+        except Exception:
+            return (hit, None)
+
+    details = _parallel_fetch_with_fallback(
+        matched_hits, _fetch_detail,
+        max_workers=min(len(matched_hits), _MAX_FETCH_WORKERS)
+    )
+
+    # 3. 构建结果（保持搜索 API 的顺序）
+    results = []
+    for hit, full_info in details:
+        proj_type = hit.get("project_type", "")
         slug = hit.get("slug", "")
-        # 获取完整描述（与MC百科齐平，使用body前500字符）
         description = hit.get("description", "")
         changelogs = []
-        full_info = fetch_mod_info(slug, no_limit=True) if slug else None
         if full_info:
             body = full_info.get("body", "")
-            # 用body前_MAX_SEARCH_DESC_CHARS字符作为详细描述
             if body:
                 description = body[:_MAX_SEARCH_DESC_CHARS] + ("..." if len(body) > _MAX_SEARCH_DESC_CHARS else "")
-            # 提取前3条 changelogs（非 full 命令限制为3条）
             cl_list = full_info.get("changelogs", [])
             changelogs = cl_list[:_SEARCH_CHANGELOG_LIMIT]
 
@@ -1848,21 +1863,18 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "source_id": slug,
             "type": proj_type or project_type or "mod",
             "snippet": hit.get("description", ""),
-            "description": description,  # 完整描述
+            "description": description,
             "downloads": hit.get("downloads", 0),
             "followers": hit.get("followers", 0),
             "icon_url": hit.get("icon_url", ""),
             "author": hit.get("author", ""),
-            "versions": hit.get("versions", []),
-            "changelogs": changelogs,  # 前3条更新日志
+            "supported_versions": hit.get("versions", []),
+            "changelogs": changelogs,
         }
-
         results.append(result)
 
     total = data.get("total_hits", 0)
-    ret = {"results": results, "total": total, "returned": len(results)}
-    _cache_set("search", key, ret)
-    return ret
+    return {"results": results, "total": total, "returned": len(results)}
 
 
 def _parse_modrinth_license(raw_license: dict | str) -> tuple[str, str, str]:
@@ -2113,19 +2125,14 @@ def _fetch_modrinth_team_author(project_id: str) -> str:
     return ""
 
 
+@_cached(lambda mod_id, no_limit=False: ("mod", _cache_key("modinfo", mod_id, "full" if no_limit else "limited")))
 def fetch_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
     """
     获取 mod 完整信息（Modrinth）。
     mod_id 可以是 slug 或 project_id。
     no_limit: True 时返回完整数据（用于 full 命令），False 时使用默认限制并返回 _truncated 元信息。
     """
-    # 1. 缓存检查
-    cache_key = _cache_key("modinfo", mod_id, "full" if no_limit else "limited")
-    cached = _cache_get("mod", cache_key)
-    if cached is not None:
-        return cached
-
-    # 2. API调用
+    # API调用
     data = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
     if not data:
         return None
@@ -2180,21 +2187,16 @@ def fetch_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
             if changelog_total > _MAX_CHANGELOGS:
                 truncated["changelogs"] = {"returned": _MAX_CHANGELOGS, "total": changelog_total}
 
-    # 9. 添加截断元信息并返回
+    # 添加截断元信息并返回
     if truncated:
         result["_truncated"] = truncated
 
-    _cache_set("mod", cache_key, result)
     return result
 
 
+@_cached(lambda username, max_results=10: ("search", _cache_key("author", username, max_results)))
 def search_modrinth_author(username: str, max_results: int = 10) -> list[dict]:
     """Modrinth作者搜索。返回作者作品列表。"""
-    key = _cache_key("author", username, max_results)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
-
     q = urllib.parse.quote(username)
     # colon in filter=authors: must stay unencoded
     url = f"https://api.modrinth.com/v2/search?query={q}&filter=authors:{q}&index=relevance&limit={max_results}"
@@ -2214,21 +2216,16 @@ def search_modrinth_author(username: str, max_results: int = 10) -> list[dict]:
             "type": hit.get("project_type", "mod"),
             "snippet": hit.get("description", ""),
         })
-    _cache_set("search", key, results)
     return results
 
 
+@_cached(lambda mod_id, project_id=None: ("mod", _cache_key("deps", mod_id)))
 def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
     """
     获取 mod 依赖树。
     返回 {"deps": {...}, "optional_count": int, "required_count": int}
     - deps: {mod_slug: {name, slug, client_side, server_side, type, url}}
     """
-    cache_key = _cache_key("deps", mod_id)
-    cached = _cache_get("mod", cache_key)
-    if cached is not None:
-        return cached
-
     if not project_id:
         proj = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
         if not proj:
@@ -2258,7 +2255,6 @@ def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
         }
 
     result = {"deps": deps}
-    _cache_set("mod", cache_key, result)
     return result
 
 
@@ -2376,7 +2372,7 @@ def _make_wiki_result(name, url, source, source_id, snippet, sections,
         "url": url,
         "source": source,
         "source_id": source_id,
-        "type": "other",
+        "type": "wiki",
         "sections": sections,
         "snippet": snippet,
     }
@@ -2487,6 +2483,7 @@ def _wiki_api_search(
     return results
 
 
+@_cached(lambda keyword, base_url, cache_prefix, source, title_field, add_variant, max_results=5: ("search", _cache_key(cache_prefix, keyword, max_results)))
 def _search_wiki_impl(
     keyword: str,
     base_url: str,
@@ -2506,11 +2503,6 @@ def _search_wiki_impl(
         title_field: 标题填入哪个字段（"name_en" / "name_zh" / ""）
         add_variant: 是否添加 ?variant=zh-hans
     """
-    key = _cache_key(cache_prefix, keyword, max_results)
-    cached = _cache_get("search", key)
-    if cached is not None:
-        return cached
-
     results = []
     q = urllib.parse.quote(keyword)
 
@@ -2545,7 +2537,6 @@ def _search_wiki_impl(
     else:
         results = api_results
 
-    _cache_set("search", key, results)
     return results
 
 
@@ -3020,7 +3011,7 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
     if not keyword or not keyword.strip():
         return {"results": [], "platform_stats": {}}
 
-    # 默认值 None 表示"使用平台默认结果数"（_DEFAULT_RESULTS_PER_PLATFORM=15）
+    # 默认值 None 表示"使用平台默认结果数"（_DEFAULT_RESULTS_PER_PLATFORM=5）
     per_source = max_per_source if max_per_source is not None else _DEFAULT_RESULTS_PER_PLATFORM
     results = {"mcmod.cn": [], "modrinth": [], "minecraft.wiki": [], "minecraft.wiki/zh": []}
     stats = {"mcmod.cn": {"total": 0, "returned": 0},
@@ -3039,12 +3030,17 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
         # modpack 不支持 wiki
         pe["minecraft.wiki"] = False
         pe["minecraft.wiki/zh"] = False
+    elif content_type == "vanilla":
+        # 原版内容仅 wiki
+        pe["mcmod.cn"] = False
+        pe["modrinth"] = False
 
     def _wrap_mcmod():
         try:
-            # 支持 mod 和 modpack 类型
             valid_types = ("mod", "item", "modpack")
             ct = content_type if content_type in valid_types else "mod"
+            if content_type not in valid_types:
+                logger.debug(f"MC百科不支持 content_type={content_type}，降级为 mod")
             return search_mcmod(keyword, per_source, content_type=ct)
         except (SearchError, OSError) as e:
             logger.warning(f"MC百科搜索失败: {e}")
