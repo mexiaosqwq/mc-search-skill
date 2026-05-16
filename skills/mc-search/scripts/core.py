@@ -40,6 +40,7 @@ HTTP_HEADERS = {
 MIN_HTML_LEN = 1000         # 来源: 正常页面3-8KB，错误页<500B；核心检测阈值
 MIN_HTML_LEN_ITEM = 500     # 来源: 物品页无侧边栏，结构更紧凑
 _MIN_PARAGRAPH_LEN = 20     # 来源: wiki解析，过滤导航/广告短文本
+_MIN_PARAGRAPH_LEN_ZH = 8   # 来源: 中文信息密度高，20字符对中文过严
 _MIN_SHORT_TEXT_LEN = 35    # 来源: 低于此长度视为无意义内容
 _MIN_DESCRIPTIVE_LI_LEN = 50  # 来源: 列表项需有足够描述性内容
 _MIN_DESCRIPTION_LINE_LEN = 10  # 来源: 描述文字单行最小长度
@@ -311,7 +312,8 @@ def clean_html_text(html_fragment: str, preserve_nl: bool = False) -> str:
 
 def _is_valid_paragraph(text: str, lang: str = "en") -> bool:
     """判断是否为有意义的正文段落。lang="zh"时检测中文连接词。"""
-    if not text or len(text) < _MIN_PARAGRAPH_LEN:
+    min_len = _MIN_PARAGRAPH_LEN_ZH if lang == "zh" else _MIN_PARAGRAPH_LEN
+    if not text or len(text) < min_len:
         return False
     if re.match(r"^[\#\.\[\/\{]", text):
         return False
@@ -802,8 +804,11 @@ def _parse_mcmod_item_result(html: str, url: str, name: str) -> dict:
     }
 
     # 截断元信息
-    if screenshots_meta:
-        result["_truncated"] = screenshots_meta
+    truncated = dict(screenshots_meta) if screenshots_meta else {}
+    if description and len(description) > _MAX_SEARCH_DESC_CHARS:
+        truncated["description"] = {"returned": _MAX_SEARCH_DESC_CHARS, "total": len(description)}
+    if truncated:
+        result["_truncated"] = truncated
 
     return result
 
@@ -939,8 +944,11 @@ def _parse_mcmod_modpack_result(html: str, url: str, name: str) -> dict:
     }
 
     # 截断元信息
-    if screenshots_meta:
-        result["_truncated"] = screenshots_meta
+    truncated = dict(screenshots_meta) if screenshots_meta else {}
+    if description and len(description) > _MAX_SEARCH_DESC_CHARS:
+        truncated["description"] = {"returned": _MAX_SEARCH_DESC_CHARS, "total": len(description)}
+    if truncated:
+        result["_truncated"] = truncated
 
     return result
 
@@ -1372,21 +1380,22 @@ def parse_mcmod_result(html: str, url: str, name: str) -> dict:
         return _build_mcmod_fallback_result(url, name, None, "mod")
 
     m = re.search(r"<title>([^<]+)</title>", html)
-    raw_title = re.sub(r"\s*-\s*MC百科\|.*", "", m.group(1)).strip() if m else name
+    raw_title = m.group(1).strip() if m else name
 
-    # 副标题 h4 通常含英文名
-    name_en = ""
-    h4_m = re.search(r'<h4[^>]*>\s*([^<\s][^<]*?)\s*</h4>', html)
-    if h4_m:
-        en_raw = h4_m.group(1).strip()
-        if en_raw and en_raw != raw_title:
-            name_en = en_raw
+    # 从 <title> 提取中英文名（格式："中文名 (English) - MC百科|..."）
+    zh_from_title, en_from_title = _parse_mcmod_title(raw_title)
 
-    # 从原始标题中分离中文名和英文名（格式："中文名 (English Name)"）
-    name_zh = raw_title
-    if name_en:
-        zh_part = re.match(r'^(.+?)\s*\(', raw_title)
-        name_zh = zh_part.group(1).strip() if zh_part else raw_title
+    # 副标题 h4 作为英文名后备
+    name_en = en_from_title
+    if not name_en:
+        h4_m = re.search(r'<h4[^>]*>\s*([^<\s][^<]*?)\s*</h4>', html)
+        if h4_m:
+            en_raw = h4_m.group(1).strip()
+            if en_raw and en_raw != zh_from_title:
+                name_en = en_raw
+
+    # 中文名直接取自 title 解析结果
+    name_zh = zh_from_title
 
     # 调用辅助函数提取各字段
     cover_image, screenshots = _extract_mcmod_cover(html)
@@ -1438,8 +1447,11 @@ def parse_mcmod_result(html: str, url: str, name: str) -> dict:
     }
 
     # 截断元信息
-    if screenshots_meta:
-        result["_truncated"] = screenshots_meta
+    truncated = dict(screenshots_meta) if screenshots_meta else {}
+    if description and len(description) > _MAX_SEARCH_DESC_CHARS:
+        truncated["description"] = {"returned": _MAX_SEARCH_DESC_CHARS, "total": len(description)}
+    if truncated:
+        result["_truncated"] = truncated
 
     return result
 
@@ -1673,7 +1685,9 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     # 7. 截断描述（控制 token 消耗）
     for r in results:
         if r.get('description') and len(r['description']) > _MAX_SEARCH_DESC_CHARS:
+            full_len = len(r['description'])
             r['description'] = r['description'][:_MAX_SEARCH_DESC_CHARS]
+            r.setdefault('_truncated', {})['description'] = {"returned": _MAX_SEARCH_DESC_CHARS, "total": full_len}
 
     return results
 
@@ -2593,7 +2607,12 @@ def _extract_wiki_infobox(html: str) -> dict:
     if infobox_html:
         return _parse_infobox_table(infobox_html)
 
-    # 格式4: 中文 wiki 的分散表格
+    # 格式4: div.infobox-rows（中文 wiki wiki.gg 新布局）
+    zh_data = _try_extract_div_infobox_rows(html)
+    if zh_data:
+        return zh_data
+
+    # 格式5: 中文 wiki 的分散表格（旧格式回退）
     zh_data = _try_extract_chinese_wiki_tables(html)
     if zh_data:
         return zh_data
@@ -2631,6 +2650,58 @@ def _try_extract_first_table(html: str) -> str | None:
     if first_table and '<th' in first_table.group(0):
         return first_table.group(1)
     return None
+
+
+def _try_extract_div_infobox_rows(html: str) -> dict | None:
+    """提取中文 wiki div.infobox-rows 格式（wiki.gg 新布局）。
+
+    结构: <div class="infobox-rows"> → <div class="infobox-row">
+           → <div class="infobox-row-label">标签</div>
+           → <div class="infobox-row-field">值</div>
+    """
+    rows_start = re.search(r'<div[^>]+class="[^"]*infobox-rows[^"]*"[^>]*>', html)
+    if not rows_start:
+        return None
+
+    # 从 infobox-rows 起，逐层匹配找到闭合标签
+    pos = rows_start.start()
+    depth = 0
+    rows_html = ""
+    for m in re.finditer(r'</?div[^>]*>', html[pos:], re.IGNORECASE):
+        if m.group().startswith('</'):
+            depth -= 1
+        else:
+            depth += 1
+        if depth == 0:
+            rows_html = html[pos + len(rows_start.group()):pos + m.start()]
+            break
+
+    if not rows_html:
+        return None
+
+    # 从 rows_html 中提取每个 infobox-row 的标签和值
+    data = {}
+    for row_start in re.finditer(r'<div[^>]+class="[^"]*infobox-row\b[^"]*"[^>]*>', rows_html):
+        rpos = row_start.end()
+        rdepth = 1
+        row_inner = ""
+        for m in re.finditer(r'</?div[^>]*>', rows_html[rpos:], re.IGNORECASE):
+            if m.group().startswith('</'):
+                rdepth -= 1
+            else:
+                rdepth += 1
+            if rdepth == 0:
+                row_inner = rows_html[rpos:rpos + m.start()]
+                break
+
+        label_m = re.search(r'<div[^>]+class="[^"]*infobox-row-label[^"]*"[^>]*>(.*?)</div>', row_inner, re.DOTALL)
+        field_m = re.search(r'<div[^>]+class="[^"]*infobox-row-field[^"]*"[^>]*>(.*?)</div>', row_inner, re.DOTALL)
+        if label_m:
+            key = clean_html_text(label_m.group(1))
+            value = clean_html_text(field_m.group(1)) if field_m else ""
+            if key and len(key) < 30 and not key.startswith(('{{', '{|')):
+                data[key] = value
+    return data if data else None
 
 
 def _try_extract_chinese_wiki_tables(html: str) -> dict | None:
@@ -2690,6 +2761,24 @@ def _extract_main_image(html: str) -> str:
     return img.group(1) if img else ""
 
 
+def _strip_infobox_region(html: str) -> str:
+    """切除 div.infobox / div.notaninfobox 区域（避免 rail 模块数据泄漏）。"""
+    infobox_start = re.search(r'<div[^>]+class="[^"]*(?:infobox|notaninfobox)[^"]*"[^>]*>', html)
+    if not infobox_start:
+        return html
+    # 从 infobox div 起逐层匹配闭合标签
+    pos = infobox_start.start()
+    depth = 0
+    for m in re.finditer(r'</?div[^>]*>', html[pos:], re.IGNORECASE):
+        if m.group().startswith('</'):
+            depth -= 1
+        else:
+            depth += 1
+        if depth == 0:
+            return html[:pos] + html[pos + m.end():]
+    return html
+
+
 def _extract_intro_paragraphs(content_html: str, para_skip_prefixes: tuple, source: str) -> list[str]:
     """提取 wiki 页面首段介绍（第一个 heading 之前的内容）。"""
     # 解析 heading 位置
@@ -2703,6 +2792,10 @@ def _extract_intro_paragraphs(content_html: str, para_skip_prefixes: tuple, sour
     # 提取第一个 heading 之前的段落
     first_heading_pos = heading_map[0]
     pre_heading_html = content_html[:first_heading_pos]
+
+    # 切除 infobox/notaninfobox 区域（避免 rail 模块数据泄漏到首段）
+    pre_heading_html = _strip_infobox_region(pre_heading_html)
+
     intro_paragraphs = []
 
     for p in re.findall(r"<p[^>]*>(.*?)</p>", pre_heading_html, re.DOTALL):
@@ -2810,7 +2903,7 @@ def _extract_section_paragraphs(section_html: str, para_skip_prefixes: tuple, so
     if source != "minecraft.wiki" and not section_paragraphs:
         for li in re.findall(r"<li[^>]*>(.*?)</li>", section_html, re.DOTALL):
             clean = clean_html_text(li)
-            if len(clean) >= _MIN_PARAGRAPH_LEN and not clean.startswith(("[", "编辑", "注：")):
+            if len(clean) >= _MIN_PARAGRAPH_LEN_ZH and not clean.startswith(("[", "编辑", "注：")):
                 section_paragraphs.append(clean)
                 if len(section_paragraphs) >= 5:
                     break
@@ -2988,6 +3081,7 @@ def read_wiki(url: str, max_paragraphs: int = -1, include_infobox: bool = True) 
 
 def read_wiki_zh(url: str, max_paragraphs: int = -1, include_infobox: bool = True) -> dict:
     """读取minecraft.wiki/zh中文wiki页面正文。"""
+    url = _add_variant_param(url)  # 确保返回简体中文
     return _read_wiki_impl(
         url, max_paragraphs,
         para_skip_prefixes=("历史", "编辑", "History of", "v ", "[edit"),
@@ -3034,6 +3128,10 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
         pe["minecraft.wiki/zh"] = False
     elif content_type == "vanilla":
         # 原版内容仅 wiki
+        pe["mcmod.cn"] = False
+        pe["modrinth"] = False
+    elif content_type in ("entity", "biome", "dimension"):
+        # 实体/群系/维度仅 wiki（MC百科 + Modrinth 无对应分类）
         pe["mcmod.cn"] = False
         pe["modrinth"] = False
 
@@ -3261,43 +3359,76 @@ def _score_and_filter(results: dict, content_type: str, query_keyword: str) -> l
     return scored
 
 
-def _entry_name_key(entry: dict) -> str:
-    """从搜索结果中提取标准化名称键。"""
-    return (entry.get("name_zh") or entry.get("name_en") or entry.get("name") or "").lower()
+def _entry_name_keys(entry: dict) -> set[str]:
+    """返回所有可用名称的标准化 key 集合（多候选，跨语言匹配）。"""
+    keys = set()
+    for field in ('name_zh', 'name_en', 'name'):
+        v = entry.get(field)
+        if v and isinstance(v, str) and v.strip():
+            keys.add(v.strip().lower())
+    return keys
 
 
-def _count_platform_hits(scored: list[dict]) -> dict[str, set]:
-    """步骤2: 统计每个名称在多少个平台出现。"""
+def _count_platform_hits(scored: list[dict]) -> dict[frozenset, set]:
+    """步骤2: 统计每个名称组在多少个平台出现。"""
     name_platform_count = {}
     for entry in scored:
-        key = _entry_name_key(entry)
-        if key:
-            if key not in name_platform_count:
-                name_platform_count[key] = set()
-            name_platform_count[key].add(entry["_platform"])
+        keys = _entry_name_keys(entry)
+        if not keys:
+            continue
+        frozen = frozenset(keys)
+        if frozen not in name_platform_count:
+            name_platform_count[frozen] = set()
+        name_platform_count[frozen].add(entry["_platform"])
     return name_platform_count
 
 
 def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[str, dict]:
-    """步骤3: 同名去重（按分数从高到低，同分时保留平台权威度高的）。"""
-    by_name = {}
+    """步骤3: 多候选 key 去重。两结果任一 key 命中即视为同一内容。"""
+    key_to_canonical = {}  # individual key → canonical key
+    by_name = {}           # canonical_key → best entry
+
     for entry in scored:
-        key = _entry_name_key(entry)
-        if not key:
+        entry_keys = _entry_name_keys(entry)
+        if not entry_keys:
             continue
 
-        # 多平台命中加权
-        platform_count = len(name_platform_count.get(key, set()))
+        # 检查是否与已有分组重叠
+        canonical_key = None
+        for k in entry_keys:
+            if k in key_to_canonical:
+                canonical_key = key_to_canonical[k]
+                break
+
+        if canonical_key is None:
+            # 新实体：确立 canonical key
+            canonical_key = min(entry_keys)
+            by_name[canonical_key] = entry
+            for k in entry_keys:
+                key_to_canonical[k] = canonical_key
+            continue
+
+        # 已存在：保留更高分的条目
+        existing = by_name[canonical_key]
+        # 合并 key 集合（新 key 也映射到此 canonical）
+        for k in entry_keys:
+            if k not in key_to_canonical:
+                key_to_canonical[k] = canonical_key
+
+        if entry["_score"] > existing["_score"]:
+            by_name[canonical_key] = entry
+        elif entry["_score"] == existing["_score"] and entry["_priority"] < existing["_priority"]:
+            by_name[canonical_key] = entry
+
+    # 多平台命中加权
+    for canonical_key, entry in by_name.items():
+        all_keys = {k for k, c in key_to_canonical.items() if c == canonical_key}
+        all_platforms = set()
+        for k in all_keys:
+            all_platforms.update(name_platform_count.get(frozenset([k]), set()))
+        platform_count = len(all_platforms)
         if platform_count > 1:
             entry["_score"] += (platform_count - 1) * MatchScore.MULTI_PLATFORM_BONUS
-
-        if key not in by_name:
-            by_name[key] = entry
-        elif entry["_score"] > by_name[key]["_score"]:
-            by_name[key] = entry
-        elif entry["_score"] == by_name[key]["_score"]:
-            if entry["_priority"] < by_name[key]["_priority"]:
-                by_name[key] = entry
 
     return by_name
 
@@ -3311,13 +3442,14 @@ def _build_fused_output(sorted_entries: list[dict], scored: list[dict]) -> list[
     """步骤5: 构建融合结果输出。"""
     fused = []
     for entry in sorted_entries:
-        # 保留分数，移除其他 _ 字段
-        merged = {k: v for k, v in entry.items() if not k.startswith("_") or k == "_score"}
+        # 保留分数 + 截断元信息，移除其他 _ 字段
+        merged = {k: v for k, v in entry.items()
+                  if not k.startswith("_") or k in ("_score", "_sources", "_truncated")}
 
-        # 收集所有同名结果的平台，并去重
-        entry_name = _entry_name_key(entry)
+        # 收集所有 key 重叠结果的平台（多候选 key 交集匹配）
+        entry_keys = _entry_name_keys(entry)
         platforms = [e["_platform"] for e in scored
-                     if _entry_name_key(e) == entry_name]
+                     if _entry_name_keys(e) & entry_keys]
         merged["_sources"] = list(dict.fromkeys(platforms))
 
         if len(merged["_sources"]) > 1:

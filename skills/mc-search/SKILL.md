@@ -64,7 +64,7 @@ core.search_all(keyword, max_per_source=None, content_type="shader")
 
 `content_type`: `mod`(默认) / `item` / `modpack` / `shader` / `resourcepack` / `vanilla` / `entity` / `biome` / `dimension`
 
-每个 hit 关键字段：`name`, `name_zh`, `name_en`, `url`, `source`, `_score`(0-150+), `_sources`([平台]), `source_id`, `snippet`/`description`
+每个 hit 关键字段：`name`, `name_zh`, `name_en`, `url`, `source`, `_score`(0-150+), `_sources`([平台]), `source_id`, `snippet`/`description`, `_truncated`(可选，截断元信息)
 
 ### 详情：`fetch_mod_info()` / `get_mod_dependencies()`
 
