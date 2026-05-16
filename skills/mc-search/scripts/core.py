@@ -3664,25 +3664,30 @@ def _mark_primary(fused: list[dict], query_keyword: str) -> list[dict]:
         return fused
 
     # ── 级联 C: 前置关系 ──
-    required_by_others = set()   # name → 被其他条目依赖
-    addon_names = set()          # 有 requires 的条目（附属）
+    required_by_others = set()   # name → 被其他条目依赖（name_zh / name_en）
     for hit in fused:
         rel = hit.get("relationships", {})
         if isinstance(rel, dict) and not rel.get("_error"):
-            requires = rel.get("requires", [])
-            if requires:
-                addon_names.add((hit.get("name_zh") or hit.get("name") or "").lower())
-            for req in requires:
-                req_name = req.get("name_zh") or req.get("name_en") or ""
+            for req in rel.get("requires", []):
+                req_name = (req.get("name_zh") or req.get("name_en") or "").strip().lower()
                 if req_name:
-                    required_by_others.add(req_name.strip().lower())
+                    required_by_others.add(req_name)
     if required_by_others:
         for hit in fused:
-            hit_name = (hit.get("name_zh") or hit.get("name") or "").lower()
-            hit_en = (hit.get("name_en") or "").lower()
-            if (hit_name in required_by_others or hit_en in required_by_others) \
-               and hit_name not in addon_names:
-                hit["is_primary"] = True
+            hit_name = (hit.get("name_zh") or hit.get("name") or "").strip().lower()
+            hit_en = (hit.get("name_en") or "").strip().lower()
+            if hit_name in required_by_others or hit_en in required_by_others:
+                # 同时检查自身不是仅被自己依赖（排除 requires 列表指向自己的循环引用）
+                requires_self = False
+                rel = hit.get("relationships", {})
+                if isinstance(rel, dict) and not rel.get("_error"):
+                    for req in rel.get("requires", []):
+                        rn = (req.get("name_zh") or req.get("name_en") or "").strip().lower()
+                        if rn == hit_name or rn == hit_en:
+                            requires_self = True
+                            break
+                if not requires_self:
+                    hit["is_primary"] = True
         if any(h.get("is_primary") for h in fused):
             return fused
 
