@@ -51,3 +51,9 @@ clean-code-review.*
 
 # Claude Code local config (hooks, settings)
 .claude/
+
+# Agent engineering files (local-only)
+docs/agents/
+docs/adr/
+CONTEXT.md
+CONTEXT-MAP.md

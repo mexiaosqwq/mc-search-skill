@@ -18,8 +18,8 @@ Agent 调用 → core.py API → 并行平台搜索 → 结果融合(_fuse_resul
 ```
 
 两个文件：
-- `scripts/core.py` — 全部搜索逻辑（API 调用、HTML 解析、结果融合、缓存）
-- `scripts/cli.py` — argparse 薄壳（Agent 不使用，仅人类调试用）
+- `skills/mc-search/scripts/core.py` — 全部搜索逻辑（API 调用、HTML 解析、结果融合、缓存）
+- `skills/mc-search/scripts/cli.py` — argparse 薄壳（Agent 不使用，仅人类调试用）
 
 ## Agent 使用方式
 
@@ -28,6 +28,8 @@ Agent 应直接 `import` core 模块，不通过 CLI。
 ### 搜索：`search_all()`
 
 ```python
+import sys
+sys.path.insert(0, 'skills/mc-search')
 from scripts import core
 
 # 多平台搜索（推荐）
@@ -145,6 +147,8 @@ core.set_platform_enabled(mcmod=True, modrinth=True, wiki=True, wiki_zh=True)
 修改代码后，在 Python 中验证：
 
 ```python
+import sys
+sys.path.insert(0, 'skills/mc-search')
 import scripts.core as core
 
 # 搜索
@@ -171,8 +175,67 @@ assert len(r2["results"]) > 0
 - `curl_cffi>=0.15.0`（MC百科 + wiki 必需）
 - 其余标准库
 
-## 修改准则
+## 行为准则（所有修改必须遵循）
 
-- **不改 CLI**：Agent 不经过 CLI，功能迭代优先考虑 core.py API
-- **复杂任务先规划**：走 `workflow-execute-plans`，分批执行 + 验证 + 暂停反馈
-- **保持 AI 优先**：所有设计决策以 AI Agent 调用体验为第一位
+### 极简主义
+- 不添加任务范围外的功能、重构或抽象。Bug 修复不需要周边清理
+- 三行相似代码优于过早抽象。一次性操作不需要辅助函数
+- 不做半成品实现。不设计未来假想需求
+
+### 编辑优先于新建
+- 总是先考虑修改现有文件，非必要时不创建新文件
+- 不改 CLI：Agent 不经过 CLI，功能迭代只改 core.py API
+
+### 信任内部代码
+- 不为不可能发生的场景添加错误处理、回退或验证
+- 信任内部代码和框架保证。仅在系统边界（用户输入、外部 API）验证
+
+### 注释克制
+- 默认不写注释。仅在 WHY 不明显时添加（隐藏约束、微妙不变量、特定 Bug workaround）
+- 不写多段 docstring 或多行注释块。最多一行简注
+- 不解释 WHAT 代码做什么（好的命名已做到这点）
+- 删除过时注释（引用已完成的 Phase、已移除功能等）——它们是死知识
+
+### 不留向后兼容包袱
+- 彻底删除无用代码。不重命名 `_vars`、不重导出类型、不加 `// removed` 注释
+- 确认某物未被使用时直接删除，不做软废弃
+
+### 专用工具优先
+- 文件操作必须用 Read / Edit / Write / Glob / Grep，不用 Bash 的 cat / grep / sed / awk
+- Bash 仅用于真正需要 shell 的操作（git、npm、pip、curl）
+
+### 修改前瞻后顾
+- 改一处前 grep 所有引用点，确认无遗漏
+- 修改后运行测试验证（Python API 方式）
+- 参考 clean-code-review.md 中的已知问题，不引入新的 [HIGH] 问题
+
+### 复杂任务先规划
+- 多文件修改 / 重构 / 批量修复必须先走 workflow-execute-plans
+- 分批执行 + 每批验证 + 暂停等待反馈
+- 单行修复 / 单文件小改可跳过
+
+### 验证后才报告完成
+- 测试 golden path 和边界情况
+- 无法实际验证时明确说明，不声称成功
+- 测试/状态检查等辅助工作派子 agent，不占主上下文
+
+### AI 优先
+- 所有设计决策以 AI Agent 调用体验为第一位
+- 默认参数针对 AI 场景优化（小结果集、合理超时、稳定输出）
+- 参数命名一致性比人类 CLI 灵活性更重要
+
+## Agent skills
+
+> `docs/agents/` 下文件为本地配置（gitignored），通过 `/setup-matt-pocock-skills` 生成。新克隆的仓库需先运行该命令。
+
+### Issue tracker
+
+Issues live in GitHub Issues at `mexiaosqwq/mc-search-skill`. Use the `gh` CLI for all operations. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+All five canonical labels use their default names (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). `wontfix` already exists in the repo; the other four are new. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — one `CONTEXT.md` + `docs/adr/` at the repo root. Neither exists yet; skills that need them will proceed silently. Created lazily by `/grill-with-docs`. See `docs/agents/domain.md`.
