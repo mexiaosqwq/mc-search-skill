@@ -856,7 +856,7 @@ def _show_full(name: str, ident: dict, *, skip_mr: bool = False,
 
 def _show_default(name: str, ident: dict, *, no_mr: bool = False,
                   no_mcmod: bool = False, is_json: bool = False):
-    """show 默认：MC百科 URL/ID/中文名→MC百科，Modrinth URL/slug→Modrinth。"""
+    """show 默认：Modrinth URL/slug→Modrinth，MC百科 URL/ID→MC百科。纯英文名优先Modrinth，中文名优先MC百科。"""
     saved_files = []
     # Modrinth 路径
     if ident["mr_slug"] is not None:
@@ -875,33 +875,33 @@ def _show_default(name: str, ident: dict, *, no_mr: bool = False,
             core.logger.warning(f"获取 Modrinth 信息失败 ({slug}): {e}")
         _fail(f"无法获取 Modrinth 项目信息: {slug}", "NOT_FOUND", is_json)
 
-    # MC百科路径，失败时回退 Modrinth
-    if no_mcmod:
-        info, err_type, err_msg = None, "DISABLED", "已禁用 MC百科（--no-mcmod）"
-    else:
-        info, err_type, err_msg = _show_mcmod(name, ident)
-    if _is_valid(info):
-        _print_mcmod_show_info(info, name, is_json=is_json)
-        return
+    # 非 URL 输入：按名称判断优先平台
+    is_cjk = any('\u4e00' <= c <= '\u9fff' for c in name)
+    first, second = ("mcmod", "mr") if is_cjk else ("mr", "mcmod")
+    err_msg, err_type = f"未找到 [{name}] 的相关信息", "NOT_FOUND"
 
-    # MC百科失败，尝试 Modrinth 回退（仅当用户输入是名称而非数字ID/URL时）
-    if not no_mr and not ident["class_id"]:
-        hit = _search_modrinth_exact(name)
-        if hit:
-            slug = hit.get("source_id") or hit.get("slug")
-            if slug:
-                try:
-                    mr_info = core.fetch_mod_info(slug, no_limit=True)
-                    if _is_valid(mr_info):
-                        if is_json:
-                            _json_out({"results": mr_info}, is_json)
-                        else:
-                            _print_full_modrinth_info(mr_info, saved_files=saved_files)
-                        return
-                except (core.SearchError, OSError):
-                    pass  # 失败后输出错误信息
+    for attempt in (first, second):
+        if attempt == "mcmod" and not no_mcmod:
+            info, err_type, err_msg = _show_mcmod(name, ident)
+            if _is_valid(info):
+                _print_mcmod_show_info(info, name, is_json=is_json)
+                return
+        elif attempt == "mr" and not no_mr and not ident["class_id"]:
+            hit = _search_modrinth_exact(name)
+            if hit:
+                slug = hit.get("source_id") or hit.get("slug")
+                if slug:
+                    try:
+                        mr_info = core.fetch_mod_info(slug, no_limit=True)
+                        if _is_valid(mr_info):
+                            if is_json:
+                                _json_out({"results": mr_info}, is_json)
+                            else:
+                                _print_full_modrinth_info(mr_info, saved_files=saved_files)
+                            return
+                    except (core.SearchError, OSError):
+                        pass
 
-    # Modrinth 也失败（或已禁用），输出原始错误
     _fail(err_msg, err_type, is_json)
 
 
