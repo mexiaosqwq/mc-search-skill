@@ -3314,7 +3314,7 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
     # 跨语言桥接：中文关键词用 MC百科 英文名补搜 Modrinth
     # 注意：不能检查 results["modrinth"] 是否为空，因为 bbsmc CJK fallback 可能已填充了中文结果
     if fuse and _is_cjk(keyword):
-        bridge_hits = _cross_language_bridge(results["mcmod.cn"], keyword, per_source)
+        bridge_hits = _cross_language_bridge(results["mcmod.cn"], results["modrinth"], keyword, per_source)
         if bridge_hits:
             # 去重合并：避免和 bbsmc fallback 结果重复
             existing_slugs = {h.get("source_id", "") for h in results["modrinth"]}
@@ -3334,17 +3334,25 @@ def _is_cjk(text: str) -> bool:
     return bool(re.search(r'[\u4e00-\u9fff]', text))
 
 
-def _cross_language_bridge(mcmod_hits: list, keyword: str, per_source: int) -> list:
-    """从 MC百科 结果提取英文名去 Modrinth 补搜，用于中文关键词跨语言桥接。"""
-    if not mcmod_hits:
+def _cross_language_bridge(mcmod_hits: list, mr_hits: list, keyword: str, per_source: int) -> list:
+    """从 MC百科 + bbsmc(MR) 结果提取英文名去 Modrinth 补搜。"""
+    if not mcmod_hits and not mr_hits:
         return []
 
     # 提取英文名候选（去重，最多 per_source 个）
     en_names = set()
+    # 源1: MC百科 name_en
     for hit in mcmod_hits:
         en = (hit.get("name_en") or "").strip()
         if en:
             en_names.add(en.lower())
+    # 源2: bbsmc 双语名 "中文名 - EnglishName" → 提取英文部分
+    for hit in mr_hits:
+        name_zh = (hit.get("name_zh") or "").strip()
+        if " - " in name_zh:
+            en_part = name_zh.rsplit(" - ", 1)[-1].strip()
+            if en_part and not _is_cjk(en_part):
+                en_names.add(en_part.lower())
     if not en_names:
         logger.debug("Cross-language bridge: no English names extracted")
         return []
