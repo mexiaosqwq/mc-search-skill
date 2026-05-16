@@ -51,6 +51,7 @@ _MAX_TABLE_ITEMS = 50               # 来源: 单个表格最大处理行数（�
 _MAX_VERSION_GROUPS = 5
 _MAX_CHANGELOGS = 5
 _MAX_FETCH_WORKERS = 4
+_BBSMC_API = "https://api.bbsmc.net/v3"
 _MAX_SCREENSHOTS = 0        # 默认不返回截图（可配置）
 _MAX_GALLERY = 0            # 默认不返回画廊（可配置）
 _MAX_TAG_SECTION_LEN = 500
@@ -169,7 +170,7 @@ def _build_mcmod_fallback_result(url: str, name: str, meta: dict | None = None,
         "status": None,
         "source_type": None,
         "description": description,
-        "relationships": None,
+        "relationships": {"_error": "parse_failed"},
         "has_changelog": False,
         "external_links": None,
         "content_list": None,
@@ -600,8 +601,8 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
                     r = _MCMOD_SESSION.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
                     if _WAF_CC_CHECK not in r.text or len(r.text) >= _MAX_CC_PAGE_LEN:
                         return r.text
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"CDN bypass post failed for {host}: {e}")
             # 绕过失败：重置 session 后重试
             _MCMOD_BYPASSED = False
             _MCMOD_SESSION = None
@@ -1042,13 +1043,25 @@ def _extract_mcmod_description(html: str) -> str:
 
 
 def _extract_mcmod_relationships(html: str) -> dict:
-    """提取前置Mod和联动Mod关系。返回 {"requires": [], "integrates": []}。"""
+    """提取前置Mod和联动Mod关系。返回 {"requires": [], "integrates": [], "_parse_attempted": bool}。"""
     relationships = {"requires": [], "integrates": []}
+    parse_attempted = False
+    seen_requires = set()
+    seen_integrates = set()
     for m in re.finditer(r'(前置Mod|联动的Mod):</span><ul>(.*?)</ul>', html, re.DOTALL):
+        parse_attempted = True
         label = m.group(1)
         ul = m.group(2)
         links = re.findall(r'href="(/class/(\d+)\.html)"[^>]*>([^<]+)</a>', ul)
         for _, cid, raw in links:
+            if label == "前置Mod":
+                if cid in seen_requires:
+                    continue
+                seen_requires.add(cid)
+            else:
+                if cid in seen_integrates:
+                    continue
+                seen_integrates.add(cid)
             raw = raw.strip()
             parts = re.match(r'(.+?)\s*\(([^)]+)\)\s*$', raw)
             if parts:
@@ -1060,6 +1073,7 @@ def _extract_mcmod_relationships(html: str) -> dict:
                 relationships["requires"].append(entry)
             else:
                 relationships["integrates"].append(entry)
+    relationships["_parse_attempted"] = parse_attempted
     return relationships
 
 
@@ -1402,7 +1416,13 @@ def parse_mcmod_result(html: str, url: str, name: str) -> dict:
     supported_versions = _extract_mcmod_versions(html)
     categories, tags = _extract_mcmod_categories(html)
     description = _extract_mcmod_description(html)
-    relationships = _extract_mcmod_relationships(html)
+    relationships_raw = _extract_mcmod_relationships(html)
+    parse_attempted = relationships_raw.pop("_parse_attempted", False)
+    relationships = None
+    if relationships_raw["requires"] or relationships_raw["integrates"]:
+        relationships = {"requires": relationships_raw["requires"], "integrates": relationships_raw["integrates"]}
+    elif parse_attempted:
+        relationships = {"_error": "parse_failed"}
     author, status, source_type, has_changelog = _extract_mcmod_author_status(html)
     external_links = _extract_mcmod_external_links(html)
 
@@ -1440,7 +1460,7 @@ def parse_mcmod_result(html: str, url: str, name: str) -> dict:
         "status": status,
         "source_type": source_type,
         "description": description,  # 返回完整描述（由调用方决定是否截断）
-        "relationships": relationships if relationships["requires"] or relationships["integrates"] else None,
+        "relationships": relationships,
         "has_changelog": has_changelog,
         "external_links": external_links if external_links else None,
         "content_list": content_list or None,
@@ -1740,7 +1760,7 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
             return _build_mcmod_fallback_result(full_url, name, None, "mod")
         if page and len(page) >= MIN_HTML_LEN:
             return parse_mcmod_result(page, full_url, name)
-        return None
+        return {"name": name, "url": full_url, "source": "mcmod.cn", "_error": "page_fetch_failed"}
 
     limited_mods = unique_mods[:max_mods]
     results = _parallel_fetch_with_fallback(
@@ -1818,6 +1838,48 @@ def _build_modrinth_url(slug: str, project_type: str) -> str:
     return f"https://modrinth.com/{project_type or 'mod'}/{slug}"
 
 
+def _backfill_bbsmc_names(results: list[dict]):
+    """按 slug 批量回填 bbsmc 中文名和简介到 Modrinth 结果（原地修改）。"""
+    slugs = [r["source_id"] for r in results if r.get("source_id")]
+    if not slugs:
+        return
+    bbsmc_data = {}
+    for slug, bbsmc_val in _parallel_fetch_with_fallback(
+        [(s,) for s in slugs],
+        lambda args: (args[0], _fetch_bbsmc_project(args[0])),
+        max_workers=min(len(slugs), _MAX_FETCH_WORKERS), filter_none=False
+    ):
+        if slug and bbsmc_val:
+            bbsmc_data[slug] = bbsmc_val
+    for result in results:
+        slug = result.get("source_id", "")
+        bd = bbsmc_data.get(slug, {})
+        if bd:
+            bbsmc_name = bd.get("name", "")
+            result["name_zh"] = bbsmc_name
+            cn_m = re.match(r'^(.+?)\s*[-–—]\s*\S+', bbsmc_name)
+            if cn_m and _is_cjk(cn_m.group(1)):
+                result["_name_zh_cn"] = cn_m.group(1).strip()
+            bbsmc_summary = bd.get("summary", "")
+            if bbsmc_summary and result["description"] in ("", result.get("snippet", "")):
+                result["description"] = bbsmc_summary[:_MAX_SEARCH_DESC_CHARS]
+                if len(bbsmc_summary) > _MAX_SEARCH_DESC_CHARS:
+                    result.setdefault("_truncated", {})["description"] = {
+                        "returned": _MAX_SEARCH_DESC_CHARS, "total": len(bbsmc_summary)
+                    }
+
+
+def _fetch_bbsmc_project(slug: str) -> dict | None:
+    """查询 bbsmc.net 项目。返回 {"name": "...", "summary": "..."} 或 None。"""
+    try:
+        data = _fetch_json(f"{_BBSMC_API}/project/{slug}")
+        if data and data.get("name"):
+            return {"name": data.get("name", ""), "summary": data.get("summary", "")}
+    except Exception as e:
+        logger.debug(f"bbsmc fetch failed for {slug}: {e}")
+    return None
+
+
 @_cached(lambda keyword, max_results=5, project_type="mod": ("search", _cache_key("modrinth", keyword, max_results, project_type)))
 def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
     """Modrinth搜索。返回 {"results": [...], "total": N, "returned": M}。
@@ -1839,7 +1901,33 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
         matched_hits.append((hit, hit.get("slug", "")))
 
     if not matched_hits:
-        return {"results": [], "total": data.get("total_hits", 0), "returned": 0}
+        # 分类容错：project_type 过滤无结果时，去过滤重试（如 Iris 被归为 mod 非 shader）
+        if project_type and project_type != "mod":
+            for hit in data.get("hits", []):
+                matched_hits.append((hit, hit.get("slug", "")))
+        if not matched_hits:
+            # CJK 关键词回退：直接搜 bbsmc（中文搜索兼容）
+            if _is_cjk(keyword):
+                bbsmc_url = f"{_BBSMC_API}/search?query={q}&limit={max_results}"
+                bbsmc_data = _fetch_json(bbsmc_url, {"hits": []})
+                for bhit in bbsmc_data.get("hits", []):
+                    # 标准化为 Modrinth hit 格式
+                    pt_list = bhit.get("project_types")
+                    project_type = pt_list[0] if pt_list else bhit.get("project_type", "mod")
+                    normalized = {
+                        "title": bhit.get("name", bhit.get("title", "")),
+                        "slug": bhit.get("slug", ""),
+                        "project_type": project_type,
+                        "description": bhit.get("summary", bhit.get("description", "")),
+                        "downloads": bhit.get("downloads", 0),
+                        "followers": bhit.get("follows", bhit.get("followers", 0)),
+                        "icon_url": bhit.get("icon_url", ""),
+                        "author": bhit.get("author", ""),
+                        "versions": bhit.get("versions", []),
+                    }
+                    matched_hits.append((normalized, normalized["slug"]))
+            if not matched_hits:
+                return {"results": [], "total": data.get("total_hits", 0), "returned": 0}
 
     # 2. 并行获取详情（body + changelogs）
     def _fetch_detail(args):
@@ -1888,6 +1976,10 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "changelogs": changelogs,
         }
         results.append(result)
+
+    # 4. bbsmc 回填中文名和中文简介
+    if results:
+        _backfill_bbsmc_names(results)
 
     total = data.get("total_hits", 0)
     return {"results": results, "total": total, "returned": len(results)}
@@ -2149,9 +2241,17 @@ def fetch_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
     no_limit: True 时返回完整数据（用于 full 命令），False 时使用默认限制并返回 _truncated 元信息。
     """
     # API调用
-    data = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
+    raw = curl(f"https://api.modrinth.com/v2/project/{mod_id}")
+    if raw is None:
+        return {"_error": "api_failed"}
+    if not raw:
+        return {"_error": "not_found"}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"_error": "api_failed"}
     if not data:
-        return None
+        return {"_error": "not_found"}
 
     project_id = data.get("id", "")
 
@@ -2240,18 +2340,18 @@ def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
     """
     获取 mod 依赖树。
     返回 {"deps": {mod_slug: {id, name, slug, client_side, server_side, url}}}
-    失败时返回 {"deps": {}, "error": "PROJECT_NOT_FOUND"}
+    失败时返回 {"deps": {}, "_error": "project_not_found"}
     """
     if not project_id:
         proj = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
         if not proj:
-            return {"deps": {}, "error": "PROJECT_NOT_FOUND"}
+            return {"deps": {}, "_error": "project_not_found"}
         project_id = proj.get("id", mod_id)
 
     deps = {}
     deps_data = _fetch_json(f"https://api.modrinth.com/v2/project/{project_id}/dependencies")
     if not deps_data:
-        return {"deps": {}, "error": "API_ERROR"}
+        return {"deps": {}, "_error": "api_error"}
 
     for dep_proj in deps_data.get("projects", []):
         slug = dep_proj.get("slug", "")
@@ -2992,7 +3092,7 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
 
     html = curl(url)
     if not html or len(html) < MIN_HTML_LEN_ITEM:
-        return {"error": "NO_CONTENT"}
+        return {"_error": "no_content"}
 
     m_title = re.search(r'<h1[^>]*id="firstHeading"[^>]*>(.*?)</h1>', html, re.DOTALL)
     title = clean_html_text(m_title.group(1)) if m_title else "UNKNOWN"
@@ -3009,7 +3109,7 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
         html, re.DOTALL
     )
     if not m_content:
-        return {"error": "NO_CONTENT"}
+        return {"_error": "no_content"}
 
     content_html = m_content.group(1)
 
@@ -3362,7 +3462,7 @@ def _score_and_filter(results: dict, content_type: str, query_keyword: str) -> l
 def _entry_name_keys(entry: dict) -> set[str]:
     """返回所有可用名称的标准化 key 集合（多候选，跨语言匹配）。"""
     keys = set()
-    for field in ('name_zh', 'name_en', 'name'):
+    for field in ('name_zh', 'name_en', 'name', '_name_zh_cn'):
         v = entry.get(field)
         if v and isinstance(v, str) and v.strip():
             keys.add(v.strip().lower())
@@ -3383,17 +3483,45 @@ def _count_platform_hits(scored: list[dict]) -> dict[frozenset, set]:
     return name_platform_count
 
 
+def _merge_entry_fields(entries: list[dict]) -> dict:
+    """按字段级权威源合并同一实体的多个平台条目。"""
+    if len(entries) == 1:
+        return entries[0]
+
+    by_platform = {}
+    for e in entries:
+        src = e.get("_platform") or e.get("source", "")
+        by_platform[src] = e
+
+    def _field_from(primary_src, fallback_src, field):
+        v = (by_platform.get(first_src) or {}).get(field) or ""
+        return v or (by_platform.get(fallback) or {}).get(field) or ""
+
+    # 以最高分条目为基础，覆盖权威字段
+    base = max(entries, key=lambda e: e.get("_score", 0))
+    merged = {
+        "name_zh": _field_from("mcmod.cn", "modrinth", "name_zh"),
+        "name_en": _field_from("modrinth", "mcmod.cn", "name_en"),
+        "description": _field_from("modrinth", "mcmod.cn", "description"),
+        "downloads": (by_platform.get("modrinth") or {}).get("downloads",
+                     (by_platform.get("mcmod.cn") or {}).get("downloads", 0)),
+        "followers": (by_platform.get("modrinth") or {}).get("followers",
+                      (by_platform.get("mcmod.cn") or {}).get("followers", 0)),
+        "relationships": (by_platform.get("mcmod.cn") or {}).get("relationships"),
+    }
+    return {**base, **merged}
+
+
 def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[str, dict]:
-    """步骤3: 多候选 key 去重。两结果任一 key 命中即视为同一内容。"""
-    key_to_canonical = {}  # individual key → canonical key
-    by_name = {}           # canonical_key → best entry
+    """步骤3: 多候选 key 去重。两结果任一 key 命中即视为同一内容。按字段级权威源合并。"""
+    key_to_canonical = {}         # individual key → canonical key
+    entries_by_canonical = {}     # canonical_key → [entry, ...]
 
     for entry in scored:
         entry_keys = _entry_name_keys(entry)
         if not entry_keys:
             continue
 
-        # 检查是否与已有分组重叠
         canonical_key = None
         for k in entry_keys:
             if k in key_to_canonical:
@@ -3401,34 +3529,31 @@ def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[
                 break
 
         if canonical_key is None:
-            # 新实体：确立 canonical key
             canonical_key = min(entry_keys)
-            by_name[canonical_key] = entry
+            entries_by_canonical[canonical_key] = [entry]
             for k in entry_keys:
                 key_to_canonical[k] = canonical_key
             continue
 
-        # 已存在：保留更高分的条目
-        existing = by_name[canonical_key]
-        # 合并 key 集合（新 key 也映射到此 canonical）
+        entries_by_canonical[canonical_key].append(entry)
         for k in entry_keys:
             if k not in key_to_canonical:
                 key_to_canonical[k] = canonical_key
 
-        if entry["_score"] > existing["_score"]:
-            by_name[canonical_key] = entry
-        elif entry["_score"] == existing["_score"] and entry["_priority"] < existing["_priority"]:
-            by_name[canonical_key] = entry
-
-    # 多平台命中加权
-    for canonical_key, entry in by_name.items():
+    # 多平台命中加权 + 字段级权威源合并
+    by_name = {}
+    for canonical_key, entries in entries_by_canonical.items():
+        # 多平台加权（对组内所有条目计分）
         all_keys = {k for k, c in key_to_canonical.items() if c == canonical_key}
         all_platforms = set()
         for k in all_keys:
             all_platforms.update(name_platform_count.get(frozenset([k]), set()))
         platform_count = len(all_platforms)
+
+        merged = _merge_entry_fields(entries)
         if platform_count > 1:
-            entry["_score"] += (platform_count - 1) * MatchScore.MULTI_PLATFORM_BONUS
+            merged["_score"] += (platform_count - 1) * MatchScore.MULTI_PLATFORM_BONUS
+        by_name[canonical_key] = merged
 
     return by_name
 

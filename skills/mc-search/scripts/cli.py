@@ -639,6 +639,11 @@ def _is_captcha(info: dict) -> bool:
     return name == _CAPTCHA_NAME
 
 
+def _is_valid(info) -> bool:
+    """判断 fetch_mod_info / get_mod_dependencies 返回的是有效数据（非 error dict）。"""
+    return info is not None and isinstance(info, dict) and "_error" not in info
+
+
 def _fetch_mcmod_info(class_id: str, mcmod_name: str) -> tuple[dict, list, str]:
     """获取 MC百科模组信息。返回 (mcmod_info, search_results, err_type)。
     err_type: None=成功, "NOT_FOUND"=页面不存在, "CAPTCHA"=验证码, "FETCH_FAILED"=获取失败。
@@ -747,7 +752,7 @@ def _show_mcmod(name: str, ident: dict):
 
     info, _, err_type = _fetch_mcmod_info(class_id, mcmod_name)
 
-    if not info:
+    if not _is_valid(info):
         err_messages = {
             "NOT_FOUND": f"未找到 ID 为 {class_id} 的模组页面" if class_id else f"未找到名为 [{mcmod_name}] 的模组",
             "CAPTCHA": "安全验证",
@@ -799,7 +804,7 @@ def _show_full(name: str, ident: dict, *, skip_mr: bool = False,
     # Modrinth URL：直接 slug 获取
     if ident["mr_slug"]:
         result["modrinth"] = core.fetch_mod_info(ident["mr_slug"], no_limit=True)
-        if result["modrinth"] is None:
+        if not _is_valid(result["modrinth"]):
             _fail(f"Modrinth上不存在slug为 '{ident['mr_slug']}' 的项目", "URL_NOT_FOUND", is_json)
         mr_name = result["modrinth"].get("name", "")
         if mr_name and not skip_mcmod:
@@ -836,10 +841,10 @@ def _show_full(name: str, ident: dict, *, skip_mr: bool = False,
                     except (core.SearchError, OSError): mr_info = None
     result["modrinth"] = mr_info
 
-    if not result["mcmod"] and not result["modrinth"]:
+    if not _is_valid(result["mcmod"]) and not _is_valid(result["modrinth"]):
         _fail(f"未找到 [{name}] 的相关信息", "NOT_FOUND", is_json)
 
-    if not skip_dep and mr_info:
+    if not skip_dep and _is_valid(mr_info):
         try:
             result["dependencies"] = core.get_mod_dependencies(
                 mr_info.get("slug", ""), project_id=mr_info.get("id"))
@@ -860,7 +865,7 @@ def _show_default(name: str, ident: dict, *, no_mr: bool = False,
         slug = ident["mr_slug"]
         try:
             info = core.fetch_mod_info(slug, no_limit=True)
-            if info:
+            if _is_valid(info):
                 if is_json:
                     _json_out({"results": info}, is_json)
                 else:
@@ -875,7 +880,7 @@ def _show_default(name: str, ident: dict, *, no_mr: bool = False,
         info, err_type, err_msg = None, "DISABLED", "已禁用 MC百科（--no-mcmod）"
     else:
         info, err_type, err_msg = _show_mcmod(name, ident)
-    if info:
+    if _is_valid(info):
         _print_mcmod_show_info(info, name, is_json=is_json)
         return
 
@@ -887,7 +892,7 @@ def _show_default(name: str, ident: dict, *, no_mr: bool = False,
             if slug:
                 try:
                     mr_info = core.fetch_mod_info(slug, no_limit=True)
-                    if mr_info:
+                    if _is_valid(mr_info):
                         if is_json:
                             _json_out({"results": mr_info}, is_json)
                         else:
@@ -910,7 +915,8 @@ def _cmd_search_author(args):
     mcmod_hits = []
     mr_hits = []
     try:
-        mcmod_hits = core.search_mcmod_author(author, max_mods=_effective_max)
+        raw = core.search_mcmod_author(author, max_mods=_effective_max)
+        mcmod_hits = [h for h in raw if "_error" not in h]
     except (core.SearchError, OSError) as e:
         core.logger.warning(f"MC百科作者搜索失败: {e}")
     try:
@@ -1053,7 +1059,7 @@ def _cmd_wiki(args):
             content = core.read_wiki(keyword, max_paragraphs=args.paragraphs)
         if args.json:
             _json({"results": content}, args.json)
-        elif "error" in content:
+        elif "_error" in content:
             _print_error(f"读取失败: {content['error']}", "READ_ERROR", args.json)
         else:
             print(f"[{content['name']}]")
@@ -1158,7 +1164,7 @@ def _build_parser():
     search_parser = sub.add_parser("search", help="多平台搜索")
     search_parser.add_argument("keyword", nargs="?", help="搜索关键词")
     search_parser.add_argument("--type", dest="content_type", default="mod",
-                   choices=["mod", "item", "modpack", "shader", "resourcepack"],
+                   choices=["mod", "item", "modpack", "shader", "resourcepack", "vanilla", "entity", "biome", "dimension"],
                    help="内容类型（默认 mod）")
     search_parser.add_argument("--item", action="store_const", const="item", dest="content_type",
                    help="快捷：搜物品")
