@@ -6,15 +6,22 @@
 
 **mc-search** 是 AI Agent 优先的 Minecraft 内容搜索 Skill。AI Agent 通过 Python API 直接调用，不依赖 CLI。
 
-并行搜索四个平台：
-- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包（HTML 解析，脆弱）
+并行搜索五个平台：
+- **MC 百科** (mcmod.cn) — 中文模组/物品/整合包（HTML 解析，脆弱，有 WAF 回退）
 - **Modrinth** — 英文模组/光影/材质包/整合包（REST API，稳定）
+- **bbsmc.net** — Modrinth 中国社区 Fork（API 兼容，中文名+简介补充源，不参与搜索）
 - **minecraft.wiki** — 原版游戏 wiki 英文/中文（MediaWiki API）
+
+核心特性：
+- **跨语言桥接**：中文关键词自动从 MC百科 提取 `name_en` 去 Modrinth 补搜，Agent 透明
+- **字段级权威源融合**：`_merge_entry_fields()` 逐字段选源（name_zh→MC百科, name_en→Modrinth, downloads→Modrinth, relationships→MC百科）
+- **错误信号透明**：统一 `_error` 键区分 `not_found`/`api_failed`/`parse_failed`，不用 `None`
 
 ## 架构
 
 ```
-Agent 调用 → core.py API → 并行平台搜索 → 结果融合(_fuse_results) → 统一 JSON
+Agent 调用 → core.py API → 并行平台搜索 → 跨语言桥接(CJK) → 融合(_fuse_results) → 统一 JSON
+                                    └─ MC百科 → name_en → Modrinth 补搜（透明）
 ```
 
 两个文件：
@@ -126,14 +133,25 @@ core.set_platform_enabled(mcmod=True, modrinth=True, wiki=True, wiki_zh=True)
 - 物品页 (`/item/`) 与模组页 (`/class/`) 结构完全不同，分别解析
 
 ### 结果融合（`_fuse_results`）
-1. 评分：精确匹配 100+ → 前缀 60+ → 包含 30+ → snippet 加分 +5 → 多平台 +10
-2. 去重：同名按 score 保留最高分
-3. 排序：分数 DESC
 
-### 缓存
-- 装饰器 `@_cached(lambda params: (cache_type, cache_key))` 管理所有缓存
-- MC百科 详情页 HTML 额外缓存（最贵请求，绕过 CDN 前先查）
-- 缓存 key 包含完整参数，修改任何参数自动分离缓存
+5 步管线：
+1. `_score_and_filter` — 打分 + 过滤无关结果
+2. `_count_platform_hits` — 统计多平台命中
+3. `_deduplicate_by_name` — 多候选 key 匹配去重（`_entry_name_keys` 任一 key 命中即合并）
+4. `_merge_entry_fields` — 字段级权威源合并（逐字段选源，不按整条最高分）
+5. `_build_fused_output` — 构建 `_sources` + 清理内部字段
+
+跨语言桥接在步骤 1 之前：CJK 关键词 → 从 MC百科 提取 `name_en` → Modrinth 补搜 → 合并进 `results["modrinth"]`。
+
+### 错误信号
+
+失败不用 `None`，统一用结构化 dict：
+- `{"_error": "not_found"}` — API 404/空结果
+- `{"_error": "api_failed"}` — 网络错误/超时
+- `{"_error": "parse_failed"}` — HTML 存在但解析失败
+- `"_body_error": "fetch_failed"` — 详情获取失败但搜索命中仍保留
+
+CLI 端用 `_is_valid(info)` 统一判断（非 None + 不含 `_error` 键）。
 
 ## 性能注意事项
 
@@ -238,4 +256,4 @@ All five canonical labels use their default names (`needs-triage`, `needs-info`,
 
 ### Domain docs
 
-Single-context layout — one `CONTEXT.md` + `docs/adr/` at the repo root. Neither exists yet; skills that need them will proceed silently. Created lazily by `/grill-with-docs`. See `docs/agents/domain.md`.
+Single-context layout — `CONTEXT.md` 已存在（领域模型），`docs/adr/` 按需创建。

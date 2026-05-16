@@ -3225,8 +3225,8 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
         pe["mcmod.cn"] = False
         pe["minecraft.wiki"] = False
         pe["minecraft.wiki/zh"] = False
-    elif content_type == "modpack":
-        # modpack 不支持 wiki
+    elif content_type in ("mod", "modpack"):
+        # mod/modpack 无 wiki 数据，禁用避免噪音
         pe["minecraft.wiki"] = False
         pe["minecraft.wiki/zh"] = False
     elif content_type == "vanilla":
@@ -3535,7 +3535,10 @@ def _count_platform_hits(scored: list[dict]) -> dict[frozenset, set]:
 def _merge_entry_fields(entries: list[dict]) -> dict:
     """按字段级权威源合并同一实体的多个平台条目。"""
     if len(entries) == 1:
-        return entries[0]
+        entry = entries[0]
+        if entry.get("relationships") is None:
+            entry["relationships"] = {}
+        return entry
 
     by_platform = {}
     for e in entries:
@@ -3556,7 +3559,13 @@ def _merge_entry_fields(entries: list[dict]) -> dict:
                      (by_platform.get("mcmod.cn") or {}).get("downloads", 0)),
         "followers": (by_platform.get("modrinth") or {}).get("followers",
                       (by_platform.get("mcmod.cn") or {}).get("followers", 0)),
-        "relationships": (by_platform.get("mcmod.cn") or {}).get("relationships"),
+        "relationships": (by_platform.get("mcmod.cn") or {}).get("relationships") or {},
+        "snippet": _field_from("modrinth", "mcmod.cn", "snippet"),
+        "icon_url": _field_from("modrinth", "mcmod.cn", "icon_url"),
+        "changelogs": (by_platform.get("modrinth") or {}).get("changelogs")
+                       or (by_platform.get("mcmod.cn") or {}).get("changelogs") or [],
+        "supported_versions": _field_from("modrinth", "mcmod.cn", "supported_versions"),
+        "author": _field_from("modrinth", "mcmod.cn", "author"),
     }
     return {**base, **merged}
 
