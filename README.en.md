@@ -20,7 +20,7 @@ mc-search is a Minecraft content search **Skill for Claude Code Agent**, searchi
 
 Defaults optimized for AI Agent usage (fewer results, reasonable timeouts).
 
-> **MC百科 Note**: MC百科 (mcmod.cn) uses `curl_cffi` + Chrome TLS fingerprinting to bypass CDN protection (per-subdomain). Both search and details work. Requires `curl_cffi>=0.15.0`.
+> **MC百科 Note**: MC百科 (mcmod.cn) uses `curl_cffi` + Chrome TLS fingerprinting to bypass CDN protection (per-subdomain). CDN/WAF captchas may occasionally trigger; the code auto-falls back to search page data or other platforms. Requires `curl_cffi>=0.15.0`.
 
 ## Install
 
@@ -66,8 +66,8 @@ mc-search --json search --author Simibubi -n 3
 | Command | Purpose | Defaults |
 |---------|---------|----------|
 | `search` | Multi-platform search | `-n 5`, `--timeout 15` |
-| `show` | Details/dependencies | `--full` for dual-platform |
-| `wiki` | Wiki search & read | `-n 5`, `-r` one-step search+read |
+| `show` | Details/dependencies | Single-platform auto / `--full` for dual-platform |
+| `wiki` | Wiki search & read | `-n 5` (`-r` enables one-step search+read) |
 
 ## Global Options
 

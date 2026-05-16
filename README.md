@@ -20,7 +20,7 @@ mc-search 是为 **Claude Code Agent** 设计的 Minecraft 内容搜索 Skill，
 
 默认值针对 AI Agent 场景优化（少量结果、合理超时）。
 
-> **MC百科 说明**：MC百科 (mcmod.cn) 使用 `curl_cffi` + Chrome TLS 指纹绕过 CDN 盾（各子域名独立绕过）。搜索+详情均可正常使用，需安装 `curl_cffi>=0.15.0`。
+> **MC百科 说明**：MC百科 (mcmod.cn) 使用 `curl_cffi` + Chrome TLS 指纹绕过 CDN 盾（各子域名独立绕过）。有时会触发 CDN/WAF 验证码，代码会自动回退到搜索页数据或尝试其他平台。需安装 `curl_cffi>=0.15.0`。
 
 ## 安装到 Claude Code
 
@@ -66,8 +66,8 @@ mc-search --json search --author Simibubi -n 3
 | 命令 | 用途 | 默认值 |
 |------|------|--------|
 | `search` | 多平台搜索 | `-n 5`, `--timeout 15` |
-| `show` | 详情/依赖 | `--full` 双平台 |
-| `wiki` | wiki 搜索与阅读 | `-n 5`, `-r` 一步搜索+读取 |
+| `show` | 详情/依赖 | 单平台自动选择 / `--full` 双平台 |
+| `wiki` | wiki 搜索与阅读 | `-n 5`（`-r` 可启用一步搜索+读取） |
 
 ## 全局选项
 

@@ -36,14 +36,14 @@ from scripts import core
 result = core.search_all("机械动力", max_per_source=5, content_type="mod", fuse=True)
 # → {"results": [...], "platform_stats": {"mcmod.cn": {...}, "modrinth": {...}, ...}}
 
-# 单平台搜索
-core.set_platform_enabled(mcmod=False, modrinth=True, wiki=False, wiki_zh=False)
-result = core.search_all("sodium", max_per_source=5, content_type="mod", fuse=True)
+# 单平台搜索（通过 content_type 路由，不裸调 set_platform_enabled）
+# core.set_platform_enabled(mcmod=False, wiki=False, wiki_zh=False)  # 仅需完全自定义时用
+result = core.search_all("sodium", max_per_source=5, content_type="mod")
 ```
 
-`content_type` 可选：`mod` / `item` / `modpack` / `shader` / `resourcepack` / `vanilla`（原版 wiki）。
+`content_type` 可选：`mod` / `item` / `modpack` / `shader` / `resourcepack` / `vanilla` / `entity` / `biome` / `dimension`。
 
-返回的每个 hit 关键字段：`name`、`name_zh`、`name_en`、`url`、`source`、`_score`（相关性 0-120）、`_sources`（来源平台列表）、`snippet`/`description`。
+返回的每个 hit 关键字段：`name`、`name_zh`、`name_en`、`url`、`source`、`source_id`、`_score`（相关性 0-150+）、`_sources`（来源平台列表）、`snippet`/`description`。
 
 ### 详情：`fetch_mod_info()` / `get_mod_dependencies()`
 
@@ -54,7 +54,7 @@ info = core.fetch_mod_info("sodium")  # slug 或 project_id
 
 # 依赖树
 deps = core.get_mod_dependencies("sodium")
-# → {"deps": {slug: {name, slug, client_side, server_side, url}}}
+# → {"deps": {slug: {id, name, slug, client_side, server_side, url}}}
 ```
 
 ### MC百科：`search_mcmod()` / `parse_mcmod_result()`

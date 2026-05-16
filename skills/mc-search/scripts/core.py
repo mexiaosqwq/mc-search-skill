@@ -2225,8 +2225,8 @@ def search_modrinth_author(username: str, max_results: int = 10) -> list[dict]:
 def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
     """
     获取 mod 依赖树。
-    返回 {"deps": {...}, "optional_count": int, "required_count": int}
-    - deps: {mod_slug: {name, slug, client_side, server_side, type, url}}
+    返回 {"deps": {mod_slug: {id, name, slug, client_side, server_side, url}}}
+    失败时返回 {"deps": {}, "error": "PROJECT_NOT_FOUND"}
     """
     if not project_id:
         proj = _fetch_json(f"https://api.modrinth.com/v2/project/{mod_id}")
@@ -2998,7 +2998,7 @@ def read_wiki_zh(url: str, max_paragraphs: int = -1, include_infobox: bool = Tru
 
 
 def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 15,
-               content_type: str = "mod", fuse: bool = False) -> dict:
+               content_type: str = "mod", fuse: bool = True) -> dict:
     """
     四平台并行搜索，返回统一格式。
     timeout: 整体超时秒数

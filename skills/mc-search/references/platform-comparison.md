@@ -11,7 +11,7 @@
 | **MC百科** | 中文详细，联动信息全 | 中文用户、找联动模组 | HTML 解析（官方页面） |
 | **Modrinth** | 英文官方，依赖准确 | 依赖查询、版本信息、光影/材质包 | REST API（官方接口） |
 | **minecraft.wiki** | 原版百科（英文） | 合成表、游戏机制 | MediaWiki API |
-| **minecraft.wiki/zh** | 原版百科（中文） | 中文原版内容查询 | HTML 解析（官方页面） |
+| **minecraft.wiki/zh** | 原版百科（中文） | 中文原版内容查询 | MediaWiki API |
 
 ---
 

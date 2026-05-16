@@ -274,7 +274,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 | `source` | `modrinth` |
 | `source_id` | slug |
 | `description` | 项目完整描述（来自详情 API，非搜索摘要） |
-| `body` | 完整 Markdown 描述（**已截断至 5000 字符**，详情 API 始终截断） |
+| `body` | 完整 Markdown 描述（完整正文，未经截断） |
 | `type` | `mod` / `shader` / `resourcepack` |
 | `author` | 作者用户名 |
 | `license` | 许可证 ID |
