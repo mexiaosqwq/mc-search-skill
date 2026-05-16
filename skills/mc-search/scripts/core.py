@@ -82,6 +82,20 @@ _SEARCH_CHANGELOG_LIMIT = 3              # search 命令非完整模式变更日
 _SKIP_MCMOD_ORG_NAMES = {"CaffeineMC"}  # 排除的非作者组织名
 _DEFAULT_RESULTS_PER_PLATFORM = 5   # AI-first: Agent 场景默认，cli.py 也有一份同值常量
 
+# Wiki 解析
+_WIKI_SNIPPET_SEGMENT_LEN = 5000
+_WIKI_FALLBACK_SEGMENT_LEN = 20000
+_WIKI_FULL_SCAN_LEN = 60000       # 英文 wiki infobox 可达 30000+ 字符
+_WIKI_FIRST_TABLE_SEGMENT_LEN = 10000
+_MIN_SNIPPET_LINE_LEN = 30
+_MIN_CJK_SEGMENT_LEN = 8
+_MAX_CJK_FALLBACK_SEGMENTS = 3
+_MAX_WIKI_SECTIONS = 20
+_MAX_TABLES_PER_SECTION = 10
+_MAX_MCMOD_AUTHORS = 10
+_KNOWN_LOADERS = {"fabric", "forge", "neoforge", "quilt"}
+_MAX_WIKI_INTRO_PARAGRAPHS = 3
+
 # CDN 绕过配置
 _CURL_IMPERSONATE = "chrome124"               # curl_cffi 模拟的浏览器 TLS 指纹版本
 _MCMOD_CDN_SHIELD = "https://www.mcmod.cn/cdn-shield/check"  # CDN 盾验证端点
@@ -176,18 +190,6 @@ def _build_mcmod_fallback_result(url: str, name: str, meta: dict | None = None,
         "content_list": None,
     }
     return result
-_WIKI_SNIPPET_SEGMENT_LEN = 5000
-_WIKI_FALLBACK_SEGMENT_LEN = 20000
-_WIKI_FULL_SCAN_LEN = 60000       # 英文 wiki infobox 可达 30000+ 字符
-_WIKI_FIRST_TABLE_SEGMENT_LEN = 10000
-_MIN_SNIPPET_LINE_LEN = 30
-_MIN_CJK_SEGMENT_LEN = 8
-_MAX_CJK_FALLBACK_SEGMENTS = 3
-_MAX_WIKI_SECTIONS = 20
-_MAX_TABLES_PER_SECTION = 10
-_MAX_MCMOD_AUTHORS = 10
-_KNOWN_LOADERS = {"fabric", "forge", "neoforge", "quilt"}
-_MAX_WIKI_INTRO_PARAGRAPHS = 3
 
 
 def _truncate_screenshots(screenshots: list, max_count: int) -> tuple[list, dict | None]:
@@ -1017,6 +1019,8 @@ def _extract_mcmod_description(html: str) -> str:
         "联系百科", "意见反馈", "©Copyright MC百科",
         "mcmod.cn | ", "鄂ICP备", "鄂公网安备",
     ]
+    # contains 过滤：这些字符串可能出现在行中任何位置（非仅行首）
+    skip_contains = ["©Copyright MC百科", "鄂ICP备", "鄂公网安备", "mcmod.cn | ", "百科帮助", "开发日志"]
     para_title_pat = r"^(?:概述|简介|正文)\s*"
     lines = []
     for line in text.split("\n"):
@@ -1033,7 +1037,7 @@ def _extract_mcmod_description(html: str) -> str:
             line = re.sub(r"MC百科\s*\(mcmod\.cn\)\s*的?目标是.*", "", line).strip()
         if len(line) < _MIN_DESCRIPTION_LINE_LEN:
             continue
-        if any(p in line for p in ["©Copyright MC百科", "鄂ICP备", "鄂公网安备", "mcmod.cn | ", "百科帮助", "开发日志"]):
+        if any(p in line for p in skip_contains):
             continue
         # 过滤 HTML 残留（如 <li data-id=...）
         if re.search(r"<[a-z]+[\s>]", line, re.IGNORECASE):
