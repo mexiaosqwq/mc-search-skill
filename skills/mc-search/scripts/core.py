@@ -3494,8 +3494,8 @@ def _merge_entry_fields(entries: list[dict]) -> dict:
         by_platform[src] = e
 
     def _field_from(primary_src, fallback_src, field):
-        v = (by_platform.get(first_src) or {}).get(field) or ""
-        return v or (by_platform.get(fallback) or {}).get(field) or ""
+        v = (by_platform.get(primary_src) or {}).get(field) or ""
+        return v or (by_platform.get(fallback_src) or {}).get(field) or ""
 
     # 以最高分条目为基础，覆盖权威字段
     base = max(entries, key=lambda e: e.get("_score", 0))
