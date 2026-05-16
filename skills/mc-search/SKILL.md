@@ -31,11 +31,10 @@ Minecraft 聚合搜索 Skill。五平台并行（MC百科 / Modrinth / bbsmc / w
 ## 搜索
 
 ```bash
-python skills/mc-search/scripts/cli.py search "机械动力" --json
-python skills/mc-search/scripts/cli.py search sodium -n 3 --type mod
-python skills/mc-search/scripts/cli.py search "光影" --type shader
-python skills/mc-search/scripts/cli.py search "整合包" --type modpack
-python skills/mc-search/scripts/cli.py search 红石 --type vanilla
+mcsearch search 机械动力 --json -n 2
+mcsearch search sodium --json -n 3 --type mod
+mcsearch search 光影 --json --type shader
+mcsearch search 整合包 --json --type modpack
 ```
 
 `--type`: `mod`(默认) / `item` / `modpack` / `shader` / `resourcepack` / `vanilla`
@@ -45,25 +44,25 @@ python skills/mc-search/scripts/cli.py search 红石 --type vanilla
 ## 详情 / 依赖
 
 ```bash
-python skills/mc-search/scripts/cli.py show sodium --json      # 默认：按名查 Modrinth
-python skills/mc-search/scripts/cli.py show sodium --deps       # 仅依赖
-python skills/mc-search/scripts/cli.py show sodium --full       # 双平台全量
+mcsearch show sodium --json              # 默认：按名查 Modrinth
+mcsearch show sodium --deps --json       # 仅依赖
+mcsearch show sodium --full --json       # 双平台全量
 ```
 
 ## Wiki
 
 ```bash
-python skills/mc-search/scripts/cli.py wiki 附魔 --json                    # 搜索
-python skills/mc-search/scripts/cli.py wiki "https://zh.minecraft.wiki/w/铁砧"  # URL 直接读
-python skills/mc-search/scripts/cli.py wiki 红石 -r --json                 # 搜+读正文
+mcsearch wiki 附魔 --json                          # 搜索
+mcsearch wiki "https://zh.minecraft.wiki/w/铁砧" --json  # URL 直接读
+mcsearch wiki 红石 -r --json                       # 搜+读正文
 ```
 
 ## 平台 / 缓存
 
 ```bash
-python skills/mc-search/scripts/cli.py search ... --cache              # 启用缓存（TTL 1h）
-python skills/mc-search/scripts/cli.py search ... --no-mcmod           # 禁用 MC百科
-python skills/mc-search/scripts/cli.py search ... --platform modrinth  # 限单平台
+mcsearch --cache search ...               # 全局缓存（TTL 1h）
+mcsearch --no-mcmod search ...            # 禁用 MC百科
+mcsearch search ... --platform modrinth   # 限单平台
 ```
 
 ## 返回字段

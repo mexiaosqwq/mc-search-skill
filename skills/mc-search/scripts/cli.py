@@ -1162,6 +1162,7 @@ def _build_parser():
 
     # ── search ──
     search_parser = sub.add_parser("search", help="多平台搜索")
+    search_parser.add_argument("--json", action="store_true", dest="json", help="JSON 输出")
     search_parser.add_argument("keyword", nargs="?", help="搜索关键词")
     search_parser.add_argument("--type", dest="content_type", default="mod",
                    choices=["mod", "item", "modpack", "shader", "resourcepack", "vanilla", "entity", "biome", "dimension"],
@@ -1186,6 +1187,7 @@ def _build_parser():
 
     # ── show ──
     show_parser = sub.add_parser("show", help="查看详情/依赖")
+    show_parser.add_argument("--json", action="store_true", dest="json", help="JSON 输出")
     show_parser.add_argument("name", help="名称 / MC百科 URL/ID / Modrinth URL/slug")
     show_parser.add_argument("--full", action="store_true",
                     help="双平台完整信息")
@@ -1198,6 +1200,7 @@ def _build_parser():
 
     # ── wiki ──
     wiki_parser = sub.add_parser("wiki", help="原版 Wiki 搜索与阅读")
+    wiki_parser.add_argument("--json", action="store_true", dest="json", help="JSON 输出")
     wiki_parser.add_argument("keyword", help="搜索关键词 或 wiki 页面 URL")
     wiki_parser.add_argument("-n", "--max", type=int, default=_DEFAULT_WIKI_MAX,
                    help=f"最多结果（默认{_DEFAULT_WIKI_MAX}）")

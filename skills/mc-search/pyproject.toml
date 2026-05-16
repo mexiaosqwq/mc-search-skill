@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mc-search"
-version = "5.2.0-dev"
+version = "5.3.0-dev"
 description = "Minecraft 聚合搜索工具（模组/物品/原版内容，四平台并行）"
 readme = "README.md"
 license = {text = "MIT"}
@@ -36,6 +36,7 @@ classifiers = [
 
 [project.scripts]
 mc-search = "scripts.cli:main"
+mcsearch = "scripts.cli:main"
 
 [project.optional-dependencies]
 dev = []
