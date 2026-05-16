@@ -32,12 +32,13 @@ jobs:
       - name: Get PR diff
         id: diff
         run: |
-          git fetch origin ${{ github.base_ref }}:$base ${{ github.event.pull_request.head.ref }}:$head 2>/dev/null || true
+          git fetch origin "${{ github.base_ref }}" "${{ github.event.pull_request.head.ref }}" 2>/dev/null || true
           diff_output=$(git diff ${{ github.base_ref }}...${{ github.event.pull_request.head.ref }} -- . ':(exclude).github/workflows/claude-review.yml' 2>/dev/null || echo "")
           echo "diff_length=${#diff_output}" >> $GITHUB_OUTPUT
-          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          delimiter="EOF$(openssl rand -hex 8)"
+          echo "diff<<${delimiter}" >> $GITHUB_OUTPUT
           echo "$diff_output" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "${delimiter}" >> $GITHUB_OUTPUT
 
       - name: Claude Review
         if: steps.diff.outputs.diff_length != '0'
@@ -83,9 +84,10 @@ except Exception as e:
     print(f'Parse error: {e}')
 " 2>/dev/null)
 
-          echo "REVIEW_BODY<<EOF" >> $GITHUB_OUTPUT
+          delimiter="EOF$(openssl rand -hex 8)"
+          echo "REVIEW_BODY<<${delimiter}" >> $GITHUB_OUTPUT
           echo "$content" | head -500 >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "${delimiter}" >> $GITHUB_OUTPUT
 
       - name: Post review comment
         if: steps.claude.outputs.REVIEW_BODY

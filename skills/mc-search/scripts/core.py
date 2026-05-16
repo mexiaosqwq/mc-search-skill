@@ -574,7 +574,9 @@ def _curl_mcmod(url: str, timeout: int = 10) -> str:
             r = _MCMOD_SESSION.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
         except Exception as e:
             logger.warning(f"MC百科请求失败 ({url}): {e}")
-            return ""
+            _MCMOD_BYPASSED = False
+            _MCMOD_SESSION = None
+            continue
 
         text = r.text
 
@@ -1196,12 +1198,12 @@ def _extract_mcmod_community_stats(html: str) -> dict:
     # 页面浏览量
     views_m = re.search(r'页面浏览量[:：]?\s*([\d,\.]+)', html)
     if views_m:
-        stats["page_views"] = int(views_m.group(1).replace(',', ''))
+        stats["page_views"] = int(float(views_m.group(1).replace(',', '')))
 
     # 收藏数
     fav_m = re.search(r'收藏[:：]?\s*([\d,\.]+)', html)
     if fav_m:
-        stats["favorites"] = int(fav_m.group(1).replace(',', ''))
+        stats["favorites"] = int(float(fav_m.group(1).replace(',', '')))
 
     # 整合包引用数
     integration_m = re.search(r'整合包引用[:：]?\s*(\d+)', html)
@@ -3093,7 +3095,7 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
             key = futures_map[future]
             try:
                 raw = future.result(timeout=timeout)
-            except (TimeoutError, OSError, SearchError) as e:
+            except (futures_module.TimeoutError, OSError, SearchError) as e:
                 logger.warning(f"平台 {key} 获取结果失败: {e}")
                 raw = [] if key != "modrinth" else {"results": [], "total": 0, "returned": 0}
 

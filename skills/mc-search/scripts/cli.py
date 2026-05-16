@@ -573,10 +573,10 @@ def _print_mcmod_team(mc: dict):
     author_team = mc.get('author_team', [])
     if author_team:
         print(f"  开发团队（{len(author_team)} 人）：")
-        for member in author_team:
+        for member in author_team[:_DISPLAY_MAX_AUTHOR_TEAM]:
             roles_str = ', '.join(member.get('roles', []))
             print(f"    - {member.get('name', '?')}（{roles_str}）")
-        if len(author_team) >= _DISPLAY_MAX_AUTHOR_TEAM:
+        if len(author_team) > _DISPLAY_MAX_AUTHOR_TEAM:
             print(f"    （还有更多成员，仅显示前 {_DISPLAY_MAX_AUTHOR_TEAM} 人）")
     elif mc.get('author'):
         print(f"  作者: {mc['author']}")
@@ -1033,7 +1033,7 @@ def _cmd_show(args):
 
     # ── 默认：按输入类型自动选平台 ──
     _show_default(name, ident,
-                  no_mr=args.no_mr or args.skip_mr,
+                  no_mr=args.no_mr,
                   no_mcmod=args.no_mcmod,
                   is_json=args.json)
 
@@ -1047,7 +1047,7 @@ def _cmd_wiki(args):
 
     # ── URL 检测：直接读取 wiki 页面 ──
     if keyword.startswith("http"):
-        if "zh.minecraft.wiki" in keyword or keyword.startswith("minecraft.wiki/w/zh"):
+        if "zh.minecraft.wiki" in keyword or "/w/zh/" in keyword:
             content = core.read_wiki_zh(keyword, max_paragraphs=args.paragraphs)
         else:
             content = core.read_wiki(keyword, max_paragraphs=args.paragraphs)
