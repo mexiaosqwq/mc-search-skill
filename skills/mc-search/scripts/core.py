@@ -269,10 +269,9 @@ _MCMOD_MODPACK_FILTERS = [
 
 # === 项目类型常量 ===
 # 文本类内容类型（MC百科 + Modrinth 都支持）
-_TEXT_CONTENT_TYPES = {"mod", "item", "modpack"}
-
-# 视觉类内容类型（仅 Modrinth 支持）
-_VISUAL_CONTENT_TYPES = {"shader", "resourcepack"}
+_TEXT_CONTENT_TYPES = frozenset({"mod", "item", "modpack"})
+_VISUAL_CONTENT_TYPES = frozenset({"shader", "resourcepack"})
+_MODRINTH_CONTENT_TYPES = _TEXT_CONTENT_TYPES | _VISUAL_CONTENT_TYPES
 
 # === 平台优先级（数字越小越权威）===
 # 默认优先级：MC百科 > Modrinth > Wiki（适用于 mod 和 item）
@@ -831,11 +830,12 @@ def _extract_mcmod_cover(html: str) -> tuple[str, list[str]]:
     """提取封面图和截图。返回 (cover_image, screenshots)。"""
     cover_m = re.search(r'class="class-cover-image"[^>]*>.*?<img[^>]+src="([^"]+)"', html, re.DOTALL)
     cover_image = cover_m.group(1) if cover_m else ""
-    # 支持多种懒加载图片属性
+    # 截图默认禁用时跳过正则提取
+    if _MAX_SCREENSHOTS <= 0:
+        return cover_image, []
     screenshots = []
     for attr in ['data-src', 'data-lazy-src', 'data-original']:
         screenshots.extend(re.findall(f'{attr}="([^"]+)"', html))
-    # 去重并保持顺序
     screenshots = list(dict.fromkeys(screenshots))
     return cover_image, screenshots
 
@@ -3240,19 +3240,17 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
 
     def _wrap_mcmod():
         try:
-            valid_types = ("mod", "item", "modpack")
-            ct = content_type if content_type in valid_types else "mod"
-            if content_type not in valid_types:
+            ct = content_type if content_type in _TEXT_CONTENT_TYPES else "mod"
+            if content_type not in _TEXT_CONTENT_TYPES:
                 logger.debug(f"MC百科不支持 content_type={content_type}，降级为 mod")
             return search_mcmod(keyword, per_source, content_type=ct)
         except (SearchError, OSError) as e:
             logger.warning(f"MC百科搜索失败: {e}")
             return []
 
-    def _wrap_mr():
+    def _wrap_modrinth():
         try:
-            # Modrinth 支持所有类型
-            mr_type = content_type if content_type in (_TEXT_CONTENT_TYPES | _VISUAL_CONTENT_TYPES) else "mod"
+            mr_type = content_type if content_type in _MODRINTH_CONTENT_TYPES else "mod"
             return search_modrinth(keyword, per_source, project_type=mr_type)
         except (SearchError, OSError) as e:
             logger.warning(f"Modrinth搜索失败: {e}")
@@ -3280,7 +3278,7 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
             futures_map[f] = "mcmod.cn"
             workers.append(f)
         if pe.get("modrinth", False):
-            f = ex.submit(_wrap_mr)
+            f = ex.submit(_wrap_modrinth)
             futures_map[f] = "modrinth"
             workers.append(f)
         if pe.get("minecraft.wiki", False):
