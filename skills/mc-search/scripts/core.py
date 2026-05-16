@@ -504,7 +504,8 @@ def _handle_yxd_token(session, text: str, base_url: str, headers: dict, timeout:
     try:
         r = session.get(target, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
         return r.text
-    except Exception:
+    except Exception as e:
+        logger.warning(f"yxd_token redirect failed: {e}")
         return ""
 
 
@@ -1936,7 +1937,9 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             return (hit, None)
         try:
             return (hit, fetch_mod_info(slug, no_limit=True))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"detail fetch failed for {hit.get('slug')}: {e}")
+            hit["_body_error"] = "fetch_failed"
             return (hit, None)
 
     details = _parallel_fetch_with_fallback(
@@ -3308,6 +3311,18 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
         for f in workers:
             f.cancel()
 
+    # 跨语言桥接：中文关键词用 MC百科 英文名补搜 Modrinth
+    # 注意：不能检查 results["modrinth"] 是否为空，因为 bbsmc CJK fallback 可能已填充了中文结果
+    if fuse and _is_cjk(keyword):
+        bridge_hits = _cross_language_bridge(results["mcmod.cn"], keyword, per_source)
+        if bridge_hits:
+            # 去重合并：避免和 bbsmc fallback 结果重复
+            existing_slugs = {h.get("source_id", "") for h in results["modrinth"]}
+            new_hits = [h for h in bridge_hits if h.get("source_id", "") not in existing_slugs]
+            results["modrinth"].extend(new_hits)
+            stats["modrinth"]["total"] = len(results["modrinth"])
+            stats["modrinth"]["returned"] = len(results["modrinth"])
+
     if fuse:
         fused = _fuse_results(results, content_type=content_type, query_keyword=keyword)
         return {"results": fused, "platform_stats": stats}
@@ -3317,6 +3332,40 @@ def search_all(keyword: str, max_per_source: int | None = None, timeout: int = 1
 def _is_cjk(text: str) -> bool:
     """检测文本是否包含 CJK 字符。"""
     return bool(re.search(r'[\u4e00-\u9fff]', text))
+
+
+def _cross_language_bridge(mcmod_hits: list, keyword: str, per_source: int) -> list:
+    """从 MC百科 结果提取英文名去 Modrinth 补搜，用于中文关键词跨语言桥接。"""
+    if not mcmod_hits:
+        return []
+
+    # 提取英文名候选（去重，最多 per_source 个）
+    en_names = set()
+    for hit in mcmod_hits:
+        en = (hit.get("name_en") or "").strip()
+        if en:
+            en_names.add(en.lower())
+    if not en_names:
+        logger.debug("Cross-language bridge: no English names extracted")
+        return []
+
+    # 每个英文名搜 Modrinth（限 2 结果/名，控制请求量 + 去重）
+    all_hits = {}
+    mr_limit = min(per_source, 2)
+    for en_name in list(en_names)[:per_source]:
+        try:
+            mr_result = search_modrinth(en_name, max_results=mr_limit, project_type="mod")
+        except (SearchError, OSError) as e:
+            logger.debug(f"Bridge Modrinth search failed for {en_name}: {e}")
+            continue
+        for hit in mr_result.get("results", []):
+            slug = hit.get("source_id", "")
+            if slug and slug not in all_hits:
+                all_hits[slug] = hit
+
+    if all_hits:
+        logger.debug(f"Cross-language bridge: {len(en_names)} en names -> {len(all_hits)} Modrinth hits")
+    return list(all_hits.values())
 
 
 def _calc_name_score(name_lc: str, query_lc: str) -> int:
