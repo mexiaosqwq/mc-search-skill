@@ -1049,10 +1049,18 @@ def _cmd_show(args):
 # ============================================================
 
 def _cmd_wiki(args):
-    keyword = args.keyword
+    keyword = (args.keyword or "").strip()
+
+    # 空关键词
+    if not keyword:
+        if args.json:
+            _json({"results": [], "_error": "EMPTY_KEYWORD"}, args.json)
+        else:
+            _fail("搜索关键词不能为空", "EMPTY_KEYWORD", args.json)
+        return
 
     # ── URL 检测：直接读取 wiki 页面 ──
-    if keyword.startswith("http"):
+    if keyword and keyword.startswith("http"):
         if "zh.minecraft.wiki" in keyword or "/w/zh/" in keyword:
             content = core.read_wiki_zh(keyword, max_paragraphs=args.paragraphs)
         else:
@@ -1060,7 +1068,7 @@ def _cmd_wiki(args):
         if args.json:
             _json({"results": content}, args.json)
         elif "_error" in content:
-            _print_error(f"读取失败: {content['error']}", "READ_ERROR", args.json)
+            _print_error(f"读取失败: {content['_error']}", "READ_ERROR", args.json)
         else:
             print(f"[{content['name']}]")
             print(f"  {content['url']}")
