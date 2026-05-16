@@ -3480,7 +3480,12 @@ def _fuse_results(results: dict, content_type: str = "mod", query_keyword: str =
     sorted_entries = _sort_entries(by_name)
 
     # 步骤5: 构建输出
-    return _build_fused_output(sorted_entries, scored)
+    fused = _build_fused_output(sorted_entries, scored)
+
+    # 步骤6: 标记本体（C→B→A 级联）
+    fused = _mark_primary(fused, query_keyword)
+
+    return fused
 
 
 def _score_and_filter(results: dict, content_type: str, query_keyword: str) -> list[dict]:
@@ -3640,4 +3645,58 @@ def _build_fused_output(sorted_entries: list[dict], scored: list[dict]) -> list[
             merged["source"] = "|".join(merged["_sources"])
 
         fused.append(merged)
+    return fused
+
+
+def _mark_primary(fused: list[dict], query_keyword: str) -> list[dict]:
+    """标记融合结果中的本体模组（C→B→A 级联判断）。"""
+    if not fused:
+        return fused
+
+    q = (query_keyword or "").strip().lower()
+    if not q:
+        return fused
+
+    # ── 级联 C: 前置关系 ──
+    required_by_others = set()   # name → 被其他条目依赖
+    addon_names = set()          # 有 requires 的条目（附属）
+    for hit in fused:
+        rel = hit.get("relationships", {})
+        if isinstance(rel, dict) and not rel.get("_error"):
+            requires = rel.get("requires", [])
+            if requires:
+                addon_names.add((hit.get("name_zh") or hit.get("name") or "").lower())
+            for req in requires:
+                req_name = req.get("name_zh") or req.get("name_en") or ""
+                if req_name:
+                    required_by_others.add(req_name.strip().lower())
+    if required_by_others:
+        for hit in fused:
+            hit_name = (hit.get("name_zh") or hit.get("name") or "").lower()
+            hit_en = (hit.get("name_en") or "").lower()
+            if (hit_name in required_by_others or hit_en in required_by_others) \
+               and hit_name not in addon_names:
+                hit["is_primary"] = True
+        if any(h.get("is_primary") for h in fused):
+            return fused
+
+    # ── 级联 B: 精确名匹配 + 最高下载量 ──
+    exact_matches = [h for h in fused
+                     if (h.get("name_zh") or h.get("name") or "").strip().lower() == q
+                     or (h.get("name_en") or "").strip().lower() == q]
+    if exact_matches:
+        max_dl = max((h.get("downloads", 0) for h in exact_matches), default=0)
+        if max_dl > 0:
+            for h in exact_matches:
+                if h.get("downloads", 0) == max_dl:
+                    h["is_primary"] = True
+            return fused
+
+    # ── 级联 A: 最高下载量 ──
+    max_dl = max((h.get("downloads", 0) for h in fused), default=0)
+    if max_dl > 0:
+        for h in fused:
+            if h.get("downloads", 0) == max_dl:
+                h["is_primary"] = True
+
     return fused
