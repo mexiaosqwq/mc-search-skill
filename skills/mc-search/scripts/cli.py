@@ -876,8 +876,8 @@ def _show_default(name: str, ident: dict, *, no_mr: bool = False,
         _fail(f"无法获取 Modrinth 项目信息: {slug}", "NOT_FOUND", is_json)
 
     # 非 URL 输入：按名称判断优先平台
-    is_cjk = any('\u4e00' <= c <= '\u9fff' for c in name)
-    first, second = ("mcmod", "mr") if is_cjk else ("mr", "mcmod")
+    is_mcmod_target = bool(ident["class_id"]) or any('\u4e00' <= c <= '\u9fff' for c in name)
+    first, second = ("mcmod", "mr") if is_mcmod_target else ("mr", "mcmod")
     err_msg, err_type = f"未找到 [{name}] 的相关信息", "NOT_FOUND"
 
     for attempt in (first, second):
