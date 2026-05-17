@@ -14,7 +14,7 @@
 
 核心特性：
 - **跨语言桥接**：中文关键词自动从 MC百科 提取 `name_en` 去 Modrinth 补搜，Agent 透明
-- **字段级权威源融合**：`_merge_entry_fields()` 逐字段选源（name_zh→MC百科, name_en→Modrinth, downloads→Modrinth, relationships→MC百科）
+- **字段级权威源融合**：`_merge_entry_fields()` 逐字段选源（name_zh→MC百科, name_en→Modrinth, description→bbsmc, downloads→Modrinth, relationships→MC百科, snippet/icon_url/changelogs/supported_versions/author→Modrinth, followers→Modrinth）
 - **错误信号透明**：统一 `_error` 键区分 `not_found`/`api_failed`/`parse_failed`，不用 `None`
 
 ## 架构
@@ -134,12 +134,13 @@ core.set_platform_enabled(mcmod=True, modrinth=True, wiki=True, wiki_zh=True)
 
 ### 结果融合（`_fuse_results`）
 
-5 步管线：
+6 步管线：
 1. `_score_and_filter` — 打分 + 过滤无关结果
 2. `_count_platform_hits` — 统计多平台命中
-3. `_deduplicate_by_name` — 多候选 key 匹配去重（`_entry_name_keys` 任一 key 命中即合并）
-4. `_merge_entry_fields` — 字段级权威源合并（逐字段选源，不按整条最高分）
+3. `_deduplicate_by_name` — 多候选 key 匹配去重（内部调用 `_merge_entry_fields`）
+4. `_sort_entries` — 按分数 + 平台优先级排序
 5. `_build_fused_output` — 构建 `_sources` + 清理内部字段
+6. `_mark_primary` — C→B→A→兜底 四级联标记 `is_primary`
 
 跨语言桥接在步骤 1 之前：CJK 关键词 → 从 MC百科 提取 `name_en` → Modrinth 补搜 → 合并进 `results["modrinth"]`。
 

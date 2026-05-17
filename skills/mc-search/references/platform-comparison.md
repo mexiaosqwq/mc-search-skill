@@ -10,6 +10,7 @@
 |------|------|----------|----------|
 | **MC百科** | 中文详细，联动信息全 | 中文用户、找联动模组 | HTML 解析（官方页面） |
 | **Modrinth** | 英文官方，依赖准确 | 依赖查询、版本信息、光影/材质包 | REST API（官方接口） |
+| **bbsmc.net** | 中文名+简介补充 | Modrinth 结果中文回填 | Modrinth 兼容 API |
 | **minecraft.wiki** | 原版百科（英文） | 合成表、游戏机制 | MediaWiki API |
 | **minecraft.wiki/zh** | 原版百科（中文） | 中文原版内容查询 | MediaWiki API |
 
@@ -99,7 +100,7 @@
 |------|--------|----------|----------------|
 | 中文名称 | ✅ 完整（搜索） | ❌ 无 | ✅ 有（中文站） |
 | 英文名称 | ✅ 有（搜索） | ✅ 完整 | ✅ 完整 |
-| 依赖关系 | ❌ 详情页受限（搜索不可用） | ✅ 前置准确 | ❌ 无 |
+| 依赖关系 | ⚠️ WAF 阻断时受限 | ✅ 前置准确 | ❌ 无 |
 | 版本信息 | ❌ 详情页受限（搜索不可用） | ✅ 详细版本分组 | ❌ 无 |
 | 截图数量 | ❌ 详情页受限（搜索不可用） | ⚠️ 默认 10 张限制 | ❌ 无 |
 | 更新日志 | ❌ 详情页受限（搜索不可用） | ✅ 最近 5 条 | ❌ 无 |
@@ -118,8 +119,7 @@
 |----------|------------|------|
 | `mod` / `item` / `modpack` | MC百科 > Modrinth | 中文用户优先 MC百科 |
 | `shader` / `resourcepack` | Modrinth（唯一） | 仅 Modrinth 有数据 |
-| `entity` / `biome` / `block` / `mechanic` | minecraft.wiki > minecraft.wiki/zh > MC百科 > Modrinth | 原版内容优先 wiki |
-| `dimension` | minecraft.wiki > minecraft.wiki/zh | 维度仅 wiki 有 |
+| `entity` / `biome` / `dimension` / `vanilla` | minecraft.wiki > minecraft.wiki/zh > MC百科 > Modrinth | 原版内容优先 wiki |
 
 ### 融合字段 `_sources`
 
@@ -158,7 +158,7 @@
 
 ### 查联动模组
 
-- **MC百科 搜索可用** → 详情页暂受限，联动信息不可用。建议通过搜索获取基础信息后，再到 MC百科 官网查看
+- **MC百科 搜索可用** → 详情页 WAF 阻断时自动回退搜索页数据，联动信息通过 `_fuse_results` 融合同步
 
 ---
 
@@ -173,7 +173,7 @@
    - `show --full` 会显示 Modrinth 版本信息；MC百科版本列表暂不可用
 
 3. **网络稳定性**：
-   - 四平台并行搜索，单个失败不影响其他结果
+   - 五平台并行搜索，单个失败不影响其他结果
    - Modrinth API 更稳定（360 请求/小时限制）
    - MC百科 HTML 解析可能被限流（详见 troubleshooting.md）
 

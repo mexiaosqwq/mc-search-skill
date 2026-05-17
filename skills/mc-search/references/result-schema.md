@@ -14,7 +14,8 @@
 | `url` | str | 页面链接 |
 | `source` | str | 来源平台：`mcmod.cn` / `modrinth` / `minecraft.wiki` / `minecraft.wiki/zh`；融合模式下为 `\|` 分隔的多平台字符串 |
 | `source_id` | str | 平台内 ID（如 class ID、slug、pageid） |
-| `type` | str | 项目类型：`mod` / `item` / `modpack` / `shader` / `resourcepack` / `block` / `entity` / `mechanic` / `other` |
+| `type` | str | 项目类型：`mod` / `item` / `modpack` / `shader` / `resourcepack` / `wiki` |
+| `is_primary` | bool | 融合模式下存在，是否为本体模组 |
 
 ---
 
@@ -36,8 +37,8 @@
 | `supported_versions` | 支持的版本列表（MC百科 detail 才有，搜索结果不含） |
 | `cover_image` | 封面图 URL |
 | `screenshots` | 截图 URL 列表 |
-| `relationships.requires` | 前置 Mod 列表（MC百科 detail 才有；无时为 null） |
-| `relationships.integrates` | 联动 Mod 列表（MC百科 detail 才有；无时为 null） |
+| `relationships.requires` | 前置 Mod 列表（MC百科 detail 才有；解析失败时含 `_error: "parse_failed"`，无关系时为 `{}`） |
+| `relationships.integrates` | 联动 Mod 列表（MC百科 detail 才有；解析失败时含 `_error: "parse_failed"`，无关系时为 `{}`） |
 | `has_changelog` | 是否有更新日志布尔值（MC百科 detail 才有） |
 | `is_vanilla` | 是否为 MC百科原版内容分类（URL 含 `/class/1.html`） |
 | `external_links` | 外部平台链接字典（无时为 null）：`official` / `curseforge` / `modrinth` / `github` / `wiki` / `discord` / `jenkins` / `mcbbs` |
@@ -256,6 +257,10 @@ Modrinth 整合包搜索结果结构与模组类似：
 | `source` | `modrinth` |
 | `source_id` | slug |
 | `type` | `mod` / `shader` / `resourcepack` |
+| `description` | 项目描述（来自详情 API） |
+| `downloads` | 总下载量 |
+| `followers` | 关注数 |
+| `icon_url` | 图标 URL |
 | `snippet` | 简短描述（来自搜索摘要，非完整描述） |
 
 ---
@@ -311,6 +316,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 |------|------|------|
 | `source` | str | 来源平台，多平台时为 `\|` 分隔（如 `mcmod.cn\|modrinth`） |
 | `_sources` | list[str] | 融合来源平台列表（**仅融合模式下存在**） |
+| `is_primary` | bool | 是否为本体模组（C→B→A→兜底 四级联判定，至少一条结果标记） |
 | 其余字段 | | 来自优先级最高平台的结果 |
 
 **融合示例**：
@@ -327,7 +333,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 ```
 
 **平台优先级**：
-- entity/biome/block/mechanic/dimension → `minecraft.wiki` > `minecraft.wiki/zh` > `mcmod.cn` > `modrinth`
+- entity/biome/dimension/vanilla → `minecraft.wiki` > `minecraft.wiki/zh` > `mcmod.cn` > `modrinth`
 - mod/item/modpack → `mcmod.cn` > `modrinth`（仅这两个平台）
 - shader/resourcepack → `modrinth`（仅 Modrinth 平台）
 
@@ -342,7 +348,7 @@ Modrinth 整合包搜索结果结构与模组类似：
 | `url` | 页面 URL |
 | `source` | `minecraft.wiki` |
 | `source_id` | pageid |
-| `type` | `block` / `item` / `entity` / `mechanic` / `other`（从 URL 和名称推断） |
+| `type` | `"wiki"` |
 | `sections` | 章节标题列表（直接访问文章时从 h3 提取；MediaWiki API 降级路径返回空列表） |
 
 ---

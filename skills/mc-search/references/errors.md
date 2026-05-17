@@ -1,8 +1,11 @@
 # 错误码参考
 
-本文件列出 `mc-search` 返回的错误码及其含义。
+本文件列出 `mc-search` 返回的错误码及其含义。分两层：
 
-## 错误码列表
+- **CLI 错误码**（大写 `error` 字段）: 由 `cli.py` 返回，格式 `{"error": "CODE", "message": "..."}`
+- **API `_error` 键**（小写）: 由 `core.py` 内部使用，格式 `{"_error": "code"}`，AI Agent 直接读取
+
+## CLI 错误码（`error` 字段）
 
 | 错误码 | 说明 | 解决方案 |
 |--------|------|----------|
@@ -17,18 +20,23 @@
 | `DISABLED` | 请求的平台已禁用 | 启用对应平台或更换平台 |
 | `INVALID_INPUT` | 输入参数不合法 | 检查命令参数格式 |
 
-> 注：所有错误码均在 HTTP 200 下以 JSON 格式返回（`{"error": "...", "message": "..."}`），
-> 与 shell exit code 0 配合，确保 Agent 能正确解析错误信息而不被非零退出码中断。
+> 注：CLI 错误码在 HTTP 200 下以 JSON `{"error": "...", "message": "..."}` 返回，与 shell exit code 0 配合。
 
-### 嵌套/特殊错误码
+## API `_error` 键（`_error` 字段，core.py）
 
-以下错误码可能出现在子字段或顶层 `error` 字段中：
+Agent 直接调用 `core.py` 时，失败信号使用 `_error` 键（下划线前缀，与结果字段区分）：
 
-| 错误码 | 说明 | 出现位置 |
-|--------|------|----------|
-| `PROJECT_NOT_FOUND` | Modrinth 项目不存在 | `get_mod_dependencies()` → `dependencies.error` |
-| `API_ERROR` | Modrinth API 请求失败 | `get_mod_dependencies()` → `dependencies.error` |
-| `NO_CONTENT` | wiki 页面无内容可读 | `read_wiki()` → 顶层 `error` |
+| 值 | 出现位置 | 说明 |
+|----|---------|------|
+| `not_found` | `fetch_mod_info()`, `get_mod_dependencies()` | 项目/资源不存在 |
+| `api_failed` | `fetch_mod_info()`, `get_mod_dependencies()` | API 请求失败/超时 |
+| `parse_failed` | `_parse_mcmod_mod_result()`, `_extract_mcmod_relationships()` | HTML 解析失败 |
+| `no_content` | `read_wiki()` | wiki 页面无内容可读 |
+| `page_fetch_failed` | `search_mcmod_author()` | MC百科 详情页抓取失败 |
+
+附加信号：`_body_error: "fetch_failed"` — 搜索结果命中但详情获取失败。
+
+> Agent 端用 `_is_valid(info)` 统一判断：非 None + 不含 `_error` 键。
 
 ## 错误输出示例
 
