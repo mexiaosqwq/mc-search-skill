@@ -6,7 +6,6 @@ mc-search CLI — Minecraft 聚合搜索工具
 
 import argparse
 import contextlib
-import functools
 import json
 import os
 import re
@@ -167,7 +166,7 @@ def _fmt_desc(info: dict) -> list | None:
     desc = info.get("description", "")
     if not desc:
         return None
-    clean = core.clean_html_text(desc)
+    clean = core._clean_html_text(desc)
     if not clean:
         return None
     lines = ["\n  简介："]
@@ -249,17 +248,6 @@ def _save_full_description(project_name: str, content: str, content_type: str = 
     return filepath
 
 
-def _timed(json_mode=False):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            t0 = time.time()
-            result = func(*args, **kwargs)
-            if not json_mode:
-                print(f"\n[耗时: {time.time()-t0:.1f}s]", file=sys.stderr)
-            return result
-        return wrapper
-    return decorator
 
 
 def _clean_markdown(text: str, full_clean: bool = False) -> str:
@@ -320,10 +308,6 @@ def _json_out(obj, is_json: bool):
     if is_json:
         print(json.dumps(obj, ensure_ascii=False))
 
-
-def _json(obj, is_json: bool):
-    """_json_out 的别名，方便命令函数调用。"""
-    _json_out(obj, is_json)
 
 
 # ── 显示函数 ──────────────────────────────────────────
@@ -541,7 +525,7 @@ def _print_mcmod_desc(mc: dict, full_desc: bool = False, saved_files: list = Non
     desc = mc.get('description', '')
     if not desc:
         return
-    clean_desc = core.clean_html_text(desc)
+    clean_desc = core._clean_html_text(desc)
     if not clean_desc:
         return
     print(f"\n  简介：")
@@ -655,7 +639,7 @@ def _fetch_mcmod_info(class_id: str, mcmod_name: str) -> tuple[dict, list, str]:
             return None, [], "FETCH_FAILED"
         if '/error/' in html:
             return None, [], "NOT_FOUND"
-        parsed = core.parse_mcmod_result(html, url, "")
+        parsed = core._parse_mcmod_mod_result(html, url, "")
         if _is_captcha(parsed):
             return None, [], "CAPTCHA"
         return parsed, [], None
@@ -677,7 +661,7 @@ def _fetch_mcmod_info(class_id: str, mcmod_name: str) -> tuple[dict, list, str]:
     html = core.curl(_mcmod_class_url(cid_match.group(1)))
     if not html or len(html) < core.MIN_HTML_LEN:
         return None, hits, "FETCH_FAILED"
-    parsed = core.parse_mcmod_result(html, first["url"], first.get("name", ""))
+    parsed = core._parse_mcmod_mod_result(html, first["url"], first.get("name", ""))
     if _is_captcha(parsed):
         return None, hits, "CAPTCHA"
     return parsed, hits, None
@@ -925,7 +909,7 @@ def _cmd_search_author(args):
         core.logger.warning(f"Modrinth作者搜索失败: {e}")
 
     if args.json:
-        _json({"results": {"mcmod": mcmod_hits, "modrinth": mr_hits},
+        _json_out({"results": {"mcmod": mcmod_hits, "modrinth": mr_hits},
                "mcmod_count": len(mcmod_hits), "modrinth_count": len(mr_hits)}, args.json)
     else:
         if mcmod_hits:
@@ -963,7 +947,7 @@ def _cmd_search_keyword(args):
         result["_platform"] = args.platform
         hits = result.get("results", [])
         if args.json:
-            _json(result, args.json)
+            _json_out(result, args.json)
         else:
             if not hits:
                 _fail(f"{args.platform} 无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
@@ -976,7 +960,7 @@ def _cmd_search_keyword(args):
                               timeout=args.timeout, content_type=content_type,
                               fuse=True)
     if args.json:
-        _json(results, args.json)
+        _json_out(results, args.json)
     else:
         if not results.get("results"):
             _fail(f"所有平台均无 [{args.keyword}] 相关结果", "NO_RESULTS", args.json)
@@ -1016,7 +1000,7 @@ def _cmd_show(args):
         try:
             deps = core.get_mod_dependencies(slug, project_id=None)
             if args.json:
-                _json({"results": deps}, args.json)
+                _json_out({"results": deps}, args.json)
             else:
                 _print_deps(deps, slug)
         except Exception as e:
@@ -1054,7 +1038,7 @@ def _cmd_wiki(args):
     # 空关键词
     if not keyword:
         if args.json:
-            _json({"results": [], "_error": "EMPTY_KEYWORD"}, args.json)
+            _json_out({"results": [], "_error": "EMPTY_KEYWORD"}, args.json)
         else:
             _fail("搜索关键词不能为空", "EMPTY_KEYWORD", args.json)
         return
@@ -1066,7 +1050,7 @@ def _cmd_wiki(args):
         else:
             content = core.read_wiki(keyword, max_paragraphs=args.paragraphs)
         if args.json:
-            _json({"results": content}, args.json)
+            _json_out({"results": content}, args.json)
         elif "_error" in content:
             _print_error(f"读取失败: {content['_error']}", "READ_ERROR", args.json)
         else:
@@ -1097,7 +1081,7 @@ def _cmd_wiki(args):
     hits = result.get("results", [])
     if not hits:
         if args.json:
-            _json({"results": []}, args.json)
+            _json_out({"results": []}, args.json)
         else:
             _print_error(f"minecraft.wiki 无 [{keyword}] 相关结果", "NO_RESULTS", args.json)
         return
@@ -1115,7 +1099,7 @@ def _cmd_wiki(args):
     if args.json:
         if content and "error" not in content:
             hits[0]["read_content"] = content
-        _json({"results": hits}, args.json)
+        _json_out({"results": hits}, args.json)
     else:
         for i, hit in enumerate(hits[:_DISPLAY_WIKI_MAX_RESULTS], 1):
             name = hit.get("name_zh") or hit.get("name_en") or hit.get("name", "?")
@@ -1126,7 +1110,7 @@ def _cmd_wiki(args):
             print(f"  {i}. {name} 【{source}】")
 
             if snippet:
-                clean_snippet = core.clean_html_text(snippet)
+                clean_snippet = core._clean_html_text(snippet)
                 if len(clean_snippet) > _DISPLAY_WIKI_SNIPPET_MAX:
                     clean_snippet = clean_snippet[:_DISPLAY_WIKI_SNIPPET_MAX] + '...'
                 if clean_snippet:

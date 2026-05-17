@@ -64,7 +64,7 @@ deps = core.get_mod_dependencies("sodium")
 # → {"deps": {slug: {id, name, slug, client_side, server_side, url}}}
 ```
 
-### MC百科：`search_mcmod()` / `parse_mcmod_result()`
+### MC百科：`search_mcmod()` / `_parse_mcmod_mod_result()`
 
 ```python
 hits = core.search_mcmod("机械动力", max_results=3, content_type="mod")

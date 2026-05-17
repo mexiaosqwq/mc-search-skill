@@ -18,11 +18,11 @@ from .core import (
     set_platform_enabled,
     # 异常类
     SearchError,
-    # 公共工具（原下划线前缀已移除）
-    clean_html_text,
+    # 内部工具
+    _clean_html_text,
     curl,
     MIN_HTML_LEN,
     MIN_HTML_LEN_ITEM,
-    # 解析函数（公开接口）
-    parse_mcmod_result,
+    # 内部解析函数
+    _parse_mcmod_mod_result,
 )

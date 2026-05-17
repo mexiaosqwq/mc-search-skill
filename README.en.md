@@ -1,6 +1,6 @@
 # mc-search
 
-AI-Agent-first Minecraft content search Skill — four-platform parallel.
+AI-Agent-first Minecraft content search Skill — five-platform parallel, auto-fuse and deduplicate.
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
@@ -11,20 +11,24 @@ AI-Agent-first Minecraft content search Skill — four-platform parallel.
 
 ## Overview
 
-mc-search is a Minecraft content search **Skill for Claude Code Agent**, searching four platforms in parallel:
+mc-search is a Minecraft content search **Skill for Claude Code Agent**, searching five platforms in parallel:
 
-- **MC百科** (mcmod.cn) — Chinese mods/items/modpacks, search + details fully available
-- **Modrinth** — English mods/shaders/resourcepacks/modpacks, full API
-- **minecraft.wiki** — Vanilla game wiki (English)
-- **minecraft.wiki/zh** — Vanilla game wiki (Chinese)
+| Platform | Content | Access |
+|----------|---------|--------|
+| **MC百科** (mcmod.cn) | Chinese mods/items/modpacks | HTML parsing + CDN bypass |
+| **Modrinth** | English mods/shaders/resourcepacks/modpacks | REST API |
+| **bbsmc.net** | Chinese name/description supplement | Modrinth-compatible API |
+| **minecraft.wiki** (EN/ZH) | Vanilla game wiki | MediaWiki API + CDN bypass |
 
-Defaults optimized for AI Agent usage (fewer results, reasonable timeouts).
+## Core Features
 
-> **MC百科 Note**: MC百科 (mcmod.cn) uses `curl_cffi` + Chrome TLS fingerprinting to bypass CDN protection (per-subdomain). CDN/WAF captchas may occasionally trigger; the code auto-falls back to search page data or other platforms. Requires `curl_cffi>=0.15.0`.
+- **Cross-language bridge**: CJK keywords auto-extract English names to search Modrinth — transparent to Agent
+- **Primary detection**: `is_primary: true` flags the main mod (C→B→A→fallback cascade)
+- **Field-level fusion**: authority source per field (name_zh→MC百科, name_en→Modrinth, downloads→Modrinth, relationships→MC百科)
+- **bbsmc Chinese backfill**: Modrinth results auto-enriched with Chinese names and descriptions
+- **WAF/CDN auto-fallback**: MC百科 blocking gracefully degrades to search page data
 
 ## Install
-
-One command: clone + install deps + register Skill + cleanup:
 
 ```bash
 git clone https://github.com/mexiaosqwq/mc-search-skill.git && \
@@ -33,61 +37,31 @@ git clone https://github.com/mexiaosqwq/mc-search-skill.git && \
   cd ~ && rm -rf mc-search-skill
 ```
 
-Verify:
-
-```bash
-mc-search --json search JEI -n 1 --platform mcmod
-```
-
-## Features
-
-- **Four-platform parallel search**: MC百科 + Modrinth + minecraft.wiki EN/ZH
-- **Full details**: `show --full` for dual-platform complete data (description, versions, authors, dependencies, external links)
-- **Dependency query**: Modrinth dependency tree + MC百科 relationships
-- **Result fusion**: Cross-platform dedup, scoring, and sorting
-- **Multi-layer cache**: Search results + detail page HTML + wiki pages via `--cache`
+Requires: Python 3.8+, `curl_cffi>=0.15.0`. Verify: `mc-search --json search JEI -n 1 --platform mcmod`
 
 ## Quick Usage
 
-Claude Code Agent auto-detects trigger words (mod, MC百科, wiki, etc.) and invokes this Skill.
-
-### Manual Testing
+Agent calls via Python API (see [SKILL.md](skills/mc-search/SKILL.md)), CLI for manual testing:
 
 ```bash
-mc-search --json search sodium
-mc-search --json show sodium --full    # Dual-platform details
-mc-search --json show sodium --deps    # Dependency query
-mc-search --json wiki enchanting -r    # Wiki search + read
-mc-search --json search --author Simibubi -n 3
+mc-search --json search sodium                    # Search
+mc-search --json show sodium --full               # Details
+mc-search --json show sodium --deps               # Dependencies
+mc-search --json wiki enchanting -r               # Wiki search+read
 ```
 
-## Command Overview
-
-| Command | Purpose | Defaults |
-|---------|---------|----------|
-| `search` | Multi-platform search | `-n 5`, `--timeout 15` |
-| `show` | Details/dependencies | Single-platform auto / `--full` for dual-platform |
-| `wiki` | Wiki search & read | `-n 5` (`-r` enables one-step search+read) |
-
-## Global Options
-
-| Option | Description |
-|--------|-------------|
-| `--json` | JSON output (required for Agent) |
-| `--cache` | Enable cache (TTL 1h, includes HTML page cache) |
-| `--no-mcmod` / `--no-mr` | Disable specific platform |
-| `--no-wiki` / `--no-wiki-zh` | Disable wiki |
+`search` supports `--type mod/item/modpack/shader/resourcepack/vanilla`, `--cache` for caching.
 
 ## Project Structure
 
 ```
 mc-search-skill/
-├── skills/mc-search/          # Skill directory
+├── skills/mc-search/
 │   ├── SKILL.md               # Agent invocation definition
 │   ├── scripts/
-│   │   ├── core.py             # Search/parse/cache (~3300 lines)
+│   │   ├── core.py             # Search/parse/fuse/cache (~3700 lines)
 │   │   └── cli.py              # CLI entry (~1200 lines)
-│   └── references/            # Commands/errors/platform docs
+│   └── references/            # Error codes/platform comparison/result schema
 ├── README.md
 └── README.en.md
 ```
@@ -100,4 +74,5 @@ MIT
 
 - [MC 百科](https://www.mcmod.cn/) — Chinese Minecraft mod wiki
 - [Modrinth](https://modrinth.com/) — Minecraft mod platform
+- [bbsmc.net](https://bbsmc.net/) — Modrinth Chinese community fork
 - [Minecraft Wiki](https://minecraft.wiki/) — Vanilla game wiki
