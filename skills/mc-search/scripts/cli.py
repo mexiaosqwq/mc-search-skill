@@ -1239,7 +1239,7 @@ def _build_parser():
     parser.add_argument("--no-wiki", dest="no_wiki", action="store_true", help="禁用 minecraft.wiki")
     parser.add_argument("--no-wiki-zh", dest="no_wiki_zh", action="store_true", help="禁用 minecraft.wiki/zh")
     parser.add_argument("-o", "--output", dest="output", default=None, help="输出到文件")
-    parser.add_argument("--version", action="version", version="mc-search 5.2.0-dev")
+    parser.add_argument("--version", action="version", version="mc-search 6.0.0")
 
     sub = parser.add_subparsers(dest="cmd")
 
