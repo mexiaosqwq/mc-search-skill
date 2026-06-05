@@ -1995,6 +1995,7 @@ def _backfill_bbsmc_names(results: list[dict]):
             result["name_zh"] = bbsmc_name
             cn_m = re.match(r'^(.+?)\s*[-–—]\s*\S+', bbsmc_name)
             if cn_m and _is_cjk(cn_m.group(1)):
+                result["name_zh"] = cn_m.group(1).strip()
                 result["_name_zh_cn"] = cn_m.group(1).strip()
             # 修复 bbsmc 双语名污染 name_en（如 "机械动力 - Create"、"机械动力 – Create"）
             if _is_cjk(result.get("name_en", "")):
@@ -2120,7 +2121,7 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "snippet": hit.get("description", ""),
             "description": description,
             "downloads": hit.get("downloads", 0),
-            "followers": hit.get("followers", 0),
+            "followers": hit.get("follows", hit.get("followers", 0)),
             "icon_url": hit.get("icon_url", ""),
             "author": hit.get("author", ""),
             "supported_versions": hit.get("versions", []),
@@ -3861,6 +3862,9 @@ def _merge_entry_fields(entries: list[dict]) -> dict:
         entry = entries[0]
         if entry.get("relationships") is None:
             entry["relationships"] = {}
+        entry.setdefault("downloads", 0)
+        entry.setdefault("followers", 0)
+        entry.setdefault("icon_url", "")
         return entry
 
     by_platform = {}
