@@ -1,6 +1,6 @@
 # mc-search
 
-AI-Agent-first Minecraft content search Skill — five-platform parallel, auto-fuse and deduplicate.
+AI-Agent-first Minecraft content search Skill — four-platform parallel, auto-fuse and deduplicate.
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
@@ -11,13 +11,13 @@ AI-Agent-first Minecraft content search Skill — five-platform parallel, auto-f
 
 ## Overview
 
-mc-search is a Minecraft content search **Skill for Claude Code Agent**, searching five platforms in parallel:
+mc-search is a Minecraft content search **Skill for Claude Code Agent**, searching four platforms in parallel:
 
 | Platform | Content | Access |
 |----------|---------|--------|
 | **MC百科** (mcmod.cn) | Chinese mods/items/modpacks | HTML parsing + CDN bypass |
 | **Modrinth** | English mods/shaders/resourcepacks/modpacks | REST API |
-| **bbsmc.net** | Chinese name/description supplement | Modrinth-compatible API |
+
 | **minecraft.wiki** (EN/ZH) | Vanilla game wiki | MediaWiki API + CDN bypass |
 
 ## Core Features
@@ -25,7 +25,7 @@ mc-search is a Minecraft content search **Skill for Claude Code Agent**, searchi
 - **Cross-language bridge**: CJK keywords auto-extract English names to search Modrinth — transparent to Agent
 - **Primary detection**: `is_primary: true` flags the main mod (C→B→A→fallback cascade)
 - **Field-level fusion**: authority source per field (name_zh→MC百科, name_en→Modrinth, downloads→Modrinth, relationships→MC百科)
-- **bbsmc Chinese backfill**: Modrinth results auto-enriched with Chinese names and descriptions
+
 - **WAF/CDN auto-fallback**: MC百科 blocking gracefully degrades to search page data
 
 ## Install
@@ -74,5 +74,5 @@ MIT
 
 - [MC 百科](https://www.mcmod.cn/) — Chinese Minecraft mod wiki
 - [Modrinth](https://modrinth.com/) — Minecraft mod platform
-- [bbsmc.net](https://bbsmc.net/) — Modrinth Chinese community fork
+
 - [Minecraft Wiki](https://minecraft.wiki/) — Vanilla game wiki

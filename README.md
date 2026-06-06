@@ -1,6 +1,6 @@
 # mc-search
 
-AI Agent 优先的 Minecraft 聚合搜索 Skill，五平台并行，自动融合去重。
+AI Agent 优先的 Minecraft 聚合搜索 Skill，四平台并行，自动融合去重。
 
 [![Version](https://img.shields.io/github/v/release/mexiaosqwq/mc-search-skill)](https://github.com/mexiaosqwq/mc-search-skill/releases)
 [![License](https://img.shields.io/github/license/mexiaosqwq/mc-search-skill)](LICENSE)
@@ -11,13 +11,13 @@ AI Agent 优先的 Minecraft 聚合搜索 Skill，五平台并行，自动融合
 
 ## 项目简介
 
-mc-search 是为 **Claude Code Agent** 设计的 Minecraft 内容搜索 Skill，五平台并行搜索：
+mc-search 是为 **Claude Code Agent** 设计的 Minecraft 内容搜索 Skill，四平台并行搜索：
 
 | 平台 | 内容 | 访问方式 |
 |------|------|---------|
 | **MC百科** (mcmod.cn) | 中文模组/物品/整合包 | HTML 解析 + CDN 绕过 |
 | **Modrinth** | 英文 mod/光影/材质包/整合包 | REST API |
-| **bbsmc.net** | 中文名+简介补充源 | Modrinth 兼容 API |
+
 | **minecraft.wiki** (EN/ZH) | 原版游戏 wiki | MediaWiki API + CDN 绕过 |
 
 ## 核心特性
@@ -25,7 +25,7 @@ mc-search 是为 **Claude Code Agent** 设计的 Minecraft 内容搜索 Skill，
 - **跨语言桥接**：中文关键词自动提取英文名去 Modrinth 补搜，Agent 无感知
 - **本体判别**：`is_primary: true` 自动标记本体模组（C→B→A→兜底 四级联）
 - **字段级融合**：按字段逐源选取权威数据（name_zh→MC百科, name_en→Modrinth, downloads→Modrinth, relationships→MC百科）
-- **bbsmc 中文回填**：Modrinth 结果自动补中文名和简介
+
 - **WAF/CDN 自动降级**：MC百科 被拦截时回退搜索页数据，不阻断搜索
 
 ## 安装
@@ -74,5 +74,5 @@ MIT License
 
 - [MC 百科](https://www.mcmod.cn/) — 中文 Minecraft 模组百科
 - [Modrinth](https://modrinth.com/) — Minecraft 模组平台
-- [bbsmc.net](https://bbsmc.net/) — Modrinth 中国社区复刻
+
 - [Minecraft Wiki](https://minecraft.wiki/) — 原版游戏 wiki
