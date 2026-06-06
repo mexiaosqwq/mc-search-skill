@@ -226,17 +226,8 @@ Modrinth 整合包搜索结果结构与模组类似：
 - 当关键词包含中文时，系统自动从 MC百科 搜索结果中提取 `name_en`，去 Modrinth 补搜
 - 补搜结果去重后合并到 `results["modrinth"]` 中，对 Agent 透明
 
-**bbsmc.net 回填副作用**（`_fill_bbsmc_fields`）：
-- 当 Modrinth 无中文数据时，系统通过 bbsmc.net API 获取双语名（如 "机械动力 - Create"）
-- **副作用**：若 bbsmc 返回的双语名中中文部分含中文字符，会提取中文部分填入 `_name_zh_cn` 内部字段
-- **副作用**：若 `name_en` 被 bbsmc 双语名污染（含中文字符），会用双语名的英文部分覆盖 `name_en` 和 `name`
-- `description` 字段也会被 bbsmc 的 `summary` 补充（当原描述为空时）
-
-**CJK 回退逻辑**（`search_modrinth`）：
-- 文档仅描述 MC百科 → Modrinth 正向桥接
-- 实际：当 CJK 关键词在 Modrinth 直接搜索无结果时，bbsmc 回填的双语名中的英文部分会被提取并再次补搜
-
 ---
+
 
 ## MC百科 — item 搜索结果（`_parse_mcmod_item_result`）
 
@@ -449,7 +440,8 @@ Modrinth 整合包搜索结果结构与模组类似：
 
 | 字段 | 说明 |
 |------|------|
-| `_name_zh_cn` | 中文名称的标准化变体，用于辅助跨平台去重。从 bbsmc 双语名中提取的纯中文部分（如 "机械动力 - Create" → "机械动力"）。融合输出前会被清理。 |
+
+
 | `_platform` | 临时标记来源平台，融合后移除 |
 | `_score` | 相关性分数，融合后保留用于排序 |
 | `_sources` | 融合来源平台列表，仅在 `fuse=True` 时保留在最终结果 |
