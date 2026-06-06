@@ -3544,19 +3544,27 @@ def _cross_language_bridge(mcmod_hits: list, mr_hits: list, keyword: str, per_so
         logger.debug("Cross-language bridge: no English names extracted")
         return []
 
-    # 每个英文名搜 Modrinth（限 2 结果/名，控制请求量 + 去重）
+    # 并行搜索 Modrinth（每个英文名独立搜，限 2 结果/名）
     all_hits = {}
     mr_limit = min(per_source, 2)
-    for en_name in list(en_names)[:per_source]:
+
+    def _search_one(en_name: str):
         try:
-            mr_result = search_modrinth(en_name, max_results=mr_limit, project_type="mod")
+            return search_modrinth(en_name, max_results=mr_limit, project_type="mod")
         except (SearchError, OSError) as e:
             logger.debug(f"Bridge Modrinth search failed for {en_name}: {e}")
-            continue
-        for hit in mr_result.get("results", []):
-            slug = hit.get("source_id", "")
-            if slug and slug not in all_hits:
-                all_hits[slug] = hit
+            return {"results": []}
+
+    en_list = list(en_names)[:per_source]
+    if en_list:
+        with futures_module.ThreadPoolExecutor(max_workers=min(len(en_list), _MAX_FETCH_WORKERS)) as ex:
+            futs = {ex.submit(_search_one, en): en for en in en_list}
+            for future in futures_module.as_completed(futs):
+                mr_result = future.result()
+                for hit in mr_result.get("results", []):
+                    slug = hit.get("source_id", "")
+                    if slug and slug not in all_hits:
+                        all_hits[slug] = hit
 
     if all_hits:
         logger.debug(f"Cross-language bridge: {len(en_names)} en names -> {len(all_hits)} Modrinth hits")
