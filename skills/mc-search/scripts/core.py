@@ -68,7 +68,6 @@ _MAX_TABLE_ITEMS = 50               # 单个表格最大处理行数（性能保
 _MAX_VERSION_GROUPS = 5             # 版本组最大数量
 _MAX_CHANGELOGS = 5                 # 更新日志最大数量
 _MAX_FETCH_WORKERS = 5              # 详情并行获取最大 worker 数
-
 _MODRINTH_API = "https://api.modrinth.com/v2"  # Modrinth API 基础 URL
 _MAX_GALLERY = 0            # 默认不返回画廊（可配置）
 _EMPTY_MODRINTH_RESULT = {"results": [], "total": 0, "returned": 0}  # 平台搜索失败时的空信封
@@ -3558,7 +3557,7 @@ def _cross_language_bridge(mcmod_hits: list, keyword: str, per_source: int) -> l
     en_list = list(en_names)[:per_source]
     if en_list:
         with futures_module.ThreadPoolExecutor(max_workers=min(len(en_list), _MAX_FETCH_WORKERS)) as ex:
-            futs = {ex.submit(_search_one, en): en for en in en_list}
+            futs = [ex.submit(_search_one, en) for en in en_list]
             for future in futures_module.as_completed(futs):
                 mr_result = future.result()
                 for hit in mr_result.get("results", []):
