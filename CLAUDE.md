@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目定位
 
-**mc-search** 是 AI Agent 优先的 Minecraft 内容搜索 Skill。AI Agent 通过 Python API 直接调用，不依赖 CLI。五平台并行：MC百科 / Modrinth / bbsmc.net / minecraft.wiki EN / minecraft.wiki ZH。
+**mc-search** 是 AI Agent 优先的 Minecraft 内容搜索 Skill。AI Agent 通过 Python API 直接调用，不依赖 CLI。四平台并行：MC百科 / Modrinth / minecraft.wiki EN / minecraft.wiki ZH。
 
 核心特性：
 - **跨语言桥接**：中文关键词自动从 MC百科 提取 `name_en` 去 Modrinth 补搜，Agent 透明
