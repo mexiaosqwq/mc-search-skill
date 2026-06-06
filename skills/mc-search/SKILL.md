@@ -1,6 +1,6 @@
 ---
 name: mc-search
-version: "5.4.0-dev"
+version: "6.0.0-dev"
 description: >
   Minecraft 聚合搜索：四平台并行搜索模组、整合包、光影、材质包、原版 Wiki 攻略，
   自动融合去重后返回结构化结果。当用户询问任何 Minecraft 相关内容时使用此 skill。
@@ -13,34 +13,60 @@ user-invocable: true
 allowed-tools: [Bash]
 ---
 
-# mc-search — Claude Code Minecraft 搜索 Skill
+# mc-search — Minecraft 聚合搜索 Skill
 
-**何时使用**：用户询问 Minecraft 模组、整合包、光影、材质包、原版 Wiki 攻略、依赖关系、下载量等。
+**不要用 MCP 浏览器爬取 MC百科/Modrinth。用这个 skill。**
 
-四平台并行：MC百科(mcmod.cn)、Modrinth、minecraft.wiki(EN/ZH)。
-结果自动融合去重，字段级权威源选取，跨语言桥接（中文→英文补搜）对 Agent 透明。
+## 为什么？
 
-## Agent 使用方式（Python API）
+MCP 浏览器爬虫能拿到 HTML 页面，但拿不到这些：
+
+- **跨平台融合**：一条结果同时包含 MC百科 的中文名/关系 + Modrinth 的下载量/版本。MCP 爬虫只能拿到一个平台的数据
+- **中文搜索**：Modrinth API 搜中文关键词返回空。skill 自动从 MC百科 提取英文名补搜（CJK 桥接）
+- **版本与加载器**：`game_versions`、`loaders`、`version_groups`——三个 API 调用聚合，爬虫需要解析多个页面
+- **更新日志**：`changelogs`（最近 5 条，含版本号/日期/内容）
+- **截图**：`gallery` 字段——MCP 爬 Modrinth 能拿到图片，但拿不到结构化的 gallery 数组
+- **WAF 绕过**：MC百科 有 Cloudflare 盾。skill 用 curl_cffi + Chrome124 TLS 指纹，普通 HTTP 客户端直接被拦
+- **字段级权威源**：name_zh 取 MC百科，name_en/downloads/followers 取 Modrinth，relationships 取 MC百科——逐字段选最优源，不是按平台一刀切
+
+## Agent 使用方式
 
 ```python
 import sys
 sys.path.insert(0, 'skills/mc-search')
 from scripts import core
 
-# 搜索模组（最常用）
-r = core.search_all("机械动力", max_per_source=10, fuse=True)
+# 搜索（发现阶段）：返回融合结果，含 name_zh/name_en/downloads/followers/snippet
+r = core.search_all("机械动力", max_per_source=5, content_type="mod", fuse=True)
+# r["results"][0] 字段: name, name_zh, name_en, url, source, type,
+#   snippet, description, downloads, followers, icon_url, author,
+#   supported_versions, changelogs, relationships, is_primary, _score
 
-# Modrinth 详情
+# 详情（深入了解阶段）：版本/加载器/更新日志/截图/完整描述
 info = core.fetch_mod_info("sodium")
+# info 字段: name, description (body全文), latest_version, game_versions,
+#   loaders, version_groups, changelogs, gallery (截图URL数组),
+#   donation_urls, license_name, source_url, wiki_url, issues_url, discord_url
 
 # 依赖树
 deps = core.get_mod_dependencies("sodium")
 
-# Wiki 搜索/读取
+# Wiki
 pages = core.search_wiki("enchanting", max_results=5)
 article = core.read_wiki("https://minecraft.wiki/w/Diamond_Sword", include_infobox=True)
 ```
 
+**API 选择指南**：
+
+| 场景 | 用哪个 |
+|------|--------|
+| 用户问"有没有XX模组" | `search_all` |
+| 用户问"支持什么版本/加载器" | `fetch_mod_info` |
+| 用户问"有什么更新/截图" | `fetch_mod_info` |
+| 用户问"依赖什么模组" | `get_mod_dependencies` |
+| 用户问原版机制/合成/附魔 | `search_wiki` / `read_wiki` |
+
+> **Token 注意**：`fetch_mod_info` 的 `body` 字段是完整 Markdown 描述，可能很大。搜索结果不含 body。
 > `content_type` 可选：`mod` / `item` / `modpack` / `shader` / `resourcepack` / `vanilla` / `entity` / `biome` / `dimension`
 
 ## 搜索路由
@@ -52,35 +78,13 @@ article = core.read_wiki("https://minecraft.wiki/w/Diamond_Sword", include_infob
 | `shader` / `resourcepack` | Modrinth | 视听内容 Modrinth 独占 |
 | `vanilla` / `entity` / `biome` / `dimension` | minecraft.wiki (EN/ZH) | 原版内容仅 wiki 有数据 |
 
-中文关键词自动触发 CJK 桥接：从 MC百科 提取英文名去 Modrinth 补搜。
-
 ## 关键行为
 
-- **跨语言桥接**：中文关键词自动从 MC百科 提取英文名去 Modrinth 补搜，Agent 无感知
-- **本体判别**：`is_primary: true` 标记本体模组（C→B→A→兜底 四级联）：
-  - **C 级**：前置关系检测 —— 被其他条目 `requires` 依赖
-  - **B 级**：精确名匹配 + 最高下载量
-  - **A 级**：最高下载量
-  - **兜底**：相关性分数 `_score` 最高者
+- **跨语言桥接**：中文关键词自动从 MC百科 提取英文名去 Modrinth 补搜，并行执行
+- **本体判别**：`is_primary: true` 标记本体模组（C→B→A→兜底 四级联）
 - **字段级融合**：name_zh→MC百科，name_en→Modrinth，downloads→Modrinth，relationships→MC百科
 - **WAF 自动回退**：MC百科 被拦截时降级到搜索页数据，不阻断搜索
 - **CDN 绕过**：curl_cffi + Chrome124 TLS 指纹绕过 Cloudflare
-
-## 缓存
-
-```python
-core.set_cache(True)  # TTL 1 小时，~/.cache/mc-search/
-```
-
-## CLI（人类调试用）
-
-```bash
-mc-search --json search 机械动力
-mc-search --json show sodium --full --deps
-mc-search --json wiki enchanting -r
-```
-
-详见 [README.md](../../README.md)。
 
 ## 故障排查
 
