@@ -3515,7 +3515,7 @@ def _dispatch_platform_search(keyword: str, per_source: int, content_type: str, 
 
 def _apply_cjk_bridge(results: dict, stats: dict, keyword: str, per_source: int):
     """中文关键词用 MC百科 name_en 补搜 Modrinth，去重后合并。"""
-    bridge_hits = _cross_language_bridge(results["mcmod.cn"], results["modrinth"], keyword, per_source)
+    bridge_hits = _cross_language_bridge(results["mcmod.cn"], keyword, per_source)
     if bridge_hits:
         existing_slugs = {h.get("source_id", "") for h in results["modrinth"]}
         new_hits = [h for h in bridge_hits if h.get("source_id", "") not in existing_slugs]
@@ -3528,9 +3528,9 @@ def _is_cjk(text: str) -> bool:
     return bool(re.search(r'[\u4e00-\u9fff]', text))
 
 
-def _cross_language_bridge(mcmod_hits: list, mr_hits: list, keyword: str, per_source: int) -> list:
+def _cross_language_bridge(mcmod_hits: list, keyword: str, per_source: int) -> list:
     """从 MC百科 结果提取英文名去 Modrinth 补搜。"""
-    if not mcmod_hits and not mr_hits:
+    if not mcmod_hits:
         return []
 
     # 提取英文名候选（去重，最多 per_source 个）

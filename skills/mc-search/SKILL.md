@@ -63,7 +63,6 @@ article = core.read_wiki("https://minecraft.wiki/w/Diamond_Sword", include_infob
   - **A 级**：最高下载量
   - **兜底**：相关性分数 `_score` 最高者
 - **字段级融合**：name_zh→MC百科，name_en→Modrinth，downloads→Modrinth，relationships→MC百科
-
 - **WAF 自动回退**：MC百科 被拦截时降级到搜索页数据，不阻断搜索
 - **CDN 绕过**：curl_cffi + Chrome124 TLS 指纹绕过 Cloudflare
 
