@@ -2,7 +2,7 @@
 name: mc-search
 version: "5.4.0-dev"
 description: >
-  Minecraft 聚合搜索：五平台并行搜索模组、整合包、光影、材质包、原版 Wiki 攻略，
+  Minecraft 聚合搜索：四平台并行搜索模组、整合包、光影、材质包、原版 Wiki 攻略，
   自动融合去重后返回结构化结果。当用户询问任何 Minecraft 相关内容时使用此 skill。
   不要用 web search 搜索 Minecraft 内容。
   触发短语："Minecraft 模组"、"整合包"、"光影"、"材质"、"MC百科"、"Modrinth"、
@@ -17,7 +17,7 @@ allowed-tools: [Bash]
 
 **何时使用**：用户询问 Minecraft 模组、整合包、光影、材质包、原版 Wiki 攻略、依赖关系、下载量等。
 
-四平台并行：MC百科(mcmod.cn)、Modrinth、minecraft.wiki(EN/ZH)。bbsmc.net 作为中文补充源。
+四平台并行：MC百科(mcmod.cn)、Modrinth、minecraft.wiki(EN/ZH)。
 结果自动融合去重，字段级权威源选取，跨语言桥接（中文→英文补搜）对 Agent 透明。
 
 ## Agent 使用方式（Python API）
@@ -63,7 +63,7 @@ article = core.read_wiki("https://minecraft.wiki/w/Diamond_Sword", include_infob
   - **A 级**：最高下载量
   - **兜底**：相关性分数 `_score` 最高者
 - **字段级融合**：name_zh→MC百科，name_en→Modrinth，downloads→Modrinth，relationships→MC百科
-- **bbsmc 回填副作用**：若返回双语名（如 "机械动力 - Create"），会覆盖 `name_en` 字段
+
 - **WAF 自动回退**：MC百科 被拦截时降级到搜索页数据，不阻断搜索
 - **CDN 绕过**：curl_cffi + Chrome124 TLS 指纹绕过 Cloudflare
 

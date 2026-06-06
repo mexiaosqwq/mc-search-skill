@@ -68,7 +68,7 @@ _MAX_TABLE_ITEMS = 50               # 单个表格最大处理行数（性能保
 _MAX_VERSION_GROUPS = 5             # 版本组最大数量
 _MAX_CHANGELOGS = 5                 # 更新日志最大数量
 _MAX_FETCH_WORKERS = 4              # 详情并行获取最大 worker 数
-_BBSMC_API = "https://api.bbsmc.net/v3"  # bbsmc.net API 基础 URL
+
 _MODRINTH_API = "https://api.modrinth.com/v2"  # Modrinth API 基础 URL
 _MAX_GALLERY = 0            # 默认不返回画廊（可配置）
 _EMPTY_MODRINTH_RESULT = {"results": [], "total": 0, "returned": 0}  # 平台搜索失败时的空信封
@@ -1966,61 +1966,13 @@ def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════
-# Modrinth API + bbsmc 回填
+# Modrinth API
 # ═══════════════════════════════════════════════════════════════
 
 def _build_modrinth_url(slug: str, project_type: str) -> str:
     """构建Modrinth URL。返回 "https://modrinth.com/{type}/{slug}"。"""
     return f"https://modrinth.com/{project_type or 'mod'}/{slug}"
 
-
-def _backfill_bbsmc_names(results: list[dict]):
-    """按 slug 批量回填 bbsmc 中文名和简介到 Modrinth 结果（原地修改）。"""
-    slugs = [r["source_id"] for r in results if r.get("source_id")]
-    if not slugs:
-        return
-    bbsmc_data = {}
-    for slug, bbsmc_val in _parallel_fetch_with_fallback(
-        [(s,) for s in slugs],
-        lambda args: (args[0], _fetch_bbsmc_project(args[0])),
-        max_workers=min(len(slugs), _MAX_FETCH_WORKERS), filter_none=False
-    ):
-        if slug and bbsmc_val:
-            bbsmc_data[slug] = bbsmc_val
-    for result in results:
-        slug = result.get("source_id", "")
-        bd = bbsmc_data.get(slug, {})
-        if bd:
-            bbsmc_name = bd.get("name", "")
-            result["name_zh"] = bbsmc_name
-            cn_m = re.match(r'^(.+?)\s*[-–—]\s*\S+', bbsmc_name)
-            if cn_m and _is_cjk(cn_m.group(1)):
-                result["name_zh"] = cn_m.group(1).strip()
-                result["_name_zh_cn"] = cn_m.group(1).strip()
-            # 修复 bbsmc 双语名污染 name_en（如 "机械动力 - Create"、"机械动力 – Create"）
-            if _is_cjk(result.get("name_en", "")):
-                parts = re.split(r'\s*[-–—]\s*', bbsmc_name, 1)
-                if len(parts) == 2 and not _is_cjk(parts[1]):
-                    result["name_en"] = parts[1].strip()
-                    result["name"] = parts[1].strip()
-            bbsmc_summary = bd.get("summary", "")
-            if bbsmc_summary and result["description"] in ("", result.get("snippet", "")):
-                result["description"] = bbsmc_summary[:_MAX_SEARCH_DESC_CHARS]
-                if len(bbsmc_summary) > _MAX_SEARCH_DESC_CHARS:
-                    result.setdefault("_truncated", {})["description"] = {
-                        "returned": _MAX_SEARCH_DESC_CHARS, "total": len(bbsmc_summary)
-                    }
-
-
-def _fetch_bbsmc_project(slug: str) -> dict | None:
-    """查询 bbsmc.net 项目。返回 {"name": "...", "summary": "..."} 或 None。"""
-    try:
-        data = _fetch_json(f"{_BBSMC_API}/project/{slug}")
-        if data and data.get("name"):
-            return {"name": data.get("name", ""), "summary": data.get("summary", "")}
-    except Exception as e:
-        logger.debug(f"bbsmc fetch failed for {slug}: {e}")
-    return None
 
 
 @_cached(lambda keyword, max_results=5, project_type="mod": ("search", _cache_key("modrinth", keyword, max_results, project_type)))
@@ -2049,35 +2001,7 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             for hit in data.get("hits", []):
                 matched_hits.append((hit, hit.get("slug", "")))
         if not matched_hits:
-            # CJK 关键词回退：直接搜 bbsmc（中文搜索兼容）
-            if _is_cjk(keyword):
-                bbsmc_url = f"{_BBSMC_API}/search?query={q}&limit={max_results}"
-                bbsmc_data = _fetch_json(bbsmc_url, {"hits": []})
-                for bhit in bbsmc_data.get("hits", []):
-                    # 标准化为 Modrinth hit 格式
-                    pt_list = bhit.get("project_types")
-                    project_type = pt_list[0] if pt_list else bhit.get("project_type", "mod")
-                    bbsmc_title = bhit.get("name", bhit.get("title", ""))
-                    # 从双语名 "中文 - English" 中提取纯英文 name_en
-                    name_en = bbsmc_title
-                    if _is_cjk(bbsmc_title):
-                        parts = re.split(r'\s*[-–—]\s*', bbsmc_title, 1)
-                        name_en = parts[1].strip() if len(parts) == 2 and not _is_cjk(parts[1]) else ""
-                    normalized = {
-                        "title": bbsmc_title,
-                        "slug": bhit.get("slug", ""),
-                        "project_type": project_type,
-                        "description": bhit.get("summary", bhit.get("description", "")),
-                        "downloads": bhit.get("downloads", 0),
-                        "followers": bhit.get("follows", bhit.get("followers", 0)),
-                        "icon_url": bhit.get("icon_url", ""),
-                        "author": bhit.get("author", ""),
-                        "versions": bhit.get("versions", []),
-                        "_name_en": name_en,  # 预提取的纯英文名，供结果构建使用
-                    }
-                    matched_hits.append((normalized, normalized["slug"]))
-            if not matched_hits:
-                return {"results": [], "total": data.get("total_hits", 0), "returned": 0}
+            return {"results": [], "total": data.get("total_hits", 0), "returned": 0}
 
     # 2. 并行获取详情（body + changelogs）
     def _fetch_detail(args):
@@ -2128,10 +2052,6 @@ def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod
             "changelogs": changelogs,
         }
         results.append(result)
-
-    # 4. bbsmc 回填中文名和中文简介
-    if results:
-        _backfill_bbsmc_names(results)
 
     total = data.get("total_hits", 0)
     return {"results": results, "total": total, "returned": len(results)}
@@ -3609,24 +3529,17 @@ def _is_cjk(text: str) -> bool:
 
 
 def _cross_language_bridge(mcmod_hits: list, mr_hits: list, keyword: str, per_source: int) -> list:
-    """从 MC百科 + bbsmc(MR) 结果提取英文名去 Modrinth 补搜。"""
+    """从 MC百科 结果提取英文名去 Modrinth 补搜。"""
     if not mcmod_hits and not mr_hits:
         return []
 
     # 提取英文名候选（去重，最多 per_source 个）
     en_names = set()
-    # 源1: MC百科 name_en
+    # MC百科 name_en
     for hit in mcmod_hits:
         en = (hit.get("name_en") or "").strip()
         if en:
             en_names.add(en.lower())
-    # 源2: bbsmc 双语名 "中文名 - EnglishName" → 提取英文部分
-    for hit in mr_hits:
-        name_zh = (hit.get("name_zh") or "").strip()
-        if " - " in name_zh:
-            en_part = name_zh.rsplit(" - ", 1)[-1].strip()
-            if en_part and not _is_cjk(en_part):
-                en_names.add(en_part.lower())
     if not en_names:
         logger.debug("Cross-language bridge: no English names extracted")
         return []
