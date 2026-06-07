@@ -56,13 +56,10 @@ def _make_headers(extra: dict | None = None) -> dict:
 # 常量定义
 MIN_HTML_LEN = 1000         # 正常页面3-8KB，错误页<500B；核心检测阈值
 MIN_HTML_LEN_ITEM = 500     # 物品页无侧边栏，结构更紧凑
-_MIN_PARAGRAPH_LEN = 20     # wiki 解析，过滤导航/广告短文本
-_MIN_PARAGRAPH_LEN_ZH = 8   # 中文信息密度高，20字符对中文过严
 _MIN_SHORT_TEXT_LEN = 35    # 低于此长度视为无意义内容
 _MIN_DESCRIPTIVE_LI_LEN = 50  # 列表项需有足够描述性内容
 _MIN_DESCRIPTION_LINE_LEN = 10  # 描述文字单行最小长度
 _MIN_SECTION_MARKER_DISTANCE = 200  # section marker 最小距离
-_MAX_SECTION_PARAGRAPHS = 100  # 每 wiki 章节最多段落数
 _MIN_TABLE_CELL_LEN = 2             # 表格单元格最小有意义内容长度
 _MAX_TABLE_ITEMS = 50               # 单个表格最大处理行数（性能保护）
 _MAX_VERSION_GROUPS = 5             # 版本组最大数量
@@ -132,21 +129,8 @@ _SEARCH_CHANGELOG_LIMIT = 3  # 搜索结果中更新日志数量限制
 _SKIP_MCMOD_ORG_NAMES = {"CaffeineMC"}  # 排除的非作者组织名
 _DEFAULT_RESULTS_PER_PLATFORM = 10  # AI-first: Agent 场景默认结果数
 
-# Wiki 解析
-_WIKI_SNIPPET_SEGMENT_LEN = 5000  # 片段提取区段长度
-_WIKI_FALLBACK_SEGMENT_LEN = 20000  # 回退扫描区段长度
-_WIKI_FULL_SCAN_LEN = 60000       # 英文 wiki infobox 可达 30000+ 字符
-_WIKI_FIRST_TABLE_SEGMENT_LEN = 10000  # 首个表格区段长度
-_MIN_SNIPPET_LINE_LEN = 30        # 片段最小行长度
-_MIN_CJK_SEGMENT_LEN = 8          # CJK 文本最小区段长度
-_MAX_CJK_FALLBACK_SEGMENTS = 3    # CJK 回退最大区段数
-_MAX_WIKI_SECTIONS = 20           # 最大章节数
-_MAX_TABLES_PER_SECTION = 10      # 每章节最大表格数
 _MAX_MCMOD_AUTHORS = 10           # MC百科作者最大数量
 _KNOWN_LOADERS = {"fabric", "forge", "neoforge", "quilt"}  # 已知加载器集合
-_WIKI_SNIPPET_REPLACE_THRESHOLD = 50   # 直接命中 snippet 低于此长度时用 API snippet 替换
-_WIKI_SNIPPET_KEEP_THRESHOLD = 60       # API snippet 低于此长度不替换
-_MAX_WIKI_INTRO_PARAGRAPHS = 5    # 引言最大段落数
 
 # CDN 绕过配置
 _CURL_IMPERSONATE = "chrome124"  # curl_cffi 模拟的浏览器 TLS 指纹版本
@@ -324,25 +308,7 @@ class MatchScore(IntEnum):
     WIKI_ITEM_BONUS = 5
     MULTI_PLATFORM_BONUS = 10
 
-# Wiki 过滤关键词
-_WIKI_SNIPPET_SKIP_KEYWORDS = [
-    'disambiguation', 'may refer to',
-    '本條目介紹的是', '本条目介绍的是',
-    '關於其他用法', '关于其他用法',
-    '消歧義', '消歧义',
-    '請在加入後', '请在加入后',
-    '具體要求', '具体要求',
-]
 
-# Wiki Heading 跳过 ID
-_WIKI_HEADING_SKIP_IDS = {
-    "mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
-    "p-personal-label", "p-navigation-label", "p-tb-label"
-}
-_WIKI_ZH_HEADING_SKIP_IDS = _WIKI_HEADING_SKIP_IDS | {
-    "参考资料", "参考", "导航", "视频", "琐事",
-    "p-interaction-label", "p-print-label", "p-toolbox-label"
-}
 
 # MC 百科搜索过滤器
 _MCMOD_FILTER_MOD = "0"
@@ -381,17 +347,6 @@ _CONTENT_PLATFORM_PRIORITY = {
     "other": {"minecraft.wiki": 0, "minecraft.wiki/zh": 1, "mcmod.cn": 2, "modrinth": 3},
 }
 
-# Wiki 解析辅助（read_wiki / read_wiki_zh 共用）
-
-_EN_CONNECTORS_RE = re.compile(
-    r"\b(and|which|that|for|with|to|is|are|was|were|has|have|been|"
-    r"add|added|chang|fixed|updated|removed|introduced|included|"
-    r"prevent|allow|make|made|increas|decreas|affect)\b",
-    re.IGNORECASE,
-)
-_ZH_CONNECTORS_RE = re.compile(
-    r"(和|与|或|但|是|为|有|在|被|由|可|会|能|将|已|使)",
-)
 
 
 def _clean_html_text(html_fragment: str, preserve_nl: bool = False) -> str:
@@ -406,28 +361,6 @@ def _clean_html_text(html_fragment: str, preserve_nl: bool = False) -> str:
     else:
         text = re.sub(r"\s+", " ", text).strip()
     return text
-
-
-def _is_valid_paragraph(text: str, lang: str = "en") -> bool:
-    """判断是否为有意义的正文段落。lang="zh"时检测中文连接词。"""
-    min_len = _MIN_PARAGRAPH_LEN_ZH if lang == "zh" else _MIN_PARAGRAPH_LEN
-    if not text or len(text) < min_len:
-        return False
-    if re.match(r"^[\#\.\[\/\{]", text):
-        return False
-    if text.startswith("{") and text.count('"') >= 4 and ":" in text:
-        return False
-    # 过滤维护模板/消歧义提示
-    text_lower = text.lower()
-    if any(kw.lower() in text_lower for kw in _WIKI_SNIPPET_SKIP_KEYWORDS):
-        return False
-    if len(text) > _MIN_SHORT_TEXT_LEN:
-        return True
-    # 短文本：需含连接词
-    if lang == "zh":
-        return bool(_EN_CONNECTORS_RE.search(text) or _ZH_CONNECTORS_RE.search(text))
-    return bool(_EN_CONNECTORS_RE.search(text))
-
 
 
 # 缓存系统
@@ -583,16 +516,40 @@ def set_platform_enabled(mcmod: bool = True, modrinth: bool = True, wiki: bool =
 
 
 # ── MC百科 CDN 绕过状态 ──────────────────────────────
-# 使用 curl_cffi 模拟浏览器 TLS 指纹，绕过 www.mcmod.cn 的 CDN 盾
-_MCMOD_SESSION = None
+# 每请求独立 Session + Cookie 缓存共享，消除多线程竞态
+_MCMOD_COOKIES: dict[str, str] = {}
+_MCMOD_COOKIES_LOCK = threading.RLock()
 _MCMOD_BYPASSED = False
-_MCMOD_LOCK = threading.RLock()
+_MCMOD_BYPASSING = False
+_MCMOD_STATE_LOCK = threading.RLock()
 
 
 def _mcmod_host(url: str) -> str:
     """从 MC百科 URL 提取主机名，用于 cookie 域名。"""
     m = re.match(r'https?://([^/]+)', url)
     return m.group(1) if m else "www.mcmod.cn"
+
+
+def _inject_cookies(session, base_url: str) -> None:
+    """将缓存的绕过 Cookie 注入到 session 中（只读快照，无锁争用）。"""
+    host = _mcmod_host(base_url)
+    with _MCMOD_COOKIES_LOCK:
+        cookies_snapshot = dict(_MCMOD_COOKIES)
+    for name, value in cookies_snapshot.items():
+        session.cookies.set(name, value, domain=host, path="/")
+
+
+def _extract_and_cache_cookies(session, base_url: str) -> None:
+    """从 session 提取 Cookie 并缓存（绕过成功后调用，原子替换）。"""
+    host = _mcmod_host(base_url)
+    new_cookies = {}
+    for cookie in session.cookies.jar:
+        if cookie.domain and host in cookie.domain:
+            new_cookies[cookie.name] = cookie.value
+    if new_cookies:
+        with _MCMOD_COOKIES_LOCK:
+            _MCMOD_COOKIES.clear()
+            _MCMOD_COOKIES.update(new_cookies)
 
 
 def _do_cdn_shield_post(session, base_url: str, headers: dict, timeout: int) -> None:
@@ -634,112 +591,168 @@ def _handle_yxd_token(session, text: str, base_url: str, headers: dict, timeout:
 
 
 def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
-    """绕过 www.mcmod.cn 的 CDN 盾（一次性 cookie 交换 + yxd_token + CC check）。"""
-    global _MCMOD_SESSION, _MCMOD_BYPASSED
-    if _MCMOD_BYPASSED:
-        return True
+    """绕过 www.mcmod.cn 的 CDN 盾。使用本地 Session，成功时缓存 Cookie。
+
+    同一时刻只有一个线程执行绕过（_MCMOD_BYPASSING 互斥）。
+    其他线程看到 _MCMOD_BYPASSING=True 时返回 False，由调用方重试等待。
+    """
+    global _MCMOD_BYPASSED, _MCMOD_BYPASSING
+
+    with _MCMOD_STATE_LOCK:
+        if _MCMOD_BYPASSED:
+            return True
+        if _MCMOD_BYPASSING:
+            return False  # 另一个线程正在绕过
+        _MCMOD_BYPASSING = True
 
     try:
         from curl_cffi import requests as curl_requests
     except ImportError:
         logger.error("curl_cffi 未安装，无法访问 MC百科 (www.mcmod.cn)")
+        with _MCMOD_STATE_LOCK:
+            _MCMOD_BYPASSING = False
         return False
 
-    with _MCMOD_LOCK:
-        if _MCMOD_BYPASSED:
-            return True
-        if _MCMOD_SESSION is None:
-            _MCMOD_SESSION = curl_requests.Session()
-
+    session = curl_requests.Session()
+    base_url = "https://www.mcmod.cn"
     headers = _make_headers()
 
     try:
-        r = _MCMOD_SESSION.get(
-            "https://www.mcmod.cn/", impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout
+        r = session.get(
+            base_url + "/", impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout
         )
-
-        # 处理 yxd_token 页面（JS 设置 cookie 后重定向）—— 需要先于 CC check
         page_text = r.text
+
+        # yxd_token 页面：提取 token、设置 cookie、跟随重定向
         if 'yxd_token=' in page_text and len(page_text) < _MIN_TOKEN_PAGE_LEN:
-            page_text = _handle_yxd_token(_MCMOD_SESSION, page_text, "https://www.mcmod.cn", headers, timeout)
-            if not page_text:
-                return False
+            token_m = re.search(r"yxd_token=([^;'\"\s]+)", page_text)
+            if not token_m:
+                raise SearchError("yxd_token not found")
+            session.cookies.set("yxd_token", token_m.group(1),
+                                domain="www.mcmod.cn", path="/")
+            href_m = re.search(r"window\.location\.href='([^']+)'", page_text)
+            if href_m:
+                target = urllib.parse.urljoin(base_url + "/", href_m.group(1))
+                r = session.get(target, impersonate=_CURL_IMPERSONATE,
+                                headers=headers, timeout=timeout)
+                page_text = r.text
 
-        if "CC check" not in page_text:
+        # CC check：POST 浏览器指纹数据完成验证
+        if _WAF_CC_CHECK in page_text and len(page_text) < _MAX_CC_PAGE_LEN:
+            data = {k: "false" for k in _CC_CHECK_FIELDS}
+            data["v1"] = ""
+            ch = {**headers, "Content-Type": "application/x-www-form-urlencoded",
+                  "Referer": base_url + "/", "Origin": base_url}
+            r = session.post(
+                base_url + "/cdn-shield/check", data=data,
+                impersonate=_CURL_IMPERSONATE, headers=ch,
+                allow_redirects=False, timeout=timeout
+            )
+            loc = r.headers.get("Location")
+            if loc:
+                session.get(
+                    urllib.parse.urljoin(base_url, loc),
+                    impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout
+                )
+
+        # 绕过成功：缓存 Cookie，标记完成
+        _extract_and_cache_cookies(session, base_url)
+        with _MCMOD_STATE_LOCK:
             _MCMOD_BYPASSED = True
-            return True
-
-        # POST 浏览器指纹数据完成验证
-        _do_cdn_shield_post(_MCMOD_SESSION, "https://www.mcmod.cn", headers, timeout)
-        _MCMOD_BYPASSED = True
+            _MCMOD_BYPASSING = False
         return True
+
     except Exception as e:
         logger.warning(f"MC百科 CDN 绕过失败: {e}")
+        with _MCMOD_STATE_LOCK:
+            _MCMOD_BYPASSING = False
         return False
 
 
 def _reset_mcmod_session():
-    """重置 MC百科 CDN 绕过状态和 session。用于失败后清理。"""
-    global _MCMOD_BYPASSED, _MCMOD_SESSION
-    with _MCMOD_LOCK:
+    """重置 MC百科 CDN 绕过状态和 Cookie 缓存。"""
+    global _MCMOD_BYPASSED, _MCMOD_BYPASSING
+    with _MCMOD_STATE_LOCK:
         _MCMOD_BYPASSED = False
-        _MCMOD_SESSION = None
+        _MCMOD_BYPASSING = False
+    with _MCMOD_COOKIES_LOCK:
+        _MCMOD_COOKIES.clear()
 
 
 def _curl_mcmod(url: str, timeout: int = 10) -> str:
-    """使用 curl_cffi 请求 *.mcmod.cn，自动绕过 CDN 盾（各子域名独立绕过）。"""
-    global _MCMOD_BYPASSED, _MCMOD_SESSION
+    """使用 curl_cffi 请求 *.mcmod.cn。每请求独立 Session，Cookie 缓存共享。
 
+    并发安全：每个调用创建自己的 Session，绕过 Cookie 从缓存注入后只读使用。
+    WAF 恢复（yxd_token、CC check）在本地 Session 上处理，不污染其他线程。
+    """
     headers = _make_headers()
 
     for attempt in range(_CDN_BYPASS_RETRIES):
-        # 检查是否已绕过 CDN — 必须在锁内读取，避免多线程竞态
-        with _MCMOD_LOCK:
-            already_bypassed = _MCMOD_BYPASSED
+        # 等待绕过完成（如果其他线程正在执行绕过）
+        with _MCMOD_STATE_LOCK:
+            bypassed = _MCMOD_BYPASSED
+            bypassing = _MCMOD_BYPASSING
 
-        if not already_bypassed:
-            if not _bypass_mcmod_cdn(timeout=timeout):
-                if attempt == 0:
-                    _reset_mcmod_session()
-                    continue
+        if not bypassed and not bypassing:
+            # 本线程负责绕过
+            if _bypass_mcmod_cdn(timeout=timeout):
+                pass  # 绕过成功
+            elif attempt == 0:
+                _reset_mcmod_session()
+                time.sleep(0.5)
+                continue
+            else:
                 return ""
 
+        elif not bypassed and bypassing:
+            # 另一线程正在绕过，退避等待
+            if attempt < _CDN_BYPASS_RETRIES - 1:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            return ""
+
+        # 创建本地 Session，注入缓存 Cookie
         try:
-            with _MCMOD_LOCK:
-                if _MCMOD_SESSION is None:
-                    from curl_cffi import requests as curl_requests
-                    _MCMOD_SESSION = curl_requests.Session()
-                r = _MCMOD_SESSION.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
+            from curl_cffi import requests as curl_requests
+        except ImportError:
+            return ""
+        session = curl_requests.Session()
+        _inject_cookies(session, url)
+
+        try:
+            r = session.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
         except Exception as e:
             logger.warning(f"MC百科请求失败 ({url}): {e}")
-            _reset_mcmod_session()
+            if attempt == 0:
+                _reset_mcmod_session()
             continue
 
         text = r.text
 
-        # Captcha / 限流页面：退避后重试（立即重试必撞墙）
+        # Captcha / 限流页面：退避后重试
         if '<title>安全验证</title>' in text[:2000] or '<title>访问间隔过短' in text[:2000]:
             _reset_mcmod_session()
             if attempt < _CDN_BYPASS_RETRIES - 1:
-                time.sleep(1.0 + attempt)  # 1s, 2s 递增退避
+                time.sleep(1.0 + attempt)
             continue
 
-        # 处理 yxd_token 页面（JS 设置 cookie 后重定向）
+        # yxd_token 页面：在本地 Session 上处理
         if 'yxd_token=' in text and len(text) < _MIN_TOKEN_PAGE_LEN:
-            html = _handle_yxd_token(_MCMOD_SESSION, text, url, headers, timeout)
+            html = _handle_yxd_token(session, text, url, headers, timeout)
             if html:
                 return html
             return ""
 
-        # CC check：为该子域名单独绕过 CDN 盾（各子域名隔离）
+        # CC check：在本地 Session 上处理
         if _WAF_CC_CHECK in text and len(text) < _MAX_CC_PAGE_LEN:
             host = _mcmod_host(url)
             base = f"https://{host}"
             try:
-                _do_cdn_shield_post(_MCMOD_SESSION, base, headers, timeout)
+                _do_cdn_shield_post(session, base, headers, timeout)
                 for _ in range(_CDN_RETRY_ATTEMPTS):
-                    r = _MCMOD_SESSION.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
+                    r = session.get(url, impersonate=_CURL_IMPERSONATE, headers=headers, timeout=timeout)
                     if _WAF_CC_CHECK not in r.text or len(r.text) >= _MAX_CC_PAGE_LEN:
+                        _extract_and_cache_cookies(session, base)
                         return r.text
             except Exception as e:
                 logger.warning(f"CDN bypass post failed for {host}: {e}")
@@ -2501,102 +2514,6 @@ def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
 # Wiki 解析（搜索/读取/infobox/段落）
 # ═══════════════════════════════════════════════════════════════
 
-def _clean_wiki_segment(segment: str) -> str:
-    """清理 wiki HTML 片段：移除脚本/样式/媒体标签和 wiki 标记，返回纯文本。"""
-    segment = re.sub(r'<script[^>]*>.*?</script>', ' ', segment, flags=re.DOTALL)
-    segment = re.sub(r'<style[^>]*>.*?</style>', ' ', segment, flags=re.DOTALL)
-    segment = re.sub(r'<img[^>]*/?>', ' ', segment, flags=re.IGNORECASE)
-    segment = re.sub(r'<source[^>]*/?>', ' ', segment, flags=re.IGNORECASE)
-    segment = re.sub(r'<picture[^>]*/?>', ' ', segment, flags=re.IGNORECASE)
-    text = re.sub(r'<[^>]+>', ' ', segment)
-    text = re.sub(r'<[a-zA-Z]\w*\s[^>]*', ' ', text)
-    text = re.sub(r'\[\[[^\]]*\]\]', ' ', text)
-    return re.sub(r'\s+', ' ', text).strip()
-
-
-def _wiki_extract_snippet(html: str, start: int, source: str = "") -> tuple[str, str]:
-    """从 wiki 页面提取描述 snippet。返回 (snippet, snippet_source)。
-
-    直接解析 <p> 标签内容，而非将整个 HTML 压缩为单行，
-    以避免 infobox/nav 等非正文内容混入。
-    """
-    snippet = ""
-    snippet_source = ""
-
-    # 限制搜索范围，避免扫描整页
-    segment = html[start:start+_WIKI_FALLBACK_SEGMENT_LEN]
-
-    # 判断 <p> 标签内容是否为有效描述文本
-    def _is_valid_snippet_para(text: str) -> bool:
-        if not text or len(text) < _MIN_SNIPPET_LINE_LEN:
-            return False
-        # 跳过 JSON/模板数据（英文 wiki infobox 用 <p> 包裹 JSON）
-        if text.startswith('{') or text.startswith('['):
-            return False
-        # 跳过消歧义行
-        if any(kw in text.lower() for kw in _WIKI_SNIPPET_SKIP_KEYWORDS):
-            return False
-        return True
-
-    # 方法1：intro 区域（第一个 heading 之前）的 <p> 标签
-    heading_m = re.search(r'<h[234][^>]*id="[^"]+"[^>]*>', segment)
-    intro_html = segment[:heading_m.start()] if heading_m else segment[:_WIKI_SNIPPET_SEGMENT_LEN]
-
-    snippet_parts = []
-    for p in re.findall(r"<p[^>]*>(.*?)</p>", intro_html, re.DOTALL):
-        # 移除 <style> 块（保留其余内容）
-        p = re.sub(r"<style[^>]*>.*?</style>", "", p, flags=re.DOTALL | re.IGNORECASE)
-        if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
-            continue
-        clean = _clean_html_text(p)
-        if _is_valid_snippet_para(clean):
-            snippet_parts.append(clean)
-            if sum(len(p) for p in snippet_parts) >= _MAX_SEARCH_DESC_CHARS:
-                break
-
-    # 方法2：intro 区域无有效段落时，扫描更大范围的所有 <p>（跳过 infobox）
-    # 英文 wiki 页面的描述性段落常在 infobox/TOC 之后（可达 30000+ 字符）
-    if not snippet_parts:
-        large_segment = html[start:start+_WIKI_FULL_SCAN_LEN]
-        for p in re.findall(r"<p[^>]*>(.*?)</p>", large_segment, re.DOTALL):
-            p = re.sub(r"<style[^>]*>.*?</style>", "", p, flags=re.DOTALL | re.IGNORECASE)
-            if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
-                continue
-            clean = _clean_html_text(p)
-            if _is_valid_snippet_para(clean):
-                snippet_parts.append(clean)
-                if sum(len(p) for p in snippet_parts) >= _MAX_SEARCH_DESC_CHARS:
-                    break
-
-    if snippet_parts:
-        snippet = ' '.join(snippet_parts)[:_MAX_SEARCH_DESC_CHARS]
-        snippet_source = "intro"
-
-    # Fallback：CJK 连续片段（中文 wiki）
-    if not snippet:
-        large_text = _clean_wiki_segment(html[start:start+_WIKI_FALLBACK_SEGMENT_LEN])
-        cjk_segments = re.findall(r'[\u4e00-\u9fff]{10,}', large_text)
-        if cjk_segments:
-            for seg in cjk_segments[:_MAX_CJK_FALLBACK_SEGMENTS]:
-                if len(seg) > _MIN_CJK_SEGMENT_LEN:
-                    snippet = seg[:_MAX_SEARCH_DESC_CHARS]
-                    snippet_source = "fallback"
-                    break
-
-    # Fallback：英文句子片段（英文 wiki 页面内容主要在表格/列表时，<p> 标签可能为空）
-    if not snippet:
-        large_text = _clean_wiki_segment(html[start:start+_WIKI_FULL_SCAN_LEN])
-        # 找第一个包含字母的连续英文片段（至少 40 字符）
-        en_segments = re.findall(r'[A-Za-z][\w\s,;:\-\'\"()]{40,}', large_text)
-        for seg in en_segments[:3]:
-            seg = seg.strip()
-            # 排除 CSS/JS 残留
-            if not any(kw in seg.lower() for kw in ('font-style', 'display:', 'margin-', 'padding-', 'background')):
-                snippet = seg[:_MAX_SEARCH_DESC_CHARS]
-                snippet_source = "fallback"
-                break
-    return snippet, snippet_source
-
 
 def _add_variant_param(url: str) -> str:
     """为中文 wiki URL 添加 variant=zh-hans 参数。"""
@@ -2624,67 +2541,11 @@ def _build_wiki_result(name, url, source, source_id, snippet, sections,
     return result
 
 
-def _wiki_direct_access(
-    html: str,
-    base_url: str,
-    source: str,
-    title_field: str,
-    add_variant: bool,
-) -> list[dict] | None:
-    """处理 wiki 直接访问（页面已找到）。返回结果列表或 None。"""
-    m_title = re.search(r"<title>([^<]+)</title>", html)
-    title_text = m_title.group(1) if m_title else ""
-    is_direct = (
-        'id="firstHeading"' in html
-        and "Special:Search" not in title_text
-        and "Search results" not in title_text
-        and "的搜索结果" not in title_text
-    )
-    if not is_direct:
-        return None
-
-    canon_m = re.search(r'<link[^>]+rel="canonical"[^>]+href="([^"]+)"', html)
-    og_m = re.search(r'<meta[^>]+property="og:url"[^>]+content="([^"]+)"', html)
-    article_url = canon_m.group(1) if canon_m else (og_m.group(1) if og_m else None)
-    page_title = re.sub(r"\s*[–-]\s*(中文 )?Minecraft Wiki.*", "", title_text).strip()
-
-    # 提取 h2 和 h3 标题
-    headings = re.findall(r"<h([23])[^>]*>(.*?)</h\1>", html, re.DOTALL)
-    sections = []
-    for level, content in headings[:_MAX_WIKI_SECTIONS]:
-        clean = re.sub(r"<[^>]+>", "", content).strip()
-        if clean:
-            prefix = "▸ " if level == "2" else "  - "
-            sections.append(f"{prefix}{clean}")
-
-    # 提取 snippet
-    snippet = ""
-    parser_output = re.search(r'<div[^>]+class="[^"]*mw-parser-output[^"]*"[^>]*>', html)
-    if parser_output:
-        snippet, _ = _wiki_extract_snippet(html, parser_output.end(), source)
-    # 消歧义页：snippet 为空时补充提示
-    if not snippet:
-        meta_desc = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', html)
-        if meta_desc and 'may refer to' in meta_desc.group(1):
-            snippet = "Disambiguation page — lists entries sharing this name."
-
-    if add_variant and article_url:
-        article_url = _add_variant_param(article_url)
-
-    result = _build_wiki_result(
-        name=page_title,
-        url=article_url or "",
-        source=source,
-        source_id=article_url.split("/")[-1] if article_url else "",
-        snippet=snippet,
-        sections=sections,
-        title_field=title_field,
-    )
-    result["_direct_match"] = True
-    return [result]
+_DISAMBIG_PREFIXES = ('本条目介绍的是', '本條目介紹的是', '關於其他用法', '关于其他用法',
+                      '消歧義', '消歧义', '本頁面是', '本页面是')
 
 
-def _wiki_api_search(
+def _wiki_api_generator_search(
     keyword: str,
     base_url: str,
     source: str,
@@ -2692,48 +2553,95 @@ def _wiki_api_search(
     add_variant: bool,
     max_results: int,
 ) -> list[dict]:
-    """MediaWiki API 搜索。返回结果列表（含 main_image）。"""
+    """银弹查询：单次 generator=search 替代 go=Go + list=search。
+
+    组合 prop=extracts|pageprops|pageimages，一次 RTT 拿齐所有搜索所需数据。
+    redirects=1 确保重定向页返回目标页面数据而非干瘪的 "Redirect to X"。
+    """
     results = []
     q = urllib.parse.quote(keyword)
-    # 使用 prop=pageimages 获取每页缩略图（pithumbsize=200）
-    api_url = (f"{base_url}/api.php?action=query&list=search&srsearch={q}"
-               f"&prop=pageimages&pithumbsize=200&format=json&srlimit={max_results}")
+    api_url = (
+        f"{base_url}/api.php?action=query&generator=search&gsrsearch={q}"
+        f"&gsrlimit={max_results}&prop=extracts|pageprops|pageimages"
+        f"&exintro=1&explaintext=1&pithumbsize=200&redirects=1&format=json"
+    )
     raw = curl(api_url)
     if not raw:
         return results
+
     try:
         data = json.loads(raw)
-        hits = data.get("query", {}).get("search", [])
-        pages = data.get("query", {}).get("pages", {})
-        for hit in hits[:max_results]:
-            title = hit.get("title", "")
-            page_id = hit.get("pageid", 0)
-            snippet = hit.get("snippet", "")
-            clean_snippet = re.sub(r'<[^>]+>', '', snippet) if snippet else ""
-            # 清理 MediaWiki 标记残留（[[|]]、[[...]] 等）
-            clean_snippet = re.sub(r'\[\[[^]]*\|([^\]]*)\]\]', r'\1', clean_snippet)  # [[a|b]] → b
-            clean_snippet = re.sub(r'\[\[([^\]]*)\]\]', r'\1', clean_snippet)          # [[a]] → a
-            clean_snippet = re.sub(r'\[\[?\|?\]?\]?', '', clean_snippet)               # 残留 [[|]]
-            clean_snippet = re.sub(r'\s+', ' ', clean_snippet).strip()
-            article_url = f"{base_url}/w/{urllib.parse.quote(title.replace(' ', '_'))}"
-            if add_variant:
-                article_url = _add_variant_param(article_url)
-            # 从 pageimages 中提取缩略图
-            page = pages.get(str(page_id), {})
-            image_info = page.get("thumbnail")
-            main_image = image_info.get("source") if image_info else None
-            results.append(_build_wiki_result(
-                name=title,
-                url=article_url,
-                source=source,
-                source_id=str(page_id),
-                snippet=clean_snippet,
-                sections=[],
-                title_field=title_field,
-                main_image=main_image,
-            ))
-    except (json.JSONDecodeError, KeyError, AttributeError) as e:
-        logger.warning(f"Wiki search parse failed for {keyword}: {e}")
+    except json.JSONDecodeError as e:
+        logger.warning(f"Wiki generator search JSON parse failed for {keyword}: {e}")
+        return results
+
+    pages = data.get("query", {}).get("pages", {})
+    if not pages:
+        return results
+
+    # 按 page.index 排序（generator=search 排序依据，无独立 query.search 数组）
+    sorted_pages = sorted(
+        pages.items(),
+        key=lambda kv: kv[1].get("index", 9999),
+    )
+
+    for _, page in sorted_pages:
+
+        title = page.get("title", "")
+        pageid = page.get("pageid", 0)
+        extract = page.get("extract", "")
+        pageprops = page.get("pageprops", {})
+        thumbnail = page.get("thumbnail", {})
+
+        # snippet：截断 extract 并保留 _truncated 元信息
+        snippet = extract[:_MAX_SEARCH_DESC_CHARS] if extract else ""
+        if len(extract) > _MAX_SEARCH_DESC_CHARS:
+            is_truncated = True
+        else:
+            is_truncated = False
+
+        # 消歧义检测：pageprops 为主，中文前缀为回退
+        is_disambig = "disambiguation" in pageprops
+
+        # 中文消歧义前缀回退
+        if not is_disambig and snippet:
+            prefix80 = snippet[:80]
+            if any(prefix80.startswith(p) for p in _DISAMBIG_PREFIXES):
+                is_disambig = True
+
+        # 客户端精确匹配判定
+        direct_match = _is_direct_match(keyword, title)
+
+        # URL
+        article_url = f"{base_url}/w/{urllib.parse.quote(title.replace(' ', '_'))}"
+        if add_variant:
+            article_url = _add_variant_param(article_url)
+
+        # 主图
+        main_image = thumbnail.get("source") if thumbnail else None
+
+        result = _build_wiki_result(
+            name=title,
+            url=article_url,
+            source=source,
+            source_id=str(pageid),
+            snippet=snippet,
+            sections=[],
+            title_field=title_field,
+            main_image=main_image,
+        )
+        if direct_match:
+            result["_direct_match"] = True
+        if is_disambig:
+            result["is_disambiguation"] = True
+        if is_truncated:
+            result.setdefault("_truncated", {})["description"] = {
+                "returned": _MAX_SEARCH_DESC_CHARS,
+                "total": len(extract),
+            }
+
+        results.append(result)
+
     return results
 
 
@@ -2747,51 +2655,15 @@ def _search_wiki_impl(
     add_variant: bool,
     max_results: int = 5,
 ) -> list[dict]:
-    """
-    minecraft.wiki 搜索通用实现。
-
-    参数:
-        base_url: wiki 根 URL
-        cache_prefix: 缓存 key 前缀
-        source: source 字段值
-        title_field: 标题填入哪个字段（"name_en" / "name_zh" / ""）
-        add_variant: 是否添加 ?variant=zh-hans
-    """
-    results = []
-    q = urllib.parse.quote(keyword)
-
-    # 方法1：尝试直接访问（精确匹配，信息更丰富：有 sections、有真实 snippet）
-    html = curl(f"{base_url}/w/Special:Search?search={q}&go=Go")
-    if html and len(html) >= MIN_HTML_LEN:
-        direct = _wiki_direct_access(
-            html, base_url, source, title_field, add_variant)
-        if direct:
-            results.extend(direct)
-
-    # 方法2：MediaWiki API 搜索（补充更多相关结果）
-    api_results = _wiki_api_search(
-        keyword, base_url, source, title_field, add_variant, max_results)
-
-    # 去重：API 结果中与直接访问结果同名的跳过（URL 去重，避免繁简体同名问题）
-    # 若直接命中 snippet 过短，用 API 结果的 snippet 补充
-    if results:
-        direct_urls = {_url_tail_key(r.get("url", ""))
-                       for r in results}
-        for r in api_results:
-            r_url_key = _url_tail_key(r.get("url", ""))
-            if r_url_key in direct_urls:
-                # 同一页面：若直接命中 snippet 过短，用 API snippet 替换
-                if len(r.get("snippet", "")) > _WIKI_SNIPPET_REPLACE_THRESHOLD:
-                    for dr in results:
-                        dr_url = _url_tail_key(dr.get("url", ""))
-                        if dr_url == r_url_key and len(dr.get("snippet", "")) < _WIKI_SNIPPET_KEEP_THRESHOLD:
-                            dr["snippet"] = r["snippet"]
-            else:
-                results.append(r)
-    else:
-        results = api_results
-
-    return results
+    """minecraft.wiki 搜索通用实现。单次 generator=search API 调用。"""
+    return _wiki_api_generator_search(
+        keyword=keyword,
+        base_url=base_url,
+        source=source,
+        title_field=title_field,
+        add_variant=add_variant,
+        max_results=max_results,
+    )
 
 
 def search_wiki(keyword: str, max_results: int = 5) -> list[dict]:
@@ -2836,427 +2708,199 @@ def search_wiki_zh(keyword: str, max_results: int = 5) -> list[dict]:
     )
 
 
-def _extract_wiki_infobox(html: str) -> dict:
+def _is_direct_match(query: str, title: str) -> bool:
+    """客户端精确标题匹配判定。替代 go=Go 的 getNearMatch() 行为。
+
+    Args:
+        query: 用户搜索关键词
+        title: API 返回的页面标题
+
+    Returns:
+        True 当 query 和 title 归一化后精确匹配
     """
-    提取 wiki infobox 结构化数据（优先 table.infobox，支持多种格式）。
+    q = query.strip().lower().replace(' ', '_')
+    t = title.strip().lower().replace(' ', '_')
+    if q == t:
+        return True
+    # CJK：尝试 Unicode 规范化（NFKC 折叠全角/半角、繁简部分等效）
+    import unicodedata
+    q_norm = unicodedata.normalize('NFKC', q)
+    t_norm = unicodedata.normalize('NFKC', t)
+    return q_norm == t_norm
 
-    尝试顺序:
-    1. table.infobox（标准格式）
-    2. div.infobox 内嵌套表格
-    3. mw-parser-output 后第一个带 th 的表格
-    4. 中文 wiki 分散表格（合并提取）
+
+def _extract_infobox_from_wikitext(wikitext: str) -> dict:
+    """从 wikitext 提取 Infobox 模板键值对。单路径带大括号深度状态机。
+
+    仅在模板嵌套深度归零时把 | 识别为参数分隔符，正确跳过嵌套 {{...}} 内的 = 和 |。
+    清洗 wikitext 残留：[[links]]、'''bold'''、''italic''、HTML 标签。
     """
-    # 格式1: table.infobox（最可靠）
-    infobox_html = _try_extract_standard_infobox(html)
-    if infobox_html:
-        return _parse_infobox_table(infobox_html)
+    # 匹配 Infobox/Block/Item/Entity/Biome 模板开头
+    m = re.search(r'\{\{(?:Infobox[_\s]\w+|Block|Item|Entity|Biome)\s*[\|\n]', wikitext)
+    if not m:
+        return {}
 
-    # 格式2: div.infobox 内有嵌套表格
-    infobox_html = _try_extract_div_infobox(html)
-    if infobox_html:
-        return _parse_infobox_table(infobox_html)
-
-    # 格式3: mw-parser-output 后的第一个表格
-    infobox_html = _try_extract_first_table(html)
-    if infobox_html:
-        return _parse_infobox_table(infobox_html)
-
-    # 格式4: div.infobox-rows（中文 wiki wiki.gg 新布局）
-    zh_data = _try_extract_div_infobox_rows(html)
-    if zh_data:
-        return zh_data
-
-    # 格式5: 中文 wiki 的分散表格（旧格式回退）
-    zh_data = _try_extract_chinese_wiki_tables(html)
-    if zh_data:
-        return zh_data
-
-    return {}
-
-
-def _try_extract_standard_infobox(html: str) -> str | None:
-    """尝试提取标准 table.infobox 格式。"""
-    match = re.search(r'<table[^>]+class="[^"]*infobox[^"]*"[^>]*>(.*?)</table>', html, re.DOTALL)
-    return match.group(1) if match else None
-
-
-def _try_extract_div_infobox(html: str) -> str | None:
-    """尝试提取 div.infobox 内嵌套的表格。"""
-    div_match = re.search(r'<div[^>]+class="[^"]*infobox[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
-    if not div_match:
-        return None
-
-    div_content = div_match.group(1)
-    table_in_div = re.search(r'<table[^>]*>(.*?)</table>', div_content, re.DOTALL)
-    return table_in_div.group(1) if table_in_div else None
-
-
-def _try_extract_first_table(html: str) -> str | None:
-    """尝试提取 mw-parser-output 后的第一个带 th 的表格。"""
-    parser = re.search(r'<div[^>]+class="mw-content-ltr mw-parser-output"', html)
-    if not parser:
-        parser = re.search(r'<div[^>]+class="[^"]*mw-parser-output[^"]*"[^>]*>', html)
-    if not parser:
-        return None
-
-    segment = html[parser.end():parser.end()+_WIKI_FIRST_TABLE_SEGMENT_LEN]
-    first_table = re.search(r'<table[^>]*>(.*?)</table>', segment, re.DOTALL)
-    if first_table and '<th' in first_table.group(0):
-        return first_table.group(1)
-    return None
-
-
-def _try_extract_div_infobox_rows(html: str) -> dict | None:
-    """提取中文 wiki div.infobox-rows 格式（wiki.gg 新布局）。
-
-    结构: <div class="infobox-rows"> → <div class="infobox-row">
-           → <div class="infobox-row-label">标签</div>
-           → <div class="infobox-row-field">值</div>
-    """
-    rows_start = re.search(r'<div[^>]+class="[^"]*infobox-rows[^"]*"[^>]*>', html)
-    if not rows_start:
-        return None
-
-    # 从 infobox-rows 起，逐层匹配找到闭合标签
-    pos = rows_start.start()
+    # 从 {{ 开始跟踪大括号深度，找到闭合 }}
+    start = m.start()
     depth = 0
-    rows_html = ""
-    for m in re.finditer(r'</?div[^>]*>', html[pos:], re.IGNORECASE):
-        if m.group().startswith('</'):
-            depth -= 1
-        else:
+    end = start
+    while end < len(wikitext):
+        if wikitext[end:end+2] == '{{':
             depth += 1
-        if depth == 0:
-            rows_html = html[pos + len(rows_start.group()):pos + m.start()]
-            break
-
-    if not rows_html:
-        return None
-
-    # 从 rows_html 中提取每个 infobox-row 的标签和值
-    data = {}
-    for row_start in re.finditer(r'<div[^>]+class="[^"]*infobox-row\b[^"]*"[^>]*>', rows_html):
-        rpos = row_start.end()
-        rdepth = 1
-        row_inner = ""
-        for m in re.finditer(r'</?div[^>]*>', rows_html[rpos:], re.IGNORECASE):
-            if m.group().startswith('</'):
-                rdepth -= 1
-            else:
-                rdepth += 1
-            if rdepth == 0:
-                row_inner = rows_html[rpos:rpos + m.start()]
+            end += 2
+        elif wikitext[end:end+2] == '}}':
+            depth -= 1
+            if depth == 0:
                 break
+            end += 2
+        else:
+            end += 1
 
-        label_m = re.search(r'<div[^>]+class="[^"]*infobox-row-label[^"]*"[^>]*>(.*?)</div>', row_inner, re.DOTALL)
-        field_m = re.search(r'<div[^>]+class="[^"]*infobox-row-field[^"]*"[^>]*>(.*?)</div>', row_inner, re.DOTALL)
-        if label_m:
-            key = _clean_html_text(label_m.group(1))
-            value = _clean_html_text(field_m.group(1)) if field_m else ""
-            if key and len(key) < 30 and not key.startswith(('{{', '{|')):
-                data[key] = value
-    return data if data else None
+    if depth != 0:
+        return {}  # 未闭合，放弃
 
+    # 提取模板名之后、闭合 }} 之前的参数块
+    # 找到第一个 | 或 \n（模板名结束）
+    name_end = start + len(m.group())
+    params_block = wikitext[name_end:end]
 
-def _try_extract_chinese_wiki_tables(html: str) -> dict | None:
-    """尝试提取中文 wiki 的分散表格（合并多个相关表格）。"""
-    if not any(marker in html for marker in ['zh-Hant', 'zh-Hans', '中文']):
-        return None
-
-    key_fields = ['名稱', '稀有度', '耐久度', '攻擊', '防御', '生命值']
-    all_tables = re.findall(r'<table[^>]*>(.*?)</table>', html, re.DOTALL)
-
+    # 按 | 切分参数——仅在双括号深度为 0 时切（同时跟踪 {{}} 和 [[]]）
     data = {}
-    for table in all_tables:
-        if not any(kw in table for kw in key_fields) or '<th' not in table:
+    current = ""
+    brace_depth = 0  # {{ }} 嵌套深度
+    link_depth = 0   # [[ ]] 嵌套深度
+
+    def _at_depth_zero():
+        return brace_depth == 0 and link_depth == 0
+
+    i = 0
+    while i < len(params_block):
+        ch = params_block[i]
+        # 检测 {{ 或 }}
+        if ch == '{' and i+1 < len(params_block) and params_block[i+1] == '{':
+            brace_depth += 1
+            current += '{{'
+            i += 2
             continue
+        elif ch == '}' and i+1 < len(params_block) and params_block[i+1] == '}':
+            brace_depth = max(0, brace_depth - 1)
+            current += '}}'
+            i += 2
+            continue
+        # 检测 [[ 或 ]]
+        elif ch == '[' and i+1 < len(params_block) and params_block[i+1] == '[':
+            link_depth += 1
+            current += '[['
+            i += 2
+            continue
+        elif ch == ']' and i+1 < len(params_block) and params_block[i+1] == ']':
+            link_depth = max(0, link_depth - 1)
+            current += ']]'
+            i += 2
+            continue
+        elif ch == '|' and _at_depth_zero():
+            # 参数分隔符
+            current = current.strip()
+            if '=' in current:
+                key, _, value = current.partition('=')
+                key = key.strip()
+                if key and not key.startswith('{'):
+                    data[key.lower()] = _clean_wikitext_value(value.strip())
+            elif current:
+                # 位置参数（如 |image= 的变体），取有效 key
+                pass
+            current = ""
+            i += 1
+            continue
+        current += ch
+        i += 1
 
-        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table, re.DOTALL)
-        for row in rows:
-            cells = re.findall(r'<(th|td)[^>]*>(.*?)</\1>', row, re.DOTALL)
-            if len(cells) == 2:
-                key = _clean_html_text(cells[0][1])
-                value = _clean_html_text(cells[1][1])
-                if key and not key.startswith(('{{', '{|', 'Module:')) and len(key) < 30:
-                    data[key] = value
+    # 最后一个参数
+    current = current.strip()
+    if current and '=' in current:
+        key, _, value = current.partition('=')
+        key = key.strip()
+        if key and not key.startswith('{'):
+            data[key.lower()] = _clean_wikitext_value(value.strip())
 
-    return data if data else None
-
-
-def _parse_infobox_table(infobox_html: str) -> dict:
-    """解析 infobox 表格的 key-value 对。"""
-    data = {}
-    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', infobox_html, re.DOTALL)
-    for row in rows:
-        cells = re.findall(r'<(th|td)[^>]*>(.*?)</\1>', row, re.DOTALL)
-        if len(cells) == 2:
-            key = _clean_html_text(cells[0][1])
-            value = _clean_html_text(cells[1][1])
-            if key and not key.startswith(('{{', '{|', 'Module:')):
-                data[key] = value
     return data
 
 
-def _extract_main_image(html: str) -> str:
-    """提取页面主要图片（infobox 图片）。"""
-    img = re.search(
-        r'<div[^>]+class="[^"]*infobox[^"]*"[^>]*>.*?'
-        r'<img[^>]+src="([^"]+)"',
-        html, re.DOTALL
-    )
-    if img:
-        return img.group(1)
-
-    img = re.search(
-        r'<div[^>]+id="mw-content-text"[^>]*>.*?'
-        r'<img[^>]+src="([^"]+)"',
-        html, re.DOTALL
-    )
-    return img.group(1) if img else ""
+def _clean_wikitext_value(value: str) -> str:
+    """清洗 wikitext 值中的格式标记。"""
+    # [[link|text]] → text, [[link]] → link
+    value = re.sub(r'\[\[(?:[^\]|]+)\|([^\]]+)\]\]', r'\1', value)
+    value = re.sub(r'\[\[([^\]]+)\]\]', r'\1', value)
+    # '''bold''', ''italic''
+    value = re.sub(r"'''([^']+)'''", r'\1', value)
+    value = re.sub(r"''([^']+)''", r'\1', value)
+    # HTML 标签残留
+    value = re.sub(r'<[^>]+>', '', value)
+    # 多余空白
+    value = re.sub(r'\s+', ' ', value).strip()
+    return value
 
 
-def _strip_infobox_region(html: str) -> str:
-    """切除 div.infobox / div.notaninfobox 区域（避免 rail 模块数据泄漏）。"""
-    infobox_start = re.search(r'<div[^>]+class="[^"]*(?:infobox|notaninfobox)[^"]*"[^>]*>', html)
-    if not infobox_start:
-        return html
-    # 从 infobox div 起逐层匹配闭合标签
-    pos = infobox_start.start()
-    depth = 0
-    for m in re.finditer(r'</?div[^>]*>', html[pos:], re.IGNORECASE):
-        if m.group().startswith('</'):
-            depth -= 1
-        else:
-            depth += 1
-        if depth == 0:
-            return html[:pos] + html[pos + m.end():]
-    return html
+def _api_fetch_page_data(page_title: str, base_url: str) -> dict:
+    """并发获取 wiki 页面数据：extracts（纯文本）+ parse（sections + wikitext）。
+
+    返回 {"extract": str, "sections": list, "wikitext": str, "title": str}
+    任一请求失败时对应字段为空/默认值。
+    """
+    result = {"extract": "", "sections": [], "wikitext": "", "title": page_title}
+    q = urllib.parse.quote(page_title)
+
+    extracts_url = (f"{base_url}/api.php?action=query&prop=extracts"
+                    f"&explaintext=1&titles={q}&format=json")
+    parse_url = (f"{base_url}/api.php?action=parse&prop=sections|wikitext"
+                 f"&page={q}&format=json")
+
+    raw_extracts = curl(extracts_url)
+    raw_parse = curl(parse_url)
+
+    # 解析 extracts
+    if raw_extracts:
+        try:
+            data = json.loads(raw_extracts)
+            pages = data.get("query", {}).get("pages", {})
+            for pid, page in pages.items():
+                if int(pid) > 0:  # 跳过负数（无效页面）
+                    result["extract"] = page.get("extract", "")
+                    result["title"] = page.get("title", page_title)
+        except json.JSONDecodeError:
+            pass
+
+    # 解析 parse（sections + wikitext）
+    if raw_parse:
+        try:
+            data = json.loads(raw_parse)
+            parse_data = data.get("parse", {})
+            result["sections"] = parse_data.get("sections", [])
+            result["wikitext"] = parse_data.get("wikitext", {})
+            if not result["title"] or result["title"] == page_title:
+                result["title"] = parse_data.get("title", page_title)
+            # wikitext 可能是 dict(encoding, content) 或直接是字符串
+            if isinstance(result["wikitext"], dict):
+                result["wikitext"] = result["wikitext"].get("*", "")
+        except json.JSONDecodeError:
+            pass
+
+    return result
 
 
-def _extract_intro_paragraphs(content_html: str, para_skip_prefixes: tuple, source: str) -> list[str]:
-    """提取 wiki 页面首段介绍（第一个 heading 之前的内容）。"""
-    # 解析 heading 位置
-    heading_map = []
-    for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
-        heading_map.append(m.start())
-
-    if not heading_map:
-        return []
-
-    # 提取第一个 heading 之前的段落
-    first_heading_pos = heading_map[0]
-    pre_heading_html = content_html[:first_heading_pos]
-
-    # 切除 infobox/notaninfobox 区域（避免 rail 模块数据泄漏到首段）
-    pre_heading_html = _strip_infobox_region(pre_heading_html)
-
-    intro_paragraphs = []
-
-    # 提取 hatnote/msgbox 消歧义提示（如 "本条目介绍的是..."）
-    for note_div in re.findall(
-        r'<div[^>]+(?:class="[^"]*(?:hatnote|msgbox|ambox)[^"]*"|role="note")[^>]*>(.*?)</div>',
-        pre_heading_html, re.DOTALL
-    ):
-        clean = _clean_html_text(note_div)
-        if len(clean) >= 4 and not clean.startswith("Wiki上"):
-            intro_paragraphs.append(clean)
-
-    for p in re.findall(r"<p[^>]*>(.*?)</p>", pre_heading_html, re.DOTALL):
-        if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
-            continue
-        clean = _clean_html_text(p)
-        if any(clean.startswith(prefix) for prefix in para_skip_prefixes):
-            continue
-        if _is_valid_paragraph(clean, lang="en" if source == "minecraft.wiki" else "zh"):
-            intro_paragraphs.append(clean)
-            if len(intro_paragraphs) >= _MAX_WIKI_INTRO_PARAGRAPHS:
-                break
-
-    return intro_paragraphs
+def _extract_page_title_from_url(url: str) -> str:
+    """从 wiki URL 提取页面标题。"""
+    from urllib.parse import unquote
+    path = url.split("/w/")[-1] if "/w/" in url else url.split("/wiki/")[-1]
+    title = path.split("?")[0].split("#")[0]
+    return unquote(title.replace("_", " "))
 
 
-def _extract_sections(
-    content_html: str,
-    heading_skip_ids: set[str],
-    para_skip_prefixes: tuple[str, ...],
-    source: str,
-    intro_paragraphs: list[str],
-    max_paragraphs: int
-) -> tuple[list[dict], list[str]]:
-    """解析 heading 并提取所有章节内容。"""
-    # 解析 heading 映射
-    heading_map = []
-    for m in re.finditer(r'<h([234])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', content_html, re.DOTALL):
-        lvl = int(m.group(1))
-        h_id = m.group(2)
-        h_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
-        heading_map.append((lvl, h_id, h_text, m.start()))
-
-    sections_output = []
-    paragraphs = list(intro_paragraphs)  # 先添加首段
-    current_h2 = None
-
-    for i, (lvl, h_id, h_text, h_start) in enumerate(heading_map):
-        if h_id in heading_skip_ids:
-            continue
-        if lvl == 2:
-            current_h2 = h_text
-            # h2 也提取内容（之前跳过了 h2，导致"生成""用途"等大节内容丢失）
-
-        next_start = heading_map[i + 1][3] if i + 1 < len(heading_map) else len(content_html)
-        section_html = content_html[h_start:next_start]
-
-        # 提取章节段落
-        section_paragraphs = _extract_section_paragraphs(
-            section_html, para_skip_prefixes, source
-        )
-
-        # 提取表格行
-        table_rows = _extract_table_items_from_section(section_html, source, len(section_paragraphs))
-
-        # 构建章节输出
-        section_lines = section_paragraphs[:_MAX_SECTION_PARAGRAPHS]
-        if table_rows and not section_paragraphs:
-            # 纯表格章节：直接展开表格行
-            section_lines = table_rows[:_MAX_SECTION_PARAGRAPHS]
-        elif table_rows:
-            # 有段落也有表格：追加表格行
-            section_lines.extend(table_rows[:_MAX_SECTION_PARAGRAPHS - len(section_lines)])
-
-        if section_lines:
-            sections_output.append({
-                "heading": h_text,
-                "parent": current_h2,
-                "content": section_lines,
-            })
-            paragraphs.extend(section_lines)
-
-        # 支持-1表示无限制
-        if max_paragraphs > 0 and len(paragraphs) >= max_paragraphs:
-            paragraphs = paragraphs[:max_paragraphs]
-            break
-
-    return sections_output, paragraphs
-
-
-def _extract_section_paragraphs(section_html: str, para_skip_prefixes: tuple, source: str) -> list[str]:
-    """提取单个章节的段落内容。"""
-    section_paragraphs = []
-    for p in re.findall(r"<p[^>]*>(.*?)</p>", section_html, re.DOTALL):
-        if re.search(r"<script|application/ld\+json", p, re.IGNORECASE):
-            continue
-        clean = _clean_html_text(p)
-        if any(clean.startswith(prefix) for prefix in para_skip_prefixes):
-            continue
-        if _is_valid_paragraph(clean, lang="en" if source == "minecraft.wiki" else "zh"):
-            section_paragraphs.append(clean)
-            if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                break
-
-    # 英文 wiki：从 <li> 中提取描述性条目（始终提取，不仅回退）
-    if source == "minecraft.wiki":
-        for li in re.findall(r"<li[^>]*>(.*?)</li>", section_html, re.DOTALL):
-            clean = _clean_html_text(li)
-            if len(clean) >= _MIN_DESCRIPTIVE_LI_LEN and re.match(
-                    r"^(Added|Changed|Fixed|Updated|Removed|Introduced|Can now|Made|New|Affects?|Allows?|Prevents?|Makes?|Provides?)", clean):
-                section_paragraphs.append(clean)
-                if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                    break
-
-    # 中文 wiki：始终从 <li> 提取（不少章节用 <ul>/<li> 承载主要内容）
-    if source != "minecraft.wiki":
-        for li in re.findall(r"<li[^>]*>(.*?)</li>", section_html, re.DOTALL):
-            clean = _clean_html_text(li)
-            if len(clean) >= 4 and not clean.startswith(("[", "编辑", "注：")):
-                section_paragraphs.append(clean)
-                if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                    break
-
-    # <dd> 提取：命令参考页用 <dl>/<dd> 承载主要语法内容
-    for dd in re.findall(r"<dd[^>]*>(.*?)</dd>", section_html, re.DOTALL):
-        clean = _clean_html_text(dd)
-        if len(clean) >= 4 and not clean.startswith(("[", "编辑", "注：")):
-            section_paragraphs.append(clean)
-            if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                break
-
-    # <dt> 提取：定义列表术语（如命令参数名、附魔等级标签）
-    for dt in re.findall(r"<dt[^>]*>(.*?)</dt>", section_html, re.DOTALL):
-        clean = _clean_html_text(dt)
-        if len(clean) >= 3 and not clean.startswith(("[", "编辑", "注：")):
-            section_paragraphs.append(clean)
-            if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                break
-
-    # <pre> 提取：代码块、数据组件 JSON、战利品表
-    for pre in re.findall(r"<pre[^>]*>(.*?)</pre>", section_html, re.DOTALL):
-        clean = _clean_html_text(pre)
-        if len(clean) >= 20:
-            section_paragraphs.append(clean)
-            if len(section_paragraphs) >= _MAX_SECTION_PARAGRAPHS:
-                break
-
-    return section_paragraphs
-
-
-def _extract_table_items_from_section(section_html: str, source: str, current_para_count: int) -> list[str]:
-    """从章节中提取表格行内容（每行所有列，用 | 分隔）。"""
-    table_rows = []
-    if current_para_count < _MAX_SECTION_PARAGRAPHS:
-        tables = re.findall(r'<table[^>]*class="[^"]*(?:wikitable|id-table|datatable)[^"]*"[^>]*>.*?</table>', section_html, re.DOTALL)
-        for tbl in tables[:_MAX_TABLES_PER_SECTION]:
-            rows = _extract_table_rows(tbl, max_rows=_MAX_TABLE_ITEMS)
-            table_rows.extend(rows)
-    return table_rows
-
-
-def _extract_table_rows(table_html: str, max_rows: int = 50) -> list[str]:
-    """从 wiki table 中提取每行完整内容（多列用 | 分隔）。"""
-    rows_out = []
-    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL)
-    for row in rows[1:]:  # 跳过表头行
-        cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.DOTALL)
-        if not cells:
-            continue
-        cleaned = []
-        for cell in cells:
-            text = _clean_html_text(cell).strip()
-            # 清理 MediaWiki 残留标记
-            text = re.sub(r'\[\[[^]]*\|([^\]]*)\]\]', r'\1', text)  # [[a|b]] → b
-            text = re.sub(r'\[\[([^\]]*)\]\]', r'\1', text)          # [[a]] → a
-            text = re.sub(r'\[\[?\|?\]?\]?', '', text)               # 残留 [[|]]
-            text = text.strip()
-            if not text or re.match(r"^[\s\-\d]+$", text):
-                continue
-            # 过滤 CSS/样式代码泄漏
-            if re.match(r"\.\w+-", text) or "{" in text or "display:" in text:
-                continue
-            cleaned.append(text)
-        if not cleaned:
-            continue
-        # 单列直接输出，多列用 | 分隔
-        if len(cleaned) == 1:
-            rows_out.append(cleaned[0])
-        else:
-            rows_out.append(" | ".join(cleaned))
-        if len(rows_out) >= max_rows:
-            break
-    return rows_out
-
-
-def _extract_disambig_links(content_html: str, source: str) -> list[str]:
-    """从消歧义页面提取 <li> 链接条目。"""
-    links = []
-    # 移除 TOC（id="toc"）
-    content = re.sub(r'<div[^>]+id="toc"[^>]*>.*?</div>', '', content_html, flags=re.DOTALL)
-    for li in re.findall(r'<li[^>]*>(.*?)</li>', content, re.DOTALL):
-        # 跳过 TOC 条目（包含 tocnumber / toctext）
-        if 'tocnumber' in li or 'toctext' in li:
-            continue
-        clean = _clean_html_text(li)
-        if len(clean) >= 10:
-            links.append(clean)
-    return links
+def _extract_base_url_from_url(url: str) -> str:
+    """从 wiki 页面 URL 提取 base_url。"""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def _read_wiki_impl(url: str, max_paragraphs: int,
@@ -3264,71 +2908,59 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
                     heading_skip_ids: set[str],
                     source: str,
                     include_infobox: bool = True) -> dict:
-    """
-    读取 wiki 页面正文（英文 / 中文共用实现）。
+    """读取 wiki 页面正文（英文 / 中文共用实现）。
 
-    参数：
-      para_skip_prefixes: 段落前缀跳过词（如 "History of", "v ", "历史", "编辑"）
-      heading_skip_ids:   heading id 跳过集合
-      source:             返回结果的 source 字段值
-      include_infobox:    是否在结果中包含 infobox 数据
+    使用 action=query prop=extracts（纯文本）+ action=parse（sections + wikitext）
+    替代 HTML 直连 + 正则刮削。Infox 从 wikitext 模板解析。
     """
     cache_key = _cache_key("wiki_read", url, str(max_paragraphs), source)
     cached = _cache_get("wiki_read", cache_key)
     if cached is not None:
         return cached
 
-    html = curl(url)
-    if not html or len(html) < MIN_HTML_LEN_ITEM:
+    page_title = _extract_page_title_from_url(url)
+    base_url = _extract_base_url_from_url(url)
+
+    data = _api_fetch_page_data(page_title, base_url)
+    extract = data["extract"]
+    sections_raw = data["sections"]
+    wikitext = data["wikitext"]
+    title = data["title"] or page_title
+
+    if not extract:
         return {"_error": "no_content"}
 
-    m_title = re.search(r'<h1[^>]*id="firstHeading"[^>]*>(.*?)</h1>', html, re.DOTALL)
-    title = _clean_html_text(m_title.group(1)) if m_title else "UNKNOWN"
+    # 提取 infobox 结构化数据（从 wikitext）
+    infobox_data = {}
+    if wikitext:
+        infobox_data = _extract_infobox_from_wikitext(wikitext)
 
-    # 提取 infobox 结构化数据（在移除之前）
-    infobox_data = _extract_wiki_infobox(html)
+    # 将 extract 按 \n\n 拆分为段落，应用过滤
+    paragraphs = []
+    para_count = 0
+    for para in extract.split('\n\n'):
+        para = para.strip()
+        if not para:
+            continue
+        if max_paragraphs > 0 and para_count >= max_paragraphs:
+            break
+        # 跳过前缀匹配的段落
+        if para_skip_prefixes and any(para.startswith(p) for p in para_skip_prefixes):
+            continue
+        paragraphs.append(para)
+        para_count += 1
 
-    # 提取主要图片
-    main_image = _extract_main_image(html)
-
-    m_content = re.search(
-        r'<div[^>]+id="mw-content-text"[^>]*>(.*?)'
-        r'(?:<div[^>]+class="[^"]*(?<![a-z-])navbox(?![a-z-])[^"]*"|<div[^>]+id="catlinks|<div[^>]+class="[^"]*printfooter)',
-        html, re.DOTALL
-    )
-    if not m_content:
-        return {"_error": "no_content"}
-
-    content_html = m_content.group(1)
-
-    content_html = re.sub(
-        r'<script[^>]+type="application/ld\+json"[^>]*>.*?</script>',
-        "", content_html, flags=re.DOTALL
-    )
-    # 移除 navbox（infobox 已提取，不再需要特殊处理）
-    content_html = re.sub(
-        r'<table[^>]+class="[^"]*navbox[^"]*"[^>]*>.*?</table>',
-        "", content_html, flags=re.DOTALL
-    )
-
-    # 提取首段介绍
-    intro_paragraphs = _extract_intro_paragraphs(content_html, para_skip_prefixes, source)
-
-    # 解析 heading 并提取章节内容
-    sections_output, paragraphs = _extract_sections(
-        content_html, heading_skip_ids, para_skip_prefixes,
-        source, intro_paragraphs, max_paragraphs
-    )
-
-    # 消歧义页面：无段落/章节时提取 <li> 链接列表
-    is_disambig = False
-    if not paragraphs and not sections_output:
-        meta_desc = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', html)
-        if meta_desc and 'may refer to' in meta_desc.group(1):
-            is_disambig = True
-            paragraphs = _extract_disambig_links(content_html, source)
-            if paragraphs:
-                sections_output = [{"heading": "Disambiguation", "parent": None, "content": paragraphs}]
+    # 构建 _sections（从 parse.sections，应用 heading_skip_ids）
+    sections_output = []
+    for sec in sections_raw:
+        anchor = sec.get("anchor", "")
+        if heading_skip_ids and anchor in heading_skip_ids:
+            continue
+        sections_output.append({
+            "heading": sec.get("line", ""),
+            "level": sec.get("toclevel", 1),
+            "anchor": anchor,
+        })
 
     result = {
         "name": title,
@@ -3339,21 +2971,22 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
         "_sections": sections_output,
     }
 
-    # 添加 infobox 结构化数据（如果有）
-    if infobox_data:
+    if infobox_data and include_infobox:
         result["infobox"] = infobox_data
-
-    # 添加主要图片（如果有）
-    if main_image:
-        result["main_image"] = main_image
-
-    if is_disambig:
-        result["is_disambiguation"] = True
-    if not include_infobox and "infobox" in result:
-        del result["infobox"]
 
     _cache_set("wiki_read", cache_key, result)
     return result
+
+
+# Wiki heading 跳过 ID（章节过滤，用于 read_wiki）
+_WIKI_HEADING_SKIP_IDS = {
+    "mw-toc-heading", "References", "Navigation", "Videos", "Trivia",
+    "p-personal-label", "p-navigation-label", "p-tb-label",
+}
+_WIKI_ZH_HEADING_SKIP_IDS = {
+    "参考资料", "参考", "导航", "视频", "琐事",
+    "p-interaction-label", "p-print-label", "p-toolbox-label",
+} | _WIKI_HEADING_SKIP_IDS
 
 
 def read_wiki(url: str, max_paragraphs: int = -1, include_infobox: bool = True) -> dict:
