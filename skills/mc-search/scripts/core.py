@@ -549,8 +549,10 @@ def _extract_and_cache_cookies(session, base_url: str) -> None:
     host = _mcmod_host(base_url)
     new_cookies = {}
     for cookie in session.cookies.jar:
-        if cookie.domain and host in cookie.domain:
-            new_cookies[cookie.name] = cookie.value
+        if cookie.domain:
+            cookie_domain = cookie.domain.lstrip('.')
+            if host == cookie_domain or host.endswith('.' + cookie_domain):
+                new_cookies[cookie.name] = cookie.value
     if new_cookies:
         with _MCMOD_COOKIES_LOCK:
             _MCMOD_COOKIES.clear()
@@ -675,11 +677,14 @@ def _bypass_mcmod_cdn(timeout: int = 15) -> bool:
 
 
 def _reset_mcmod_session():
-    """重置 MC百科 CDN 绕过状态和 Cookie 缓存。"""
-    global _MCMOD_BYPASSED, _MCMOD_BYPASSING
+    """重置 MC百科 CDN 绕过状态和 Cookie 缓存。
+
+    _MCMOD_BYPASSING 不在此清除——仅 _bypass_mcmod_cdn 管理该标志，
+    避免多线程同时绕过时互相干扰。
+    """
+    global _MCMOD_BYPASSED
     with _MCMOD_STATE_LOCK:
         _MCMOD_BYPASSED = False
-        _MCMOD_BYPASSING = False
     with _MCMOD_COOKIES_LOCK:
         _MCMOD_COOKIES.clear()
 
