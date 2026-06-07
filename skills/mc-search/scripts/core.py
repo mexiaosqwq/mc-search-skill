@@ -268,9 +268,14 @@ def _apply_truncation(result: dict, field: str, max_chars: int) -> None:
 
 
 def _clean_mcmod_html(content: str) -> str:
-    """清理 MC百科 HTML：移除 script/style/img 标签，转换 br/p 为换行。"""
-    content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
-    content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
+    """清理 MC百科 HTML：移除 script/style/img 标签，转换 br/p 为换行。
+
+    闭合标签存在性预检避免缺失标签时 re.DOTALL 全段扫描。
+    """
+    if '</script>' in content:
+        content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
+    if '</style>' in content:
+        content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
     content = re.sub(r"<img[^>]*>", "", content)
     content = re.sub(r"<br\s*/?>", "\n", content)
     content = re.sub(r"<p[^>]*>", "\n", content)
@@ -1604,21 +1609,22 @@ def _parse_mcmod_mod_result(html: str, url: str, name: str) -> dict:
 # ═══════════════════════════════════════════════════════════════
 
 def _parallel_fetch_with_fallback(items: list, fetch_func: callable, max_workers: int,
-                                   filter_none: bool = True) -> list:
-    """并行抓取带降级。返回结果列表（可选过滤None）。"""
+                                   filter_none: bool = True, timeout: int = 30) -> list:
+    """并行抓取，单条超时/失败不影响其他 item。不做串行降级重试。
+
+    timeout: 每条 fetch 的超时秒数（默认 30s）。单条超时记录警告并跳过。
+    """
+    if not items:
+        return []
+    results = []
     with futures_module.ThreadPoolExecutor(max_workers=max_workers) as ex:
-        results = []
-        try:
-            results = list(ex.map(fetch_func, items))
-        except Exception as e:
-            logger.warning(f"Parallel fetch failed: {e}, falling back to sequential")
-            # 回退到逐个抓取，跳过失败项
-            for item in items:
-                try:
-                    results.append(fetch_func(item))
-                except (SearchError, OSError) as e:
-                    logger.warning(f"Fetch failed for item: {e}")
-                    continue
+        futs = {ex.submit(fetch_func, item): i for i, item in enumerate(items)}
+        for f in futures_module.as_completed(futs):
+            try:
+                results.append(f.result(timeout=timeout))
+            except (futures_module.TimeoutError, SearchError, OSError, Exception) as e:
+                logger.warning(f"Fetch failed for item {futs[f]}: {e}")
+                continue
 
     if filter_none:
         results = [r for r in results if r is not None]
@@ -2115,7 +2121,9 @@ def _html_to_text(html: str) -> str:
     text = re.sub(r'<iframe([^>]*)>', replace_iframe, text, flags=re.IGNORECASE)
 
     # 2. 处理链接：<a href="...">text</a> -> text
-    text = re.sub(r'<a[^>]*>(.*?)</a>', r'\1', text, flags=re.DOTALL | re.IGNORECASE)
+    # 闭合标签存在性预检：避免缺失 </a> 时 re.DOTALL 全段扫描
+    if '</a>' in text:
+        text = re.sub(r'<a[^>]*>(.*?)</a>', r'\1', text, flags=re.DOTALL | re.IGNORECASE)
 
     # 3. 处理图片：<img alt="..." src="..."> -> ![alt](src)
     def replace_img(m):
@@ -2142,13 +2150,17 @@ def _html_to_text(html: str) -> str:
     text = re.sub(r'</li>', '', text, flags=re.IGNORECASE)
     text = re.sub(r'</?(ul|ol)[^>]*>', '\n', text, flags=re.IGNORECASE)
 
-    # 7. 处理代码块
-    text = re.sub(r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```\n', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', text, flags=re.DOTALL | re.IGNORECASE)
+    # 7. 处理代码块（闭合标签存在性预检）
+    if '</pre>' in text:
+        text = re.sub(r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```\n', text, flags=re.DOTALL | re.IGNORECASE)
+    if '</code>' in text:
+        text = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', text, flags=re.DOTALL | re.IGNORECASE)
 
-    # 8. 处理粗体和斜体
-    text = re.sub(r'<(strong|b)[^>]*>(.*?)</\1>', r'**\2**', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<(em|i)[^>]*>(.*?)</\1>', r'*\2*', text, flags=re.DOTALL | re.IGNORECASE)
+    # 8. 处理粗体和斜体（闭合标签存在性预检）
+    if '</strong>' in text or '</b>' in text:
+        text = re.sub(r'<(strong|b)[^>]*>(.*?)</\1>', r'**\2**', text, flags=re.DOTALL | re.IGNORECASE)
+    if '</em>' in text or '</i>' in text:
+        text = re.sub(r'<(em|i)[^>]*>(.*?)</\1>', r'*\2*', text, flags=re.DOTALL | re.IGNORECASE)
 
     # 9. 移除所有剩余的 HTML 标签
     text = re.sub(r'<[^>]+>', '', text)
