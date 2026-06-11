@@ -286,7 +286,7 @@ def _clean_mcmod_html(content: str) -> str:
 class MatchScore(IntEnum):
     """搜索结果匹配度评分权重"""
     # 精确匹配
-    EXACT_MATCH_BASE = 100
+    EXACT_MATCH_BASE = 200
     EXACT_MATCH_MAX_BONUS = 20
     EXACT_MATCH_BONUS_FACTOR = 2
 
@@ -1771,8 +1771,13 @@ def _rank_by_name_match(pairs: list[tuple[str, str]], keyword: str) -> list[tupl
         tiers[_match_tier(pair)].append(pair)
 
     result = []
-    for tier in [0, 1, 2, 3]:
+    for tier in [0, 1, 2]:
         result.extend(tiers[tier])
+
+    # 兜底：如果 tier 0/1/2 全空（极端退化查询），保留 tier 3 前 3 条
+    if not result and tiers.get(3):
+        result = tiers[3][:3]
+
     return result
 
 
@@ -3469,6 +3474,44 @@ def _merge_entry_fields(entries: list[dict]) -> dict:
     return {**base, **merged}
 
 
+def _cross_platform_consistent(new_entry: dict, group_entries: list[dict]) -> bool:
+    """验证新 entry 与已有组是否存在跨平台 ID 冲突。
+
+    MC百科 的 external_links.cross_platform_ids.modrinth_slug 标识对应 Modrinth 项，
+    Modrinth 的 source_id 是自身 slug。两者都非空但不一致时阻止合并（同名不同模组）。
+    """
+    new_src = new_entry.get("_platform") or new_entry.get("source", "")
+    new_slug = (new_entry.get("source_id") or "").strip().lower()
+
+    if new_src == "modrinth" and new_slug:
+        for e in group_entries:
+            e_src = e.get("_platform") or e.get("source", "")
+            if e_src == "mcmod.cn":
+                ext = e.get("external_links")
+                if isinstance(ext, dict):
+                    cpi = ext.get("cross_platform_ids")
+                    if isinstance(cpi, dict):
+                        mcmod_slug = (cpi.get("modrinth_slug") or "").strip().lower()
+                        if mcmod_slug and mcmod_slug != new_slug:
+                            return False
+
+    if new_src == "mcmod.cn":
+        ext = new_entry.get("external_links")
+        if isinstance(ext, dict):
+            cpi = ext.get("cross_platform_ids")
+            if isinstance(cpi, dict):
+                new_mr_slug = (cpi.get("modrinth_slug") or "").strip().lower()
+                if new_mr_slug:
+                    for e in group_entries:
+                        e_src = e.get("_platform") or e.get("source", "")
+                        if e_src == "modrinth":
+                            e_slug = (e.get("source_id") or "").strip().lower()
+                            if e_slug and e_slug != new_mr_slug:
+                                return False
+
+    return True
+
+
 def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[str, dict]:
     """步骤3: 多候选 key 去重。两结果任一 key 命中即视为同一内容。按字段级权威源合并。
 
@@ -3476,6 +3519,7 @@ def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[
     1. 精确匹配：entry 的任一 key 与已有 canonical 组的 key 完全相等
     2. 模糊匹配：精确匹配失败后，对 entry 的每个 key 与组内所有 key 做 SequenceMatcher，
        相似度 ≥ FUZZY_MATCH_THRESHOLD 且 key 长度 ≥ FUZZY_MIN_LEN 视为同一实体
+    合并前通过 _cross_platform_consistent 验证跨平台 ID 不冲突。
     """
     key_to_canonical = {}         # individual key → canonical key
     entries_by_canonical = {}     # canonical_key → [entry, ...]
@@ -3508,7 +3552,8 @@ def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[
                             continue
                         ratio = SequenceMatcher(None, ek, gk).ratio()
                         if ratio >= FUZZY_MATCH_THRESHOLD:
-                            matched_canonical = ck
+                            if _cross_platform_consistent(entry, c_entries):
+                                matched_canonical = ck
                             break
                     if matched_canonical:
                         break
@@ -3529,9 +3574,21 @@ def _deduplicate_by_name(scored: list[dict], name_platform_count: dict) -> dict[
                     key_to_canonical[k] = canonical_key
             continue
 
-        entries_by_canonical[canonical_key].append(entry)
-        for k in entry_keys:
-            if k not in key_to_canonical:
+        if _cross_platform_consistent(entry, entries_by_canonical[canonical_key]):
+            entries_by_canonical[canonical_key].append(entry)
+            for k in entry_keys:
+                if k not in key_to_canonical:
+                    key_to_canonical[k] = canonical_key
+        else:
+            # 跨平台 ID 冲突：创建新组，用唯一 key 避免覆盖已有组
+            base = min(entry_keys)
+            canonical_key = base
+            n = 2
+            while canonical_key in entries_by_canonical:
+                canonical_key = f"{base}_{n}"
+                n += 1
+            entries_by_canonical[canonical_key] = [entry]
+            for k in entry_keys:
                 key_to_canonical[k] = canonical_key
 
     # 多平台命中加权 + 字段级权威源合并
