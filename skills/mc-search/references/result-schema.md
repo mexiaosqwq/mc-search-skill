@@ -461,18 +461,6 @@ Modrinth 整合包搜索结果结构与模组类似：
 | `minecraft.wiki` / `zh.minecraft.wiki` | `curl_cffi` | 绕过反爬机制 |
 | 其他 URL（Modrinth API 等） | `urllib.request` | 标准库，无特殊处理 |
 
-### `_cached` 装饰器缓存粒度
-
-| 函数 | 缓存 key 前缀 | 缓存内容 | TTL |
-|------|-------------|---------|-----|
-| `search_mcmod` | `mcmod` | 搜索结果列表 | 1 小时 |
-| `search_mcmod_author` | `mcmod_author` | 作者模组列表 | 1 小时 |
-| `search_wiki` / `search_wiki_zh` | `wiki` | wiki 搜索结果 | 1 小时 |
-| `fetch_mod_info` | `mod_info` | 详情页完整数据 | 1 小时 |
-| `get_mod_dependencies` | `mod_deps` | 依赖关系数据 | 1 小时 |
-
-> **注意**：`read_wiki` 的 `max_paragraphs=-1` 表示无限制返回所有段落（默认 `_DEFAULT_PARAGRAPHS=200`）。
-
 ---
 
 ## WAF 回退路径

@@ -3,8 +3,6 @@
 
 # ── 标准库导入 ─────────────────────────────────────────
 import base64
-import functools
-import hashlib
 import html as html_module  # 别名：与 html变量名区分
 import json
 import logging
@@ -368,133 +366,6 @@ def _clean_html_text(html_fragment: str, preserve_nl: bool = False) -> str:
     return text
 
 
-# 缓存系统
-
-_cache_enabled = False
-_cache_ttl = 3600  # 默认 1 小时
-_CACHE_LOCK = threading.Lock()  # 保护 _cache_enabled / _cache_ttl 的并发读写
-
-
-def _is_cache_enabled() -> bool:
-    """线程安全地读取 _cache_enabled 状态。"""
-    with _CACHE_LOCK:
-        return _cache_enabled
-
-
-def _cache_dir() -> Path:
-    return Path(os.path.expanduser("~/.cache/mc-search"))
-
-
-def _cache_key(*parts: str) -> str:
-    """生成缓存 key。"""
-    raw = "|".join(str(p) for p in parts)
-    return hashlib.sha1(raw.encode()).hexdigest()[:16]
-
-
-def _cache_get(cache_type: str, key: str) -> dict | None:
-    """读取缓存，成功返回 dict，失败/过期返回 None。"""
-    with _CACHE_LOCK:
-        if not _cache_enabled:
-            return None
-    p = _cache_dir() / cache_type / f"{key}.json"
-    if not p.exists():
-        return None
-    try:
-        age = time.time() - p.stat().st_mtime
-        if age > _cache_ttl:
-            return None
-        with open(p, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        logger.debug(f"Cache read failed: {e}")
-        return None
-
-
-def _cache_set(cache_type: str, key: str, data: dict):
-    """写入缓存。"""
-    with _CACHE_LOCK:
-        if not _cache_enabled:
-            return
-    try:
-        d = _cache_dir() / cache_type
-        d.mkdir(parents=True, exist_ok=True)
-        p = d / f"{key}.json"
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-    except OSError as e:
-        logger.debug(f"Cache write failed: {e}")
-
-
-def _html_cache_key(url: str) -> str:
-    """为 HTML 缓存生成 key（基于完整 URL）。"""
-    return hashlib.sha1(url.encode()).hexdigest()[:16]
-
-
-def _html_cache_get(url: str) -> str | None:
-    """读取 HTML 缓存，命中返回 HTML 字符串，未命中返回 None。"""
-    with _CACHE_LOCK:
-        if not _cache_enabled:
-            return None
-    p = _cache_dir() / "html" / f"{_html_cache_key(url)}.html"
-    if not p.exists():
-        return None
-    try:
-        if time.time() - p.stat().st_mtime > _cache_ttl:
-            return None
-        with open(p, encoding="utf-8") as f:
-            return f.read()
-    except OSError as e:
-        logger.debug(f"HTML cache read failed: {e}")
-        return None
-
-
-def _html_cache_set(url: str, html: str):
-    """写入 HTML 缓存。"""
-    with _CACHE_LOCK:
-        if not _cache_enabled:
-            return
-    try:
-        d = _cache_dir() / "html"
-        d.mkdir(parents=True, exist_ok=True)
-        p = d / f"{_html_cache_key(url)}.html"
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(html)
-    except OSError as e:
-        logger.debug(f"HTML cache write failed: {e}")
-
-
-def _cached(make_key):
-    """缓存装饰器：自动检查/写入缓存，消除重复的 cache get/set 模式。
-
-    make_key(*args, **kwargs) 返回 (cache_type: str, cache_key: str)。
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            cache_type, key = make_key(*args, **kwargs)
-            cached = _cache_get(cache_type, key)
-            if cached is not None:
-                return cached
-            result = func(*args, **kwargs)
-            _cache_set(cache_type, key, result)
-            return result
-        return wrapper
-    return decorator
-
-
-def set_cache(enabled: bool, ttl: int = 3600):
-    """启用/禁用缓存系统。
-
-    Args:
-        enabled: True 启用缓存，False 禁用
-        ttl: 缓存存活时间（秒），默认 3600（1 小时）
-    """
-    global _cache_enabled, _cache_ttl
-    with _CACHE_LOCK:
-        _cache_enabled = enabled
-        _cache_ttl = ttl
-
-
 # 平台开关
 
 _platform_enabled = {"mcmod.cn": True, "modrinth": True, "minecraft.wiki": True, "minecraft.wiki/zh": True}
@@ -797,20 +668,10 @@ def curl(url: str, timeout: int = 10) -> str:
     - minecraft.wiki / zh.minecraft.wiki：使用 curl_cffi 绕过反爬
     - 其他 URL：标准 urllib.request
 
-    MC百科详情页 HTML 会在缓存启用时自动缓存（TTL 由 set_cache 控制）。
-    """
-    # MC百科详情页 HTML 缓存（最贵请求，绕过 CDN 前先查缓存）
-    if _is_cache_enabled() and "://www.mcmod.cn/class/" in url:
-        cached = _html_cache_get(url)
-        if cached is not None:
-            return cached
-
+        """
     # MC百科所有子域名需要 CDN 绕过（www + search）
     if "://www.mcmod.cn/" in url or "://search.mcmod.cn/" in url:
         html = _curl_mcmod(url, timeout)
-        # 成功获取的 MC百科详情页写入 HTML 缓存
-        if html and _is_cache_enabled() and "://www.mcmod.cn/class/" in url:
-            _html_cache_set(url, html)
         return html
     # minecraft.wiki 需要 curl_cffi 绕过反爬
     if "://minecraft.wiki/" in url or "://zh.minecraft.wiki/" in url:
@@ -1792,14 +1653,9 @@ def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str
 
     def _fetch_one(args):
         raw_url, name = args
-        detail_key = _cache_key("mcmod_detail", raw_url, content_type)
-        cached = _cache_get("mcmod_detail", detail_key)
-        if cached is not None:
-            return cached
-
         page_html = curl(raw_url)
 
-        # 检测 WAF 拦截 → 用搜索数据回退（不缓存回退结果）
+        # 检测 WAF 拦截 → 用搜索数据回退
         if _is_mcmod_blocked(page_html):
             meta = search_metadata.get(raw_url, {})
             return _build_mcmod_fallback_result(raw_url, name, meta, content_type)
@@ -1810,7 +1666,6 @@ def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str
             result = _parse_mcmod_modpack_result(page_html, raw_url, name)
         else:
             result = _parse_mcmod_mod_result(page_html, raw_url, name)
-        _cache_set("mcmod_detail", detail_key, result)
         return result
 
     results = _parallel_fetch_with_fallback(
@@ -1820,7 +1675,6 @@ def _fetch_mcmod_details(limited_pairs: list[tuple[str, str]], content_type: str
     return results
 
 
-@_cached(lambda keyword, max_results=5, content_type="mod": ("search", _cache_key("mcmod", keyword, max_results, content_type)))
 def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") -> list[dict]:
     """
     MC百科 搜索。
@@ -1862,7 +1716,6 @@ def search_mcmod(keyword: str, max_results: int = 5, content_type: str = "mod") 
     return results
 
 
-@_cached(lambda author_name, max_mods=20: ("search", _cache_key("mcmod_author", author_name, max_mods)))
 def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
     """MC百科按作者搜索。返回该作者在 MC百科收录的所有模组列表。
 
@@ -1931,7 +1784,6 @@ def search_mcmod_author(author_name: str, max_mods: int = 20) -> list[dict]:
     return results
 
 
-@_cached(lambda keyword, max_results=5: ("search", _cache_key("mcmod_modpack", keyword, max_results)))
 def search_mcmod_modpack(keyword: str, max_results: int = 5) -> list[dict]:
     """MC百科整合包搜索。尝试多个filter策略，返回结果列表。"""
     q = urllib.parse.quote(keyword)
@@ -2003,7 +1855,6 @@ def _build_modrinth_url(slug: str, project_type: str) -> str:
 
 
 
-@_cached(lambda keyword, max_results=5, project_type="mod": ("search", _cache_key("modrinth", keyword, max_results, project_type)))
 def search_modrinth(keyword: str, max_results: int = 5, project_type: str = "mod") -> dict:
     """Modrinth搜索。返回 {"results": [...], "total": N, "returned": M}。
 
@@ -2339,7 +2190,6 @@ def _fetch_modrinth_team_author(project_id: str) -> str:
     return ""
 
 
-@_cached(lambda mod_id, no_limit=False: ("mod", _cache_key("modinfo", mod_id, "full" if no_limit else "limited")))
 def fetch_mod_info(mod_id: str, no_limit: bool = False) -> dict | None:
     """
     获取 mod 完整信息（Modrinth）。
@@ -2440,7 +2290,6 @@ def _build_modrinth_info_result(data: dict, no_limit: bool = False) -> dict:
     return result
 
 
-@_cached(lambda username, max_results=10: ("search", _cache_key("author", username, max_results)))
 def search_modrinth_author(username: str, max_results: int = 10) -> list[dict]:
     """Modrinth 按作者搜索。返回该作者在 Modrinth 的所有作品列表。
 
@@ -2474,7 +2323,6 @@ def search_modrinth_author(username: str, max_results: int = 10) -> list[dict]:
     return results
 
 
-@_cached(lambda mod_id, project_id=None: ("mod", _cache_key("deps", mod_id)))
 def get_mod_dependencies(mod_id: str, project_id: str = None) -> dict:
     """
     获取 mod 正向依赖（从最新版本提取）。
@@ -2667,7 +2515,6 @@ def _wiki_api_generator_search(
     return results
 
 
-@_cached(lambda keyword, base_url, cache_prefix, source, title_field, add_variant, max_results=5: ("search", _cache_key(cache_prefix, keyword, max_results)))
 def _search_wiki_impl(
     keyword: str,
     base_url: str,
@@ -2935,11 +2782,6 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
     使用 action=query prop=extracts（纯文本）+ action=parse（sections + wikitext）
     替代 HTML 直连 + 正则刮削。Infox 从 wikitext 模板解析。
     """
-    cache_key = _cache_key("wiki_read", url, str(max_paragraphs), source)
-    cached = _cache_get("wiki_read", cache_key)
-    if cached is not None:
-        return cached
-
     page_title = _extract_page_title_from_url(url)
     base_url = _extract_base_url_from_url(url)
 
@@ -2996,7 +2838,6 @@ def _read_wiki_impl(url: str, max_paragraphs: int,
     if infobox_data and include_infobox:
         result["infobox"] = infobox_data
 
-    _cache_set("wiki_read", cache_key, result)
     return result
 
 

@@ -187,33 +187,33 @@
 
 ### ❌ 误用 wiki 查模组
 
-```bash
-mc-search wiki 机械动力  # ❌ wiki 不收录模组
+```python
+core.search_wiki("机械动力")  # ❌ wiki 不收录模组，返回空
 ```
 
 **正确做法**:
-```bash
-mc-search search 机械动力  # ✅ 用 search 命令
+```python
+core.search_all("机械动力", content_type="mod", fuse=True)  # ✅ 走 MC百科 + Modrinth
 ```
 
-### ❌ 搜光影包用默认平台
+### ❌ 搜光影包用默认 content_type
 
-```bash
-mc-search search BSL  # ❌ MC百科无光影包数据
-```
-
-**正确做法**:
-```bash
-mc-search search BSL --shader  # ✅ 自动限定 Modrinth
-```
-
-### ❌ 忽略 `--full` 的双平台优势
-
-```bash
-mc-search show 钠  # ❌ 仅显示 MC百科信息，无依赖
+```python
+core.search_all("BSL", content_type="mod", fuse=True)  # ❌ MC百科无光影包数据
 ```
 
 **正确做法**:
-```bash
-mc-search show 钠 --full  # ✅ MC百科 + Modrinth + 依赖关系
+```python
+core.search_all("BSL", content_type="shader", fuse=True)  # ✅ 自动限定 Modrinth
+```
+
+### ❌ 只用搜索不看详情
+
+```python
+r = core.search_all("sodium", content_type="mod", fuse=True)  # ❌ 搜索结果无依赖/版本
+```
+
+**正确做法**:
+```python
+info = core.fetch_mod_info("sodium")  # ✅ 完整详情：版本 + 加载器 + 截图 + 依赖
 ```

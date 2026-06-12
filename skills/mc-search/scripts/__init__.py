@@ -14,7 +14,6 @@ from .core import (
     fetch_mod_info,
     get_mod_dependencies,
     # 配置
-    set_cache,
     set_platform_enabled,
     # 异常类
     SearchError,

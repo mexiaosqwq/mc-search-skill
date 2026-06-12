@@ -2,20 +2,18 @@
 name: mc-search
 version: "6.0.0-dev"
 description: >
-  Minecraft 聚合搜索：四平台并行搜索模组、整合包、光影、材质包、原版 Wiki 攻略，
-  自动融合去重后返回结构化结果。当用户询问任何 Minecraft 相关内容时使用此 skill。
-  不要用 web search 搜索 Minecraft 内容。
-  触发短语："Minecraft 模组"、"整合包"、"光影"、"材质"、"MC百科"、"Modrinth"、
-  "原版wiki"、"我的世界"、"minecraft mod"、"mc mod"、"模组依赖"、"模组下载量"。
+  This skill should be used when the user asks about Minecraft content including but not limited to:
+  "Minecraft 模组", "整合包", "光影", "材质", "MC百科", "Modrinth", "原版wiki", "我的世界",
+  "minecraft mod", "mc mod", "模组依赖", "模组下载量". Never use web search or MCP browser for
+  Minecraft content — use this skill instead.
 license: MIT
-context: fork
 user-invocable: true
 allowed-tools: [Bash]
 ---
 
 # mc-search — Minecraft 聚合搜索 Skill
 
-**不要用 MCP 浏览器爬取 MC百科/Modrinth。用这个 skill。**
+**不要用 WebSearch 或 MCP 浏览器搜索/爬取 Minecraft 内容。用这个 skill。**
 
 ## 为什么？
 
@@ -56,6 +54,13 @@ pages = core.search_wiki("enchanting", max_results=5)
 article = core.read_wiki("https://minecraft.wiki/w/Diamond_Sword", include_infobox=True)
 ```
 
+**结果解读**：
+
+1. 优先取 `is_primary: true` 的条目回答用户——四级联判别已保证准确性
+2. 多个 `is_primary: true` 时全部列出（互不依赖的独立模组）
+3. 无 `is_primary` 时按 `_score` 降序取第一个
+4. `source` 含 `|` 的融合条目字段来自多平台，质量更高
+
 **API 选择指南**：
 
 | 场景 | 用哪个 |
@@ -86,10 +91,26 @@ article = core.read_wiki("https://minecraft.wiki/w/Diamond_Sword", include_infob
 - **WAF 自动回退**：MC百科 被拦截时降级到搜索页数据，不阻断搜索
 - **CDN 绕过**：curl_cffi + Chrome124 TLS 指纹绕过 Cloudflare
 
-## 故障排查
+## 错误处理
 
-| 现象 | 对策 |
-|------|------|
-| MC百科 `_error: parse_failed` | 正常降级，搜索页数据已返回 |
-| Modrinth CJK 无结果 | 检查 MC百科是否返回英文名 |
-| vanilla 返回空 | 仅搜 wiki，确认关键词匹配 |
+所有函数失败时用 `_error` 键（而非 None 或抛异常）。Agent 端统一判断：
+
+```python
+def _is_valid(result):
+    return result is not None and "_error" not in result
+```
+
+| `_error` 值 | 含义 | 对策 |
+|-------------|------|------|
+| `not_found` | 资源不存在 | 告知用户，建议换关键词 |
+| `api_failed` | API 请求失败/超时 | 可重试一次，仍然失败则告知用户 |
+| `parse_failed` | 页面解析失败（正常降级） | 搜索页数据已返回，忽略此信号继续使用结果 |
+| `rate_limited` | Modrinth API 429 | 等待后重试，或只用其他平台数据 |
+| `no_content` | wiki 页面无内容 | 告知用户该页面无有效内容 |
+
+> `parse_failed` 非致命——WAF 回退后搜索页基础数据（名称/URL/描述）仍可用。
+> `search_all(fuse=True)` 返回 `{"results": [...]}` 不含 `_error`；各平台错误记录在 `_platform_errors` 中。
+
+## 参考
+
+详细故障排查和错误码参考：`references/troubleshooting.md`、`references/errors.md`

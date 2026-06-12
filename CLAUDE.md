@@ -16,14 +16,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 mc-search-skill/
-├── skills/mc-search/scripts/
-│   ├── core.py          # 全部搜索逻辑（API/解析/融合/缓存），~4100 行
-│   └── cli.py           # argparse 薄壳（Agent 不使用），~1350 行
+├── skills/mc-search/
+│   ├── SKILL.md              # skill 定义（Agent 入口，触发短语/API/路由/错误处理）
+│   ├── pyproject.toml        # 包配置 + CLI 入口点
+│   ├── scripts/
+│   │   ├── core.py          # 全部搜索逻辑（API/解析/融合），~3500 行
+│   │   └── cli.py            # argparse 薄壳（Agent 不使用），~1350 行
+│   └── references/           # 人类参考文档（Agent 不加载）
+│       ├── errors.md
+│       ├── troubleshooting.md
+│       ├── platform-comparison.md
+│       └── result-schema.md
 ├── tests/
-│   ├── validate_output.py   # 契约验证 + 内容深度检查（新代码入口）
-│   └── regression_test.py   # 回归测试
+│   ├── validate_output.py    # 契约验证 + 内容深度检查（新代码入口）
+│   └── regression_test.py    # 回归测试
 ├── CLAUDE.md
-├── CONTEXT.md               # 领域模型解释
+├── CONTEXT.md                # 领域模型解释
 └── README.md
 ```
 
@@ -121,7 +129,7 @@ assert len(pages) > 0
 - `_mark_primary` 的 C→B→A→兜底顺序固定，改判定逻辑时检查所有四级路径
 
 ### 全局变量并发安全
-- `_cache_enabled` / `_cache_ttl`（`_CACHE_LOCK`）、`_platform_enabled`（`_PLATFORM_LOCK`）、`_MCMOD_SESSION`（`_MCMOD_LOCK`）
+- `_platform_enabled`（`_PLATFORM_LOCK`）、`_MCMOD_SESSION`（`_MCMOD_LOCK`）
 - **修改全局变量必须在锁内读写**。新增全局状态时同步添加同名 `threading.Lock()`
 
 ## 提交

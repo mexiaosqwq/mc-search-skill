@@ -56,7 +56,20 @@ Agent 直接调用 `core.py` 时，失败信号使用 `_error` 键（下划线�
 
 ## 调试技巧
 
-### 查看详细错误信息
+### Agent 用法：查看详细错误信息
+
+```python
+import sys; sys.path.insert(0, 'skills/mc-search')
+from scripts import core
+r = core.search_all("关键词", fuse=True)
+# 检查各平台 _error 信号
+for platform, results in r.items():
+    if isinstance(results, list):
+        for entry in results:
+            if "_error" in entry: print(entry["_error"])
+```
+
+### 手动调试：CLI
 
 ```bash
 mc-search --json search 关键词 2>&1 | python3 -m json.tool
@@ -92,7 +105,6 @@ curl -s -I "https://minecraft.wiki/api.php" | head -1
 
 **解决**:
 - 等待 5-15 分钟
-- 使用 `--cache` 利用缓存
 - 改用 `--platform modrinth` 搜索
 
 ### 3. "Modrinth API 请求失败"
@@ -102,7 +114,6 @@ curl -s -I "https://minecraft.wiki/api.php" | head -1
 **解决**:
 - 检查网络连接
 - 等待 1 小时自动重置
-- 使用 `--cache`
 
 ### 4. "无法解析模组 ID"
 
