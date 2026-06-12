@@ -47,7 +47,7 @@ from scripts import core
 expected_funcs = [
     'search_mcmod', 'search_all', 'search_modrinth', 'search_wiki', 'search_wiki_zh',
     'fetch_mod_info', 'get_mod_dependencies', 'search_mcmod_author', 'search_modrinth_author',
-    'search_mcmod_modpack', 'read_wiki', 'read_wiki_zh', 'set_cache', 'set_platform_enabled',
+    'search_mcmod_modpack', 'read_wiki', 'read_wiki_zh', 'set_platform_enabled',
     'curl', '_parse_mcmod_search_results', '_extract_search_result_metadata',
 ]
 for fname in expected_funcs:
@@ -70,15 +70,7 @@ print("=" * 60)
 core.set_platform_enabled(mcmod=True, modrinth=True, wiki=True, wiki_zh=True)
 check("set_platform_enabled executed without error", True)
 
-# set_cache
-core.set_cache(True, ttl=3600)
-check("set_cache(True) executed without error", True)
-
-core.set_cache(False)
-check("set_cache(False) executed without error", True)
-
-# Reset cache state for rest of tests
-core.set_cache(True, ttl=3600)
+# set_cache — 已移除（缓存系统已删除）
 
 # ── 3. search_mcmod() — MC百科搜索 ───────────────────
 print("\n" + "=" * 60)
@@ -343,38 +335,7 @@ except Exception as e:
     check(f"search_wiki_zh exception: {type(e).__name__}", False, str(e))
 
 # ── 9. Cache Functionality ──────────────────────────
-print("\n" + "=" * 60)
-print("SECTION 9: Cache Functionality")
-print("=" * 60)
-
-# Enable cache for tests
-core.set_cache(True, ttl=3600)
-
-# First call
-t0 = time.time()
-r1 = core.search_mcmod("机械动力", max_results=2, content_type="mod")
-t1 = time.time()
-first_call_time = t1 - t0
-check("First call with cache returns results", len(r1) > 0,
-      f"took {first_call_time:.2f}s")
-
-# Second call (should be cached)
-t0 = time.time()
-r2 = core.search_mcmod("机械动力", max_results=2, content_type="mod")
-t1 = time.time()
-second_call_time = t1 - t0
-check("Second call (cached) returns results", len(r2) > 0,
-      f"took {second_call_time:.2f}s")
-
-# Verify cache directory exists
-import tempfile
-cache_dir = core.Path.home() / ".cache" / "mc-search"
-check("Cache directory exists", cache_dir.exists())
-
-print(f"  >> First call: {first_call_time:.2f}s, Second call: {second_call_time:.2f}s")
-
-# Disable cache
-core.set_cache(False)
+# 已移除 — set_cache 在上轮重构中删除
 
 # ── 10. Error Handling ───────────────────────────────
 print("\n" + "=" * 60)
@@ -659,34 +620,7 @@ check("FUZZY_MIN_LEN = 4", core.FUZZY_MIN_LEN == 4,
 print(f"  >> FUZZY_MATCH_THRESHOLD: {core.FUZZY_MATCH_THRESHOLD}, FUZZY_MIN_LEN: {core.FUZZY_MIN_LEN}")
 
 # ── 22. cache TTL 过期验证 ────────────────────────
-print("\n" + "=" * 60)
-print("SECTION 22: cache TTL 过期")
-print("=" * 60)
-
-try:
-    # 启用缓存
-    core.set_cache(True, ttl=2)  # 2 秒 TTL
-    check("set_cache(True, ttl=2) executed", True)
-
-    # 首次搜索（写入缓存）
-    r1 = core.search_all("sodium", max_per_source=1, content_type="mod", fuse=True)
-    check("First search returns results", len(r1.get('results', [])) > 0)
-
-    # 等待过期
-    import time
-    time.sleep(3)
-
-    # 再次搜索（应重新请求，而非命中缓存）
-    r2 = core.search_all("sodium", max_per_source=1, content_type="mod", fuse=True)
-    check("Second search after TTL returns results", len(r2.get('results', [])) > 0)
-
-    # 禁用缓存
-    core.set_cache(False)
-    check("set_cache(False) executed", True)
-
-    print("  >> Cache TTL test passed (2s TTL expired)")
-except Exception as e:
-    check(f"cache TTL test exception: {type(e).__name__}", False, str(e))
+# 已移除 — set_cache 在上轮重构中删除
 
 # ── Summary ─────────────────────────────────────────
 print("\n" + "=" * 60)
