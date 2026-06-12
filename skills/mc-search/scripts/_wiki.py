@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """mc-search Wiki 模块 — Minecraft Wiki (EN/ZH) 搜索/阅读/Infobox 解析"""
 
+import json
 import re
 import urllib.parse
 
