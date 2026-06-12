@@ -592,13 +592,7 @@ try:
 except Exception as e:
     s9.nok(f"无效 content_type 崩溃: {e}")
 
-# 9c 缓存切换
-core.set_cache(True, ttl=3600)
-r1 = core.search_all("Sodium", max_per_source=1, fuse=True)
-s9.check(len(r1.get("results", [])) > 0, "缓存 ON → 有结果")
-core.set_cache(False)
-r2 = core.search_all("Sodium", max_per_source=1, fuse=True)
-s9.check(len(r2.get("results", [])) > 0, "缓存 OFF → 有结果")
+# 9c 缓存切换 — 已移除（set_cache 在上轮重构中删除）
 
 # 9d 无意义搜索 — 不检查"???", Modrinth 会返回含 "?" 的结果
 s9.ok("无意义搜索 (跳过, Modrinth 返回含?的结果)")
