@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """mc-search facade — 保持向后兼容，所有实现已迁移到子模块"""
 
-from pathlib import Path
-
 from scripts._http import (
     SearchError,
     curl,
@@ -57,7 +55,6 @@ __all__ = [
     "FUZZY_MATCH_THRESHOLD",
     "FUZZY_MIN_LEN",
     "logger",
-    "Path",
     "_parse_mcmod_mod_result",
     "_extract_search_result_metadata",
     "_parse_mcmod_search_results",
