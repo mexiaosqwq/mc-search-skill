@@ -20,8 +20,15 @@ mc-search-skill/
 │   ├── SKILL.md              # skill 定义（Agent 入口，触发短语/API/路由/错误处理）
 │   ├── pyproject.toml        # 包配置 + CLI 入口点
 │   ├── scripts/
-│   │   ├── core.py          # 全部搜索逻辑（API/解析/融合），~3500 行
-│   │   └── cli.py            # argparse 薄壳（Agent 不使用），~1350 行
+│   │   ├── __init__.py       # 包入口，直接从子模块导入
+│   │   ├── _http.py          # HTTP/工具层：curl, SearchError, CDN绕过, 常量, 全局状态 (~809 行)
+│   │   ├── _mcmod_parse.py   # MC百科 HTML 解析：21个正则解析函数 (~770 行)
+│   │   ├── _mcmod_search.py  # MC百科 搜索入口：搜索/作者/整合包 + 排名 (~399 行)
+│   │   ├── _modrinth.py      # Modrinth：搜索/作者/详情/依赖 (~476 行)
+│   │   ├── _wiki.py          # Wiki EN/ZH：搜索/阅读/Infobox解析 (~506 行)
+│   │   ├── _fuse.py          # 融合管线：CJK桥接/评分/去重/合并/本体判别 (~698 行)
+│   │   ├── core.py           # facade 薄壳：保留向后兼容，全部 re-export (~64 行)
+│   │   └── cli.py            # argparse CLI（Agent 不使用），~1345 行
 │   └── references/           # 人类参考文档（Agent 不加载）
 │       ├── errors.md
 │       ├── troubleshooting.md
@@ -35,10 +42,12 @@ mc-search-skill/
 └── README.md
 ```
 
+**依赖单向链**：`_http` → `_mcmod_parse` → `_mcmod_search`, `_http` → `_modrinth`, `_http` → `_wiki`, (all) → `_fuse` → `core.py`(facade)。修改时顺依赖方向自底向上。
+
 ## 关键架构图
 
 ```
-Agent 调用 → core.py API → 并行平台搜索 → CJK桥接 → _fuse_results(6步) → 统一JSON
+Agent 调用 → core.py(facade) → _fuse.search_all() → 并行平台搜索(_mcmod_search/_modrinth/_wiki) → CJK桥接 → _fuse_results(6步) → 统一JSON
 ```
 
 融合管线 6 步顺序：
@@ -82,9 +91,11 @@ codegraph 只对代码符号有效。文档、配置、目录结构探索直接�
 
 | 场景 | 备份方式 |
 |------|---------|
-| 修改 core.py 中融合管线（`_fuse_results` / `_merge_entry_fields` / `_mark_primary`） | `cp core.py core.py.bak` |
-| 修改 core.py 中正则解析逻辑（MC百科/Modrinth/Wiki 任一平台） | `cp core.py core.py.bak` |
-| 修改 CLI 解析逻辑（`_build_parser` / `_print_*`） | `cp cli.py cli.py.bak` |
+| 修改融合管线（`_fuse.py` 中 `_fuse_results` / `_merge_entry_fields` / `_mark_primary`） | `cp _fuse.py _fuse.py.bak` |
+| 修改 MC百科 正则解析（`_mcmod_parse.py`） | `cp _mcmod_parse.py _mcmod_parse.py.bak` |
+| 修改 Modrinth 解析/API（`_modrinth.py`） | `cp _modrinth.py _modrinth.py.bak` |
+| 修改 Wiki 解析/API（`_wiki.py`） | `cp _wiki.py _wiki.py.bak` |
+| 修改 CLI 解析逻辑（`cli.py` 中 `_build_parser` / `_print_*`） | `cp cli.py cli.py.bak` |
 
 备份保留到修改验证通过（`python3 tests/validate_output.py` exit 0）后再清理。
 
@@ -117,19 +128,20 @@ assert len(pages) > 0
 
 ## 安全规则
 
-### HTML 解析
+### HTML 解析（`_mcmod_parse.py`）
 - 所有 MC百科 解析使用纯正则 + 字符串操作（无 BeautifulSoup）
 - **正则修改后必须 `grep -rn` 整个代码库**：同一个正则可能在多个函数中重复出现
 - MC百科 URL 三种模式互不相同：`/class/`（模组）、`/item/`（物品）、`/modpack/`（整合包）
-- **WAF 回退路径**：`_build_mcmod_fallback_result` 字段比完整解析少，加新字段时同步加在这里
+- **WAF 回退路径**：`_build_mcmod_fallback_result`（在 `_mcmod_search.py`）字段比完整解析少，加新字段时同步加在这里
 
-### 融合管线（`_fuse_results`）
+### 融合管线（`_fuse.py` 中 `_fuse_results`）
 - 6 步顺序固定，改某一步时看它依赖上一步的哪些字段
 - `_deduplicate_by_name` 调 `_merge_entry_fields` 做字段级覆盖。引入新字段时决定是否加入 `_MERGE_FIELD_RULES` 或 `_FIELD_PRIORITY`
 - `_mark_primary` 的 C→B→A→兜底顺序固定，改判定逻辑时检查所有四级路径
 
-### 全局变量并发安全
+### 全局变量并发安全（`_http.py`）
 - `_platform_enabled`（`_PLATFORM_LOCK`）、`_MCMOD_SESSION`（`_MCMOD_LOCK`）
+- 跨模块访问通过 facade re-export：`from scripts.core import set_platform_enabled`
 - **修改全局变量必须在锁内读写**。新增全局状态时同步添加同名 `threading.Lock()`
 
 ## 提交
