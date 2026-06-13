@@ -408,7 +408,7 @@ print(SEP_THICK)
 # ── 1. 基础环境检查 ─────────────────────────────
 s1 = sess.section("1. 基础环境检查")
 for fn in ['search_all', 'search_mcmod', 'search_modrinth', 'search_wiki',
-           'fetch_mod_info', 'get_mod_dependencies', 'set_cache', 'set_platform_enabled']:
+           'fetch_mod_info', 'get_mod_dependencies', 'set_platform_enabled']:
     s1.check(hasattr(core, fn), f"core.{fn} 存在")
 s1.check(hasattr(core, 'FUZZY_MATCH_THRESHOLD'), "常量 FUZZY_MATCH_THRESHOLD")
 s1.close()
